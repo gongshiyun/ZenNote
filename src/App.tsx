@@ -1,0 +1,32 @@
+﻿import { useEffect } from 'react';
+import { useStore } from './store';
+import { AppShell } from './components/layout/AppShell';
+
+function App() {
+  const mode = useStore(s => s.mode);
+  const setResolvedMode = useStore(s => s.setResolvedMode);
+
+  // Resolve theme (system / light / dark)
+  useEffect(() => {
+    const applyTheme = () => {
+      if (mode === 'system') {
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        setResolvedMode(prefersDark ? 'dark' : 'light');
+        document.documentElement.classList.toggle('dark', prefersDark);
+      } else {
+        setResolvedMode(mode);
+        document.documentElement.classList.toggle('dark', mode === 'dark');
+      }
+    };
+    applyTheme();
+
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = () => { if (mode === 'system') applyTheme(); };
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [mode, setResolvedMode]);
+
+  return <AppShell />;
+}
+
+export default App;

@@ -1,0 +1,497 @@
+@import "tailwindcss";
+
+/* ========================================
+   ZenNote ‚Äî Theme Variables & Global Styles
+   ======================================== */
+
+@theme {
+  --color-accent: #3B82F6;
+  --color-accent-hover: #2563EB;
+  --color-accent-dark: #60A5FA;
+}
+
+/* ---- Light Theme (default) ---- */
+:root {
+  --bg-editor: #FFFFFF;
+  --bg-sidebar: #F6F6F6;
+  --bg-statusbar: #F3F3F3;
+  --bg-toolbar: #FFFFFF;
+  --bg-hover: #F0F0F0;
+  --bg-sidebar-hover: #F0F0F0;
+  --bg-sidebar-active: #E8E8E8;
+  --bg-code: #F6F8FA;
+  --bg-drop-overlay: rgba(59, 130, 246, 0.08);
+
+  --text-primary: #1A1A1A;
+  --text-secondary: #888888;
+  --text-tertiary: #B0B0B0;
+  --text-accent: #3B82F6;
+  --text-markdown-mark: #C4C4C4;
+
+  --border: #E5E5E5;
+  --border-light: #F0F0F0;
+
+  --selection-bg: #D6E4F0;
+  --scrollbar-thumb: #D0D0D0;
+
+  --titlebar-btn-hover: #F0F0F0;
+  --titlebar-close-hover: #E81123;
+}
+
+/* ---- Dark Theme ---- */
+.dark {
+  --bg-editor: #1E1E1E;
+  --bg-sidebar: #252526;
+  --bg-statusbar: #1C1C1C;
+  --bg-toolbar: #1E1E1E;
+  --bg-hover: #2D2D2D;
+  --bg-sidebar-hover: #2D2D2D;
+  --bg-sidebar-active: #37373D;
+  --bg-code: #2D2D2D;
+  --bg-drop-overlay: rgba(96, 165, 250, 0.12);
+
+  --text-primary: #E0E0E0;
+  --text-secondary: #999999;
+  --text-tertiary: #666666;
+  --text-accent: #6DB3F8;
+  --text-markdown-mark: #888888;
+
+  --border: #404040;
+  --border-light: #353535;
+
+  --selection-bg: #264F78;
+  --scrollbar-thumb: #555555;
+
+  --titlebar-btn-hover: #383838;
+  --titlebar-close-hover: #E81123;
+}
+
+/* ========================================
+   Milkdown Crepe Theme Variables
+   These control ALL floating UI:
+   toolbar, slash menu, link preview, image-block, table handles
+   ======================================== */
+
+/* Light Crepe Theme */
+:root .milkdown {
+  --crepe-color-background: #FFFFFF;
+  --crepe-color-on-background: #1A1A1A;
+  --crepe-color-surface: #FFFFFF;
+  --crepe-color-surface-low: #F6F6F6;
+  --crepe-color-on-surface: #1A1A1A;
+  --crepe-color-on-surface-variant: #666666;
+  --crepe-color-outline: #666666;
+  --crepe-color-primary: #3B82F6;
+  --crepe-color-secondary: #DBEAFE;
+  --crepe-color-on-secondary: #1E40AF;
+  --crepe-color-inverse: #1A1A1A;
+  --crepe-color-on-inverse: #F6F6F6;
+  --crepe-color-inline-code: #D92A2A;
+  --crepe-color-error: #D92A2A;
+  --crepe-color-hover: #F0F0F0;
+  --crepe-color-selected: #E8E8E8;
+  --crepe-color-inline-area: #EEEEEE;
+  --crepe-font-title: Georgia, Cambria, "Times New Roman", Times, serif;
+  --crepe-font-default: "Microsoft YaHei", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  --crepe-font-code: "Cascadia Code", "Fira Code", Consolas, "Microsoft YaHei", monospace;
+  --crepe-shadow-1: 0px 1px 3px 1px rgba(0,0,0,0.12), 0px 1px 2px 0px rgba(0,0,0,0.08);
+  --crepe-shadow-2: 0px 2px 6px 2px rgba(0,0,0,0.12), 0px 1px 2px 0px rgba(0,0,0,0.08);
+}
+
+/* Dark Crepe Theme */
+.dark .milkdown {
+  --crepe-color-background: #1E1E1E;
+  --crepe-color-on-background: #E0E0E0;
+  --crepe-color-surface: #2D2D2D;
+  --crepe-color-surface-low: #252525;
+  --crepe-color-on-surface: #E0E0E0;
+  --crepe-color-on-surface-variant: #A0A0A0;
+  --crepe-color-outline: #999999;
+  --crepe-color-primary: #60A5FA;
+  --crepe-color-secondary: #1E3A5F;
+  --crepe-color-on-secondary: #BFDBFE;
+  --crepe-color-inverse: #E0E0E0;
+  --crepe-color-on-inverse: #1E1E1E;
+  --crepe-color-inline-code: #FF8A80;
+  --crepe-color-error: #FF8A80;
+  --crepe-color-hover: #3A3A3A;
+  --crepe-color-selected: #454545;
+  --crepe-color-inline-area: #333333;
+  --crepe-font-title: Georgia, Cambria, "Times New Roman", Times, serif;
+  --crepe-font-default: "Microsoft YaHei", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  --crepe-font-code: "Cascadia Code", "Fira Code", Consolas, "Microsoft YaHei", monospace;
+  --crepe-shadow-1: 0px 1px 3px 1px rgba(0,0,0,0.5), 0px 1px 2px 0px rgba(0,0,0,0.4);
+  --crepe-shadow-2: 0px 2px 6px 2px rgba(0,0,0,0.5), 0px 1px 2px 0px rgba(0,0,0,0.4);
+}
+
+/* ---- Milkdown editor dark overrides ---- */
+.dark .milkdown {
+  color-scheme: dark;
+}
+
+/* ========================================
+   Global dark-mode overrides for Milkdown Crepe
+   floating elements rendered outside .milkdown (portals)
+   ======================================== */
+
+/* Selection toolbar / bubble menu */
+.dark .milkdown-crepe-toolbar,
+.dark [data-crepe-toolbar],
+.dark [data-crepe-menu],
+.dark [class*="crepe-toolbar"],
+.dark [class*="crepe-menu"],
+.dark [class*="crepe-popup"],
+.dark [class*="crepe-dropdown"] {
+  --crepe-color-surface: #2D2D2D;
+  --crepe-color-on-surface: #E0E0E0;
+  --crepe-color-on-surface-variant: #A0A0A0;
+  --crepe-color-outline: #555555;
+  --crepe-color-primary: #60A5FA;
+  --crepe-color-hover: #3A3A3A;
+  --crepe-color-selected: #454545;
+  background: #2D2D2D !important;
+  color: #E0E0E0 !important;
+  border-color: #444444 !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5) !important;
+}
+
+/* Slash menu and dropdown items */
+.dark [class*="crepe-menu"] [class*="item"],
+.dark [class*="crepe-dropdown"] [class*="item"],
+.dark [data-crepe-menu-item] {
+  color: #E0E0E0 !important;
+}
+
+.dark [class*="crepe-menu"] [class*="item"]:hover,
+.dark [class*="crepe-dropdown"] [class*="item"]:hover,
+.dark [data-crepe-menu-item]:hover {
+  background: #3A3A3A !important;
+}
+
+.dark [class*="crepe-menu"] [class*="item"][aria-selected="true"],
+.dark [data-crepe-menu-item][aria-selected="true"],
+.dark [class*="crepe-menu"] [class*="selected"],
+.dark [class*="crepe-dropdown"] [class*="selected"] {
+  background: #454545 !important;
+}
+
+/* Icon buttons in floating toolbars */
+.dark [class*="crepe-toolbar"] button,
+.dark [class*="crepe-menu"] button,
+.dark [class*="crepe-popup"] button {
+  color: #E0E0E0 !important;
+}
+
+.dark [class*="crepe-toolbar"] button:hover,
+.dark [class*="crepe-menu"] button:hover,
+.dark [class*="crepe-popup"] button:hover {
+  background: #3A3A3A !important;
+}
+
+.dark [class*="crepe-toolbar"] button.active,
+.dark [class*="crepe-menu"] button.active {
+  color: #60A5FA !important;
+  background: #1E3A5F !important;
+}
+
+/* Link tooltip */
+.dark [class*="crepe-link-tooltip"],
+.dark [class*="link-tooltip"] {
+  background: #2D2D2D !important;
+  color: #E0E0E0 !important;
+  border-color: #444444 !important;
+}
+
+.dark [class*="crepe-link-tooltip"] input,
+.dark [class*="link-tooltip"] input {
+  background: #1E1E1E !important;
+  color: #E0E0E0 !important;
+  border-color: #555555 !important;
+}
+
+/* Slash menu input */
+.dark [class*="crepe-slash"] input,
+.dark [class*="slash-menu"] input {
+  background: #1E1E1E !important;
+  color: #E0E0E0 !important;
+  border-color: #555555 !important;
+}
+
+/* Block edit handle */
+.dark [class*="block-edit"],
+.dark [class*="crepe-block"] button {
+  color: #999999 !important;
+}
+
+.dark [class*="block-edit"]:hover,
+.dark [class*="crepe-block"] button:hover {
+  color: #E0E0E0 !important;
+  background: #3A3A3A !important;
+}
+
+/* Table column/row handles */
+.dark .tableWrapper [class*="handle"],
+.dark [class*="column-handle"],
+.dark [class*="row-handle"] {
+  background: #555555 !important;
+}
+
+.dark .tableWrapper [class*="handle"]:hover,
+.dark [class*="column-handle"]:hover,
+.dark [class*="row-handle"]:hover {
+  background: #60A5FA !important;
+}
+
+/* Divider lines in menus */
+.dark [class*="crepe-menu"] hr,
+.dark [class*="crepe-menu"] [class*="divider"],
+.dark [class*="crepe-dropdown"] hr,
+.dark [class*="crepe-dropdown"] [class*="divider"] {
+  border-color: #444444 !important;
+}
+
+/* Placeholder text */
+.dark [class*="placeholder"] {
+  color: #666666 !important;
+}
+
+/* Mermaid dark override */
+.dark [id^="mermaid-"] svg {
+  background: #2A2A2A;
+  border-radius: 8px;
+}
+
+.dark [id^="mermaid-"] svg text {
+  fill: #E0E0E0 !important;
+}
+
+.dark [id^="mermaid-"] svg .edgeLabel rect,
+.dark [id^="mermaid-"] svg .node rect,
+.dark [id^="mermaid-"] svg .node circle,
+.dark [id^="mermaid-"] svg .node ellipse,
+.dark [id^="mermaid-"] svg .node polygon {
+  fill: #2D2D2D !important;
+  stroke: #666666 !important;
+}
+
+.dark [id^="mermaid-"] svg .edgePath .path {
+  stroke: #999999 !important;
+}
+
+.dark [id^="mermaid-"] svg .arrowheadPath {
+  fill: #999999 !important;
+}
+.dark .milkdown .ProseMirror {
+  color: #E0E0E0 !important;
+  caret-color: #E0E0E0 !important;
+}
+.dark .milkdown .ProseMirror h1,
+.dark .milkdown .ProseMirror h2,
+.dark .milkdown .ProseMirror h3,
+.dark .milkdown .ProseMirror h4,
+.dark .milkdown .ProseMirror h5,
+.dark .milkdown .ProseMirror h6 {
+  color: #F0F0F0 !important;
+}
+.dark .milkdown .ProseMirror h1 { border-color: #505050 !important; }
+.dark .milkdown .ProseMirror h2 { border-color: #454545 !important; }
+.dark .milkdown pre,
+.dark .milkdown code {
+  background: #2A2A2A !important;
+  color: #D4D4D4 !important;
+  border-color: #3A3A3A !important;
+}
+.dark .milkdown blockquote {
+  border-left-color: #555555 !important;
+  color: #B0B0B0 !important;
+  background: rgba(255,255,255,0.03) !important;
+}
+.dark .milkdown table th,
+.dark .milkdown table td {
+  border-color: #444444 !important;
+}
+.dark .milkdown table th {
+  background: #2A2A2A !important;
+  color: #E0E0E0 !important;
+}
+.dark .milkdown table td {
+  color: #D0D0D0 !important;
+}
+.dark .milkdown hr {
+  border-color: #404040 !important;
+}
+.dark .milkdown a {
+  color: #6DB3F8 !important;
+}
+.dark .milkdown ul,
+.dark .milkdown ol {
+  color: #D0D0D0 !important;
+}
+.dark .milkdown li::marker {
+  color: #888888 !important;
+}
+.dark .milkdown p {
+  color: #D0D0D0 !important;
+}
+.dark .milkdown .ProseMirror strong,
+.dark .milkdown .ProseMirror b {
+  color: #F0F0F0 !important;
+}
+.dark .milkdown .ProseMirror em,
+.dark .milkdown .ProseMirror i {
+  color: #D8D8D8 !important;
+}
+
+
+
+/* ========================================
+   Typora-style line source reveal
+   When a block has focus (zn-block-focused), show markdown syntax marks
+   ======================================== */
+
+.ProseMirror .zn-block-focused {
+  position: relative;
+  background: color-mix(in srgb, var(--text-markdown-mark) 8%, transparent);
+  border-radius: 4px;
+  outline: 1px solid color-mix(in srgb, var(--text-markdown-mark) 15%, transparent);
+  outline-offset: 2px;
+}
+
+/* Headings: show # marks before heading text */
+.ProseMirror h1.zn-block-focused::before { content: "# "; color: var(--text-markdown-mark) !important; font-weight: 400; }
+.ProseMirror h2.zn-block-focused::before { content: "## "; color: var(--text-markdown-mark) !important; font-weight: 400; }
+.ProseMirror h3.zn-block-focused::before { content: "### "; color: var(--text-markdown-mark) !important; font-weight: 400; }
+.ProseMirror h4.zn-block-focused::before { content: "#### "; color: var(--text-markdown-mark) !important; font-weight: 400; }
+.ProseMirror h5.zn-block-focused::before { content: "##### "; color: var(--text-markdown-mark) !important; font-weight: 400; }
+.ProseMirror h6.zn-block-focused::before { content: "###### "; color: var(--text-markdown-mark) !important; font-weight: 400; }
+
+/* Bold: show ** marks */
+.ProseMirror .zn-block-focused strong::before,
+.ProseMirror .zn-block-focused b::before { content: "**"; color: var(--text-markdown-mark) !important; font-weight: 400; }
+.ProseMirror .zn-block-focused strong::after,
+.ProseMirror .zn-block-focused b::after { content: "**"; color: var(--text-markdown-mark) !important; font-weight: 400; }
+
+/* Italic: show * marks */
+.ProseMirror .zn-block-focused em::before,
+.ProseMirror .zn-block-focused i::before { content: "*"; color: var(--text-markdown-mark) !important; }
+.ProseMirror .zn-block-focused em::after,
+.ProseMirror .zn-block-focused i::after { content: "*"; color: var(--text-markdown-mark) !important; }
+
+/* Inline code: show backticks */
+.ProseMirror .zn-block-focused code::before { content: "`"; color: var(--text-markdown-mark) !important; }
+.ProseMirror .zn-block-focused code::after { content: "`"; color: var(--text-markdown-mark) !important; }
+
+/* Strikethrough: show ~~ marks */
+.ProseMirror .zn-block-focused del::before,
+.ProseMirror .zn-block-focused s::before { content: "~~"; color: var(--text-markdown-mark) !important; text-decoration: none; }
+.ProseMirror .zn-block-focused del::after,
+.ProseMirror .zn-block-focused s::after { content: "~~"; color: var(--text-markdown-mark) !important; text-decoration: none; }
+
+/* Links: show [ and ](url) - simplified */
+.ProseMirror .zn-block-focused a::before { content: "["; color: var(--text-markdown-mark) !important; }
+.ProseMirror .zn-block-focused a::after { content: "](" attr(href) ")"; color: var(--text-markdown-mark) !important; font-size: 0.85em; }
+
+/* Mark/highlight: show == marks */
+.ProseMirror .zn-block-focused mark::before { content: "=="; color: var(--text-markdown-mark) !important; }
+.ProseMirror .zn-block-focused mark::after { content: "=="; color: var(--text-markdown-mark) !important; }
+
+/* Blockquote: show > prefix */
+/* List items: show bullet / number */
+.ProseMirror li.zn-block-focused::before {
+  content: "- ";
+  color: var(--text-markdown-mark) !important;
+  font-weight: 400;
+}
+
+.ProseMirror blockquote.zn-block-focused::before {
+  content: "> ";
+  color: var(--text-markdown-mark) !important;
+  position: absolute;
+  left: -1.2em;
+  font-weight: 400;
+}
+
+/* Code blocks: show language fence */
+.ProseMirror pre.zn-block-focused::before {
+  content: "```";
+  display: block;
+  color: var(--text-markdown-mark) !important;
+  font-size: 0.85em;
+  margin-bottom: 2px;
+}
+.ProseMirror pre.zn-block-focused::after {
+  content: "```";
+  display: block;
+  color: var(--text-markdown-mark) !important;
+  font-size: 0.85em;
+  margin-top: 2px;
+}
+
+/* Exclude from table cells - tables always stay rendered */
+.ProseMirror th.zn-block-focused::before,
+.ProseMirror td.zn-block-focused::before,
+.ProseMirror th.zn-block-focused::after,
+.ProseMirror td.zn-block-focused::after,
+.ProseMirror th.zn-block-focused strong::before,
+.ProseMirror td.zn-block-focused strong::before,
+.ProseMirror th.zn-block-focused strong::after,
+.ProseMirror td.zn-block-focused strong::after,
+.ProseMirror th.zn-block-focused em::before,
+.ProseMirror td.zn-block-focused em::before,
+.ProseMirror th.zn-block-focused em::after,
+.ProseMirror td.zn-block-focused em::after,
+.ProseMirror th.zn-block-focused code::before,
+.ProseMirror td.zn-block-focused code::before,
+.ProseMirror th.zn-block-focused code::after,
+.ProseMirror td.zn-block-focused code::after,
+.ProseMirror th.zn-block-focused a::before,
+.ProseMirror td.zn-block-focused a::before,
+.ProseMirror th.zn-block-focused a::after,
+.ProseMirror td.zn-block-focused a::after {
+  content: none !important;
+}
+
+/* ---- Base ---- */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  font-family: "Microsoft YaHei", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-editor);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 200ms ease, color 200ms ease;
+}
+
+::selection {
+  background: var(--selection-bg);
+}
+
+/* ---- Scrollbar ---- */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; }
+*:hover::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); }
+
+/* ---- Drag region for custom titlebar ---- */
+.titlebar-drag { -webkit-app-region: drag; app-region: drag; }
+.titlebar-no-drag { -webkit-app-region: no-drag; app-region: no-drag; }
+
+/* ---- Focus visible ---- */
+*:focus-visible { outline: 2px solid var(--text-accent); outline-offset: -2px; }
+
+/* ---- Panel resize handle ---- */
+.resize-handle {
+  width: 4px; cursor: col-resize; background: transparent;
+  transition: background-color 150ms ease, width 150ms ease; flex-shrink: 0; z-index: 10;
+}
+.resize-handle:hover, .resize-handle:active {
+  width: 6px; background: var(--text-accent);
+}
