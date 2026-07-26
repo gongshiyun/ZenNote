@@ -395,21 +395,17 @@
 .ProseMirror .zn-block-focused mark::before { content: "=="; color: var(--text-markdown-mark) !important; }
 .ProseMirror .zn-block-focused mark::after { content: "=="; color: var(--text-markdown-mark) !important; }
 
-/* Blockquote: show > prefix */
-/* List items: show bullet / number */
-.ProseMirror li.zn-block-focused::before {
-  content: "- ";
+/* List items: Crepe renders the bullet as an SVG inside .label-wrapper .label.bullet.
+   On focus, swap the SVG bullet for the "-" source marker (same slot, keeps layout). */
+.ProseMirror li.zn-block-focused .label-wrapper .label.bullet svg { display: none; }
+.ProseMirror li.zn-block-focused .label-wrapper .label.bullet::before {
+  content: "-";
   color: var(--text-markdown-mark) !important;
-  font-weight: 400;
+  font-weight: 600;
 }
 
-.ProseMirror blockquote.zn-block-focused::before {
-  content: "> ";
-  color: var(--text-markdown-mark) !important;
-  position: absolute;
-  left: -1.2em;
-  font-weight: 400;
-}
+/* Blockquotes: Crepe draws the quote bar via blockquote::before, so we do NOT inject
+   "> " text (it would clash). Quotes rely on the block highlight + inline marks. */
 
 /* Code blocks: show language fence */
 .ProseMirror pre.zn-block-focused::before {

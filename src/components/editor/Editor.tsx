@@ -154,6 +154,12 @@ export function Editor() {
               state.setContent(markdown);
             }
           });
+          // ProseMirror-native selection tracking — reliable trigger for the
+          // Typora-style focus-line source reveal (no rAF/DOM-event dependency).
+          api.selectionUpdated(() => {
+            if (tokenRef.current !== token || !safeRef.current) return;
+            setTimeout(updateFocusBlock, 0);
+          });
         });
 
         crepeRef.current = crepe;
@@ -216,6 +222,16 @@ export function Editor() {
             return;
           }
 
+          // For content nested inside list items / blockquotes, target the outer
+          // semantic block so the whole item/quote gets highlighted.
+          const outerLi = blockEl.closest("li") as HTMLElement | null;
+          const outerBq = blockEl.closest("blockquote") as HTMLElement | null;
+          if (outerLi && pm.contains(outerLi)) {
+            blockEl = outerLi;
+          } else if (outerBq && pm.contains(outerBq)) {
+            blockEl = outerBq;
+          }
+
           if (blockEl !== focusBlockEl) {
             if (focusBlockEl) focusBlockEl.classList.remove("zn-block-focused");
             focusBlockEl = blockEl;
@@ -227,7 +243,7 @@ export function Editor() {
         const onFocusInput = () => {
           if (!safeRef.current) return;
           updateCursor();
-          requestAnimationFrame(updateFocusBlock);
+          setTimeout(updateFocusBlock, 0);
         };
         container.addEventListener("keyup", onFocusInput, { passive: true });
         container.addEventListener("pointerup", onFocusInput, { passive: true });
@@ -237,20 +253,66 @@ export function Editor() {
         let selChangeTimer = 0;
         const onSelChange = () => {
           if (selChangeTimer) return;
-          selChangeTimer = requestAnimationFrame(() => {
+          selChangeTimer = window.setTimeout(() => {
             selChangeTimer = 0;
             onFocusInput();
-          });
+          }, 0);
         };
         document.addEventListener("selectionchange", onSelChange);
 
         requestAnimationFrame(onFocusInput);
+
+        // ---- Code block (mermaid etc.): click preview to edit, blur to re-render ----
+        // Crepe renders a preview panel + a toggle button inside each code block.
+        // preview-only mode  -> .codemirror-host has the "hidden" class (diagram only)
+        // edit mode          -> .codemirror-host visible (source shown)
+        const isPreviewOnly = (cb: HTMLElement) => {
+          const host = cb.querySelector(".codemirror-host");
+          return !!host && host.classList.contains("hidden");
+        };
+        const togglePreview = (cb: HTMLElement) => {
+          const btn = cb.querySelector(".preview-toggle-button") as HTMLElement | null;
+          if (btn) btn.click();
+        };
+
+        // Click on the rendered preview (e.g. a mermaid diagram) toggles edit mode.
+        const onPreviewClick = (e: MouseEvent) => {
+          const target = e.target as HTMLElement;
+          if (!target.closest(".preview-panel")) return;
+          const cb = target.closest(".milkdown-code-block") as HTMLElement | null;
+          if (!cb) return;
+          const wasPreviewOnly = isPreviewOnly(cb);
+          togglePreview(cb);
+          // Entering edit mode: focus the CodeMirror editor for immediate typing.
+          if (wasPreviewOnly) {
+            setTimeout(() => {
+              const cm = cb.querySelector(".cm-content") as HTMLElement | null;
+              if (cm) cm.focus();
+            }, 0);
+          }
+        };
+
+        // When focus leaves the code block entirely, return to the rendered preview.
+        const onCodeBlockBlur = (e: FocusEvent) => {
+          const cb = (e.target as HTMLElement).closest(".milkdown-code-block") as HTMLElement | null;
+          if (!cb) return;
+          const next = e.relatedTarget as Node | null;
+          // Only collapse when focus genuinely moved outside this code block.
+          if (next && cb.contains(next)) return;
+          if (next === null) return; // blur to nothing / non-focusable click: let click handler decide
+          if (!isPreviewOnly(cb)) togglePreview(cb);
+        };
+
+        container.addEventListener("click", onPreviewClick);
+        container.addEventListener("focusout", onCodeBlockBlur);
 
         focusCleanupRef.current = () => {
           container.removeEventListener("keyup", onFocusInput);
           container.removeEventListener("pointerup", onFocusInput);
           container.removeEventListener("click", onFocusInput);
           container.removeEventListener("focusin", onFocusInput);
+          container.removeEventListener("click", onPreviewClick);
+          container.removeEventListener("focusout", onCodeBlockBlur);
           document.removeEventListener("selectionchange", onSelChange);
           if (focusBlockEl) focusBlockEl.classList.remove("zn-block-focused");
           focusBlockEl = null;
