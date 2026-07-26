@@ -132,7 +132,7 @@ export function Editor() {
 
             let view: any = null;
             try {
-              const { editorViewCtx } = await import("@milkdown/core");
+              const { editorViewCtx } = await import("@milkdown/kit/core");
               view = crepe.editor?.ctx?.get(editorViewCtx);
             } catch {
               view = (crepe.editor as any)?.view;
