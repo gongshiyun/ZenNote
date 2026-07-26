@@ -13,6 +13,7 @@ export function Editor() {
   const setCursorPosition = useStore(s => s.setCursorPosition);
   const scrollPosition = useStore(s => s.scrollPosition);
   const setScrollPosition = useStore(s => s.setScrollPosition);
+  const setEditorRef = useStore(s => s.setEditorRef);
   const [error, setError] = useState<string | null>(null);
   const [findVisible, setFindVisible] = useState(false);
   const [editorReady, setEditorReady] = useState(false);
@@ -47,6 +48,7 @@ export function Editor() {
       safeRef.current = false;
       editorReadyRef.current = false;
       setEditorReady(false);
+      setEditorRef(null);
       if (container) container.innerHTML = "";
       return;
     }
@@ -111,6 +113,7 @@ export function Editor() {
         safeRef.current = true;
         editorReadyRef.current = true;
         setEditorReady(true);
+        setEditorRef(crepeRef);
 
         // ---- Cursor tracking ----
         const updateCursor = () => {

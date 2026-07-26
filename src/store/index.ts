@@ -35,6 +35,8 @@ interface EditorSlice {
   setScrollPosition: (pos: number) => void;
   cacheCurrentFileState: () => void;
   restoreFileState: (path: string) => { content: string; scrollPos: number; cursorLine: number; cursorCol: number } | null;
+  editorRef: { current: any } | null;
+  setEditorRef: (ref: { current: any } | null) => void;
 }
 
 interface FileTreeSlice {
@@ -141,6 +143,10 @@ export const useStore = create<EditorSlice & FileTreeSlice & OutlineSlice & Them
     const state = get().fileStates.get(path);
     return state ?? null;
   },
+  // Editor ref (for mermaid rendering and other ProseMirror access)
+  editorRef: null,
+  setEditorRef: (ref) => set({ editorRef: ref }),
+
 
   // FileTree
   workspacePath: null,
