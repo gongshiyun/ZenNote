@@ -4,6 +4,27 @@ import { FindReplaceBar } from "./FindReplaceBar";
 import { TableContextMenu } from "./TableContextMenu";
 import { t } from "../../i18n";
 import "@milkdown/crepe/theme/common/style.css";
+import { LanguageDescription, LanguageSupport, StreamLanguage } from "@codemirror/language";
+import { languages as codeMirrorLanguages } from "@codemirror/language-data";
+
+// Mermaid 无需语法高亮（内容会被渲染为图表），用纯文本占位语言。
+// 将其注入 @codemirror/language-data 的共享语言列表（Crepe 默认配置直接引用该列表），
+// 从而使代码块语言选择器可选 mermaid。name 小写会被 LanguageDescription 自动加入 alias。
+const mermaidLanguage = LanguageDescription.of({
+  name: "mermaid",
+  alias: ["mmd"],
+  support: new LanguageSupport(
+    StreamLanguage.define<unknown>({
+      token: (stream) => {
+        stream.skipToEnd();
+        return null;
+      },
+    }),
+  ),
+});
+if (!codeMirrorLanguages.some((l) => l.name === "mermaid")) {
+  codeMirrorLanguages.unshift(mermaidLanguage);
+}
 
 export function Editor() {
   const currentFilePath = useStore(s => s.currentFilePath);
