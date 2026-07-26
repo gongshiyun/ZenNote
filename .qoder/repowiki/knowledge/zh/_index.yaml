@@ -1,0 +1,73 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: master
+nodes_managed: true
+exported_at: "2026-07-26T13:53:27Z"
+modules:
+    "":
+        dir_name: ZenNote 桌面应用（React + Tauri 全栈）
+        title: ZenNote 桌面应用（React + Tauri 全栈）
+        scope:
+            - README.md
+            - .gitignore
+            - .oxlintrc.json
+            - index.html
+            - package.json
+            - package-lock.json
+            - tsconfig.json
+            - tsconfig.app.json
+            - tsconfig.node.json
+            - vite.config.ts
+            - screenshot.png
+        source_files: []
+        children:
+            - docs
+            - frontend_app
+            - tauri_backend
+        depends_on: []
+        related_to: []
+    docs:
+        dir_name: ZenNote 项目文档（需求_技术_UI_UX_渲染规范）
+        title: ZenNote 项目文档（需求/技术/UI/UX/渲染规范）
+        scope:
+            - docs/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: frontend_app/app_shell
+    frontend_app:
+        dir_name: ZenNote 前端应用（React + Zustand）
+        title: ZenNote 前端应用（React + Zustand）
+        scope:
+            - src/
+        source_files: []
+        children:
+            - frontend_app/app_shell
+        depends_on: []
+        related_to:
+            - path: tauri_backend
+    frontend_app/app_shell:
+        dir_name: 应用入口与主题壳层
+        title: 应用入口与主题壳层
+        scope:
+            - src/App.tsx
+            - src/main.tsx
+            - src/index.css
+            - src/App.css
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: docs
+    tauri_backend:
+        dir_name: ZenNote Tauri 桌面后端
+        title: ZenNote Tauri 桌面后端
+        scope:
+            - src-tauri/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: frontend_app

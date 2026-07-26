@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: docs
+title: ZenNote 项目文档（需求/技术/UI/UX/渲染规范）
+scope:
+    - docs/
+source_files: []
+depends_on: []
+related_to:
+    - path: frontend_app/app_shell
