@@ -395,10 +395,11 @@
 .ProseMirror .zn-block-focused mark::before { content: "=="; color: var(--text-markdown-mark) !important; }
 .ProseMirror .zn-block-focused mark::after { content: "=="; color: var(--text-markdown-mark) !important; }
 
-/* List items: Crepe renders the bullet as an SVG inside .label-wrapper .label.bullet.
+/* List items: the focus decoration lands on Crepe's .milkdown-list-item-block wrapper
+   (the <li> is inside it). The bullet is an SVG inside .label-wrapper .label.bullet.
    On focus, swap the SVG bullet for the "-" source marker (same slot, keeps layout). */
-.ProseMirror li.zn-block-focused .label-wrapper .label.bullet svg { display: none; }
-.ProseMirror li.zn-block-focused .label-wrapper .label.bullet::before {
+.ProseMirror .milkdown-list-item-block.zn-block-focused .label-wrapper .label.bullet svg { display: none; }
+.ProseMirror .milkdown-list-item-block.zn-block-focused .label-wrapper .label.bullet::before {
   content: "-";
   color: var(--text-markdown-mark) !important;
   font-weight: 600;

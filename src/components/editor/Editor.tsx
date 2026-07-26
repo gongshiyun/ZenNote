@@ -154,12 +154,6 @@ export function Editor() {
               state.setContent(markdown);
             }
           });
-          // ProseMirror-native selection tracking — reliable trigger for the
-          // Typora-style focus-line source reveal (no rAF/DOM-event dependency).
-          api.selectionUpdated(() => {
-            if (tokenRef.current !== token || !safeRef.current) return;
-            setTimeout(updateFocusBlock, 0);
-          });
         });
 
         crepeRef.current = crepe;
@@ -167,6 +161,58 @@ export function Editor() {
 
         await crepe.create();
         if (tokenRef.current !== token) return;
+
+        // Obtain the ProseMirror view. The focus highlight is implemented as a ProseMirror
+        // DECORATION (not an external DOM class): adding a class directly to a ProseMirror-managed
+        // element is detected as an external mutation and gets re-rendered away, whereas a
+        // decoration is applied by ProseMirror itself on every render and thus persists.
+        const { editorViewCtx } = await import("@milkdown/kit/core");
+        const { Plugin, PluginKey, EditorState } = await import("@milkdown/kit/prose/state");
+        const { Decoration, DecorationSet } = await import("@milkdown/kit/prose/view");
+        const pmView = (crepe as any).editor.action((ctx: any) => ctx.get(editorViewCtx));
+
+        const FOCUS_TYPES = new Set(["heading", "paragraph", "list_item", "blockquote", "code_block"]);
+        const computeFocusDecos = (state: any) => {
+          const sel = state.selection;
+          if (!sel || !sel.empty) return DecorationSet.empty;
+          const $head = sel.$head;
+          // Tables always stay fully rendered
+          for (let d = $head.depth; d >= 1; d--) {
+            const tn = $head.node(d).type.name;
+            if (tn === "table_cell" || tn === "table_header") return DecorationSet.empty;
+          }
+          let from = -1, nodeSize = 0;
+          // Prefer the enclosing list_item / blockquote so the whole item/quote is highlighted
+          for (let d = $head.depth; d >= 1 && from < 0; d--) {
+            const name = $head.node(d).type.name;
+            if (name === "list_item" || name === "blockquote") { from = $head.before(d); nodeSize = $head.node(d).nodeSize; }
+          }
+          if (from < 0) {
+            for (let d = $head.depth; d >= 1 && from < 0; d--) {
+              const name = $head.node(d).type.name;
+              if (FOCUS_TYPES.has(name)) { from = $head.before(d); nodeSize = $head.node(d).nodeSize; }
+            }
+          }
+          if (from < 0) return DecorationSet.empty;
+          return DecorationSet.create(state.doc, [Decoration.node(from, from + nodeSize, { class: "zn-block-focused" })]);
+        };
+        const focusDecoPlugin = new Plugin({
+          key: new PluginKey("znFocusBlockDeco"),
+          state: {
+            init: (_: any, state: any) => computeFocusDecos(state),
+            apply: (_: any, _prev: any, _old: any, newState: any) => computeFocusDecos(newState),
+          },
+          props: {
+            decorations(state: any) { return (this as any).getState(state); },
+          },
+        });
+        // Inject the plugin by reconfiguring the state. Safe to do right after create():
+        // the undo history and all plugin states are still empty.
+        pmView.updateState(EditorState.create({
+          doc: pmView.state.doc,
+          selection: pmView.state.selection,
+          plugins: [...pmView.state.plugins, focusDecoPlugin],
+        }));
 
         safeRef.current = true;
         editorReadyRef.current = true;
@@ -188,62 +234,13 @@ export function Editor() {
           }
         };
 
-        // ---- Typora-style focus line source reveal ----
-        let focusBlockEl: HTMLElement | null = null;
-
-        const updateFocusBlock = () => {
-          if (!safeRef.current || tokenRef.current !== token) return;
-          const pm = container.querySelector(".ProseMirror") as HTMLElement | null;
-          if (!pm) return;
-
-          const sel = window.getSelection();
-          if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) {
-            if (focusBlockEl) { focusBlockEl.classList.remove("zn-block-focused"); focusBlockEl = null; }
-            return;
-          }
-
-          // Get element at cursor; use closest() to find the nearest
-          // semantic block regardless of Milkdown wrapper divs
-          const startNode = sel.getRangeAt(0).startContainer;
-          const cursorEl: HTMLElement | null =
-            startNode instanceof HTMLElement ? startNode : startNode.parentElement;
-          if (!cursorEl) return;
-
-          const BLOCK_SEL = "h1,h2,h3,h4,h5,h6,p,li,blockquote,pre";
-          let blockEl = cursorEl.closest(BLOCK_SEL) as HTMLElement | null;
-          if (!blockEl || !pm.contains(blockEl)) {
-            if (focusBlockEl) { focusBlockEl.classList.remove("zn-block-focused"); focusBlockEl = null; }
-            return;
-          }
-
-          // Tables always stay fully rendered
-          if (blockEl.closest("th, td")) {
-            if (focusBlockEl) { focusBlockEl.classList.remove("zn-block-focused"); focusBlockEl = null; }
-            return;
-          }
-
-          // For content nested inside list items / blockquotes, target the outer
-          // semantic block so the whole item/quote gets highlighted.
-          const outerLi = blockEl.closest("li") as HTMLElement | null;
-          const outerBq = blockEl.closest("blockquote") as HTMLElement | null;
-          if (outerLi && pm.contains(outerLi)) {
-            blockEl = outerLi;
-          } else if (outerBq && pm.contains(outerBq)) {
-            blockEl = outerBq;
-          }
-
-          if (blockEl !== focusBlockEl) {
-            if (focusBlockEl) focusBlockEl.classList.remove("zn-block-focused");
-            focusBlockEl = blockEl;
-            focusBlockEl.classList.add("zn-block-focused");
-          }
-        };;
-
-        // Multiple event sources for robust tracking
+        // The Typora-style focus highlight is now handled by the ProseMirror decoration
+        // plugin installed above (see focusDecoPlugin), which persists across re-renders.
+        // Only cursor-position (Ln/Col) tracking remains here.
+        // Multiple event sources for robust cursor-position tracking
         const onFocusInput = () => {
           if (!safeRef.current) return;
           updateCursor();
-          setTimeout(updateFocusBlock, 0);
         };
         container.addEventListener("keyup", onFocusInput, { passive: true });
         container.addEventListener("pointerup", onFocusInput, { passive: true });
@@ -314,8 +311,6 @@ export function Editor() {
           container.removeEventListener("click", onPreviewClick);
           container.removeEventListener("focusout", onCodeBlockBlur);
           document.removeEventListener("selectionchange", onSelChange);
-          if (focusBlockEl) focusBlockEl.classList.remove("zn-block-focused");
-          focusBlockEl = null;
         };
 
         if (scrollPosition > 0) {
