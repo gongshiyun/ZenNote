@@ -9,8 +9,6 @@
 
 [中文](./README.md) | **English**
 
-![ZenNote screenshot](./screenshot.png)
-
 ---
 
 ## Introduction

@@ -9,8 +9,6 @@
 
 **中文** | [English](./README.en.md)
 
-![ZenNote 截图](./screenshot.png)
-
 ---
 
 ## 简介
