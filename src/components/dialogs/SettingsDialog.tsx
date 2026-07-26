@@ -115,11 +115,11 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             </Row>
             <Row label={t().settings.autoSaveDelay}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <input type="range" min={500} max={10000} step={500} value={autoSaveDelay}
+                <input type="range" min={0} max={10000} step={500} value={autoSaveDelay}
                   onChange={e => setAutoSaveDelay(Number(e.target.value))}
                   style={{ width: 100, accentColor: "var(--text-accent)" }} />
                 <span style={{ fontSize: 12, color: "var(--text-secondary)", minWidth: 42, textAlign: "center" }}>
-                  {autoSaveDelay >= 1000 ? (autoSaveDelay / 1000).toFixed(1) + "s" : autoSaveDelay + "ms"}
+                  {autoSaveDelay === 0 ? "Off" : autoSaveDelay >= 1000 ? (autoSaveDelay / 1000).toFixed(1) + "s" : autoSaveDelay + "ms"}
                 </span>
               </div>
             </Row>

@@ -10,7 +10,9 @@ const zhCN = {
     "minimize": "最小化",
     "maximize": "最大化",
     "restore": "还原",
-    "close": "关闭"
+    "close": "关闭",
+    "openFile": "打开文件 (Ctrl+O)",
+    "openFolder": "打开文件夹 (Ctrl+Shift+O)"
   },
   "statusbar": {
     "saved": "已保存",
@@ -88,6 +90,7 @@ const zhCN = {
   "welcome": {
     "subtitle": "极简 · 本地 · Markdown",
     "openFolder": "打开文件夹",
+    "openFile": "打开文件",
     "loadingWorkspace": "加载工作区..."
   }
 };

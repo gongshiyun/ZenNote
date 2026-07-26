@@ -10,7 +10,9 @@ const enUS = {
     "minimize": "Minimize",
     "maximize": "Maximize",
     "restore": "Restore",
-    "close": "Close"
+    "close": "Close",
+    "openFile": "Open File (Ctrl+O)",
+    "openFolder": "Open Folder (Ctrl+Shift+O)"
   },
   "statusbar": {
     "saved": "Saved",
@@ -88,6 +90,7 @@ const enUS = {
   "welcome": {
     "subtitle": "Minimal · Local · Markdown",
     "openFolder": "Open Folder",
+    "openFile": "Open File",
     "loadingWorkspace": "Loading workspace..."
   }
 };

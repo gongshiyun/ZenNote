@@ -116,119 +116,140 @@ export function Editor() {
         setEditorReady(true);
         setEditorRef(crepeRef);
 
-        // ---- Mermaid rendering setup ----
-        // Uses ProseMirror state directly (bypasses DOM — works even with CodeMirror)
+        // ---- Mermaid rendering — simple content-based approach ----
         let mermaidTimer = 0;
-        const renderedMermaidKeys = new Set<string>();
+        const renderedMermaid = new Set<string>();
 
-        const renderMermaidBlocks = async () => {
+        const renderMermaid = async () => {
           try {
+            const content = useStore.getState().content;
+            if (!content) return;
+
+            // Parse mermaid blocks from markdown
+            const mermaidRegex = /```mermaid\s*\n([\s\S]*?)```/g;
+            const blocks: { text: string }[] = [];
+            let m;
+            while ((m = mermaidRegex.exec(content)) !== null) {
+              blocks.push({ text: m[1].trim() });
+            }
+            if (blocks.length === 0) {
+              // No mermaid blocks — clean up any old renders
+              document.querySelectorAll(".zn-mermaid-wrapper").forEach(w => {
+                const prev = w.previousElementSibling as HTMLElement;
+                if (prev) prev.style.display = "";
+                w.remove();
+              });
+              renderedMermaid.clear();
+              return;
+            }
+
+            // Init mermaid
             const mermaidMod = await import("mermaid");
+            const isDark = useStore.getState().resolvedMode === "dark";
             mermaidMod.default.initialize({
               startOnLoad: false,
-              theme: useStore.getState().resolvedMode === "dark" ? "dark" : "default",
+              theme: isDark ? "dark" : "default",
               securityLevel: "loose",
             });
 
-            let view: any = null;
-            try {
-              const { editorViewCtx } = await import("@milkdown/kit/core");
-              view = crepe.editor?.ctx?.get(editorViewCtx);
-            } catch {
-              view = (crepe.editor as any)?.view;
-            }
-            if (!view?.state?.doc) { console.warn('[ZenNote] No ProseMirror view available'); return; }
-
-            const mermaidNodes: Array<{ pos: number; text: string }> = [];
-            view.state.doc.descendants((node: any, pos: number) => {
-              if (node.type.name === "code_block" && node.attrs?.language === "mermaid") {
-                mermaidNodes.push({ pos, text: node.textContent });
-              }
-            });
-
-            // Clean previous renders
+            // Clean old renders
             document.querySelectorAll(".zn-mermaid-wrapper").forEach(w => {
-              const bw = (w as any).__blockWrapper as HTMLElement | undefined;
-              if (bw) bw.style.display = "";
+              const prev = w.previousElementSibling as HTMLElement;
+              if (prev) prev.style.display = "";
               w.remove();
             });
 
-            for (const { pos, text } of mermaidNodes) {
-              if (!text.trim()) continue;
-              const key = text.substring(0, 80);
-              if (renderedMermaidKeys.has(key)) continue;
-              renderedMermaidKeys.add(key);
+            for (const block of blocks) {
+              const key = block.text.substring(0, 80);
+              if (renderedMermaid.has(key)) continue;
+              renderedMermaid.add(key);
 
+              // Render SVG
+              let svg: string;
               try {
-                const id = "mermaid-" + Math.random().toString(36).slice(2, 10);
-                const { svg } = await mermaidMod.default.render(id, text);
-                const domPos = view.domAtPos(pos);
-                let el: HTMLElement =
-                  domPos.node instanceof HTMLElement
-                    ? domPos.node
-                    : (domPos.node.parentElement as HTMLElement);
-                const blockWrapper = el?.closest(".milkdown-code-block") as HTMLElement | null;
-                const isDark = useStore.getState().resolvedMode === "dark";
+                const id = "m-" + Math.random().toString(36).slice(2, 8);
+                const result = await mermaidMod.default.render(id, block.text);
+                svg = result.svg;
+              } catch { continue; }
 
-                const wrapper = document.createElement("div");
-                wrapper.className = "zn-mermaid-wrapper";
-                wrapper.innerHTML = svg;
-                wrapper.style.cssText =
-                  "display:flex;justify-content:center;padding:16px 0;overflow-x:auto;background:" +
-                  (isDark ? "#2A2A2A" : "#F8F8F8") + ";border-radius:8px;margin:8px 0;";
+              // Find the DOM element containing this mermaid text
+              // Search within the editor container for code blocks
+              const container = containerRef.current;
+              if (!container) continue;
 
-                if (blockWrapper) {
-                  blockWrapper.style.display = "none";
-                  (wrapper as any).__blockWrapper = blockWrapper;
-                  blockWrapper.insertAdjacentElement("afterend", wrapper);
+              const allPres = container.querySelectorAll("pre");
+              let targetPre: HTMLElement | null = null;
+              for (const pre of allPres) {
+                const preText = (pre.textContent || "").replace(/\s+/g, " ").trim();
+                const blockText = block.text.replace(/\s+/g, " ").trim();
+                if (preText.includes(blockText) || blockText.includes(preText)) {
+                  targetPre = pre as HTMLElement;
+                  break;
                 }
-              } catch { /* render failed */ }
+              }
+
+              // Also try milkdown-code-block wrappers
+              if (!targetPre) {
+                const codeBlocks = container.querySelectorAll(".milkdown-code-block");
+                for (const cb of codeBlocks) {
+                  const cbText = (cb.textContent || "").replace(/\s+/g, " ").trim();
+                  const blockText = block.text.replace(/\s+/g, " ").trim();
+                  if (cbText.includes(blockText) || blockText.includes(cbText)) {
+                    // Found — use this wrapper as the target
+                    targetPre = cb as HTMLElement;
+                    break;
+                  }
+                }
+              }
+
+              // Create wrapper
+              const wrapper = document.createElement("div");
+              wrapper.className = "zn-mermaid-wrapper";
+              wrapper.innerHTML = svg;
+              wrapper.style.cssText =
+                "display:flex;justify-content:center;padding:16px 0;overflow-x:auto;background:" +
+                (isDark ? "#2A2A2A" : "#F8F8F8") + ";border-radius:8px;margin:8px 0;";
+
+              if (targetPre) {
+                targetPre.style.display = "none";
+                targetPre.insertAdjacentElement("afterend", wrapper);
+              } else {
+                // Last resort: append to the ProseMirror element
+                const pm = container.querySelector(".ProseMirror");
+                if (pm) pm.appendChild(wrapper);
+              }
             }
-          } catch {
-            // ProseMirror approach failed — fall back to DOM selection
-            // (works when CodeMirror is not active, e.g. placeholder visible)
-            try {
-              const allPres = container.querySelectorAll("pre[data-language='mermaid']");
-              allPres.forEach(pre => {
-                const preEl = pre as HTMLElement;
-                const text = preEl.textContent?.trim() || "";
-                if (!text) return;
-                const key = text.substring(0, 80);
-                if (renderedMermaidKeys.has(key)) return;
-                renderedMermaidKeys.add(key);
-                // We can't render here (async), mark for next cycle
-              });
-            } catch { /* all approaches failed */ }
-          }
+          } catch { /* suppress */ }
         };
 
-        // Use MutationObserver to detect code blocks being added/changed
-        const mermaidObserver = new MutationObserver(() => {
-          if (!safeRef.current || tokenRef.current !== token) return;
+        // Trigger on content change (debounced)
+        const scheduleMermaid = () => {
           if (mermaidTimer) clearTimeout(mermaidTimer);
-          mermaidTimer = window.setTimeout(() => renderMermaidBlocks(), 400);
-        });
+          mermaidTimer = window.setTimeout(renderMermaid, 500);
+        };
+
+        // Use MutationObserver for DOM changes
+        const mermaidObserver = new MutationObserver(scheduleMermaid);
         mermaidObserver.observe(container, { childList: true, subtree: true, characterData: true });
 
         // Initial render
-        if (mermaidTimer) clearTimeout(mermaidTimer);
-        mermaidTimer = window.setTimeout(() => renderMermaidBlocks(), 800);
+        scheduleMermaid();
 
-        // Store cleanup in ref for access outside init scope
+        // Cleanup (store in ref for access outside init scope)
         const mermaidCleanup = () => {
           mermaidObserver.disconnect();
           if (mermaidTimer) clearTimeout(mermaidTimer);
           document.querySelectorAll(".zn-mermaid-wrapper").forEach(w => {
-            const bw = (w as any).__blockWrapper as HTMLElement | undefined;
-            if (bw) bw.style.display = "";
+            const prev = w.previousElementSibling as HTMLElement;
+            if (prev) prev.style.display = "";
             w.remove();
           });
-          renderedMermaidKeys.clear();
+          renderedMermaid.clear();
         };
         mermaidCleanupRef.current = mermaidCleanup;
 
 
-        // ---- Cursor tracking ----
+// ---- Cursor tracking ----
         const updateCursor = () => {
           const sel = window.getSelection();
           if (sel && sel.rangeCount > 0) {
@@ -435,8 +456,8 @@ export function Editor() {
       tokenRef.current = null;
       safeRef.current = false;
       editorReadyRef.current = false;
-      if (scrollSaveTimer.current) clearInterval(scrollSaveTimer.current);
       mermaidCleanupRef.current?.();
+      if (scrollSaveTimer.current) clearInterval(scrollSaveTimer.current);
       if (crepeRef.current) {
         try { crepeRef.current.destroy(); } catch { /* */ }
         crepeRef.current = null;

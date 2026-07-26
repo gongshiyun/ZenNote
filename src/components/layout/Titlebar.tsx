@@ -44,6 +44,41 @@ export function Titlebar() {
     getAppWindow().then(win => win?.close().catch(() => {}));
   }, []);
 
+    const openFile = useCallback(async () => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const { invoke } = await import("@tauri-apps/api/core");
+      const file = await open({ multiple: false, filters: [{ name: "Markdown", extensions: ["md"] }] });
+      if (file && typeof file === "string") {
+        const content = await invoke<string>("read_file", { path: file });
+        const store = useStore.getState();
+        store.setSelectedFile(file);
+        store.setCurrentFile(file, content);
+        if (!store.workspacePath) {
+          const parent = file.replace(/[\\\/][^\\\/]+$/, "");
+          store.setWorkspace(parent);
+          try { const tree = await invoke<any[]>("open_workspace", { path: parent }); store.setTree(tree); } catch {}
+        }
+      }
+    } catch {}
+  }, []);
+
+  const openFolder = useCallback(async () => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const { invoke } = await import("@tauri-apps/api/core");
+      const folder = await open({ directory: true, multiple: false, title: "Select notebook folder" });
+      if (folder && typeof folder === "string") {
+        const store = useStore.getState();
+        store.setWorkspace(folder);
+        store.setLoading(true);
+        const tree = await invoke<any[]>("open_workspace", { path: folder });
+        store.setTree(tree);
+        store.setLoading(false);
+      }
+    } catch {}
+  }, []);
+
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
     if (target.tagName === "BUTTON" || target.closest("button")) return;
@@ -59,6 +94,8 @@ export function Titlebar() {
         <TB tn={t().titlebar.toggleSidebar} onClick={toggleSidebar}><SidebarIcon /></TB>
         <TB tn={t().titlebar.toggleOutline} onClick={toggleOutline}><OutlineIcon /></TB>
         <TB tn={t().titlebar.toggleSource} onClick={() => setSourceMode(!sourceMode)} active={sourceMode}><SourceIcon /></TB>
+        <TB tn={t().titlebar.openFile} onClick={openFile}><OpenFileIcon /></TB>
+        <TB tn={t().titlebar.openFolder} onClick={openFolder}><OpenFolderIcon /></TB>
         <TB tn={t().titlebar.settings} onClick={() => setSettingsVisible(true)}><SettingsIcon /></TB>
       </div>
       <div style={{ flex: 1, textAlign: "center", fontSize: 13, color: "var(--text-secondary)", pointerEvents: "none" }}>{fileName}</div>
@@ -88,6 +125,8 @@ function WB(p: { children: React.ReactNode; onClick: () => void; tn?: string; is
     onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-secondary)"; }}>{p.children}</button>;
 }
 
+function OpenFileIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 2h4l2 2h5a1 1 0 011 1v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z"/></svg>); }
+function OpenFolderIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2 4a1 1 0 011-1h3l2 2h5a1 1 0 011 1v6a1 1 0 01-1 1H3a1 1 0 01-1-1V4z"/><rect x="6" y="10" width="4" height="3" rx="0.5" fill="currentColor"/></svg>); }
 function SidebarIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="1" y="2" width="5" height="12" rx="1"/><rect x="8" y="2" width="7" height="12" rx="1"/></svg>); }
 function SourceIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="3,6 1,8 3,10"/><polyline points="13,6 15,8 13,10"/><line x1="6" y1="3" x2="10" y2="13"/></svg>); }
 function OutlineIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="2" y1="4" x2="14" y2="4"/><line x1="2" y1="8" x2="12" y2="8"/><line x1="2" y1="12" x2="10" y2="12"/></svg>); }

@@ -18,7 +18,7 @@ function useAutoSave() {
   const autoSaveDelay = useStore(s => s.autoSaveDelay);
 
   useEffect(() => {
-    if (!isDirty || !currentFilePath) return;
+    if (!isDirty || !currentFilePath || autoSaveDelay <= 0) return;
     const timer = setTimeout(async () => {
       const s = useStore.getState();
       if (!s.isDirty || !s.currentFilePath) return;
@@ -177,6 +177,45 @@ export function AppShell() {
         e.preventDefault();
         const s = useStore.getState();
         if (s.currentFilePath && s.content) exportToHtml(s.content, s.currentFilePath);
+      }
+      else if (e.key === "o" && !e.shiftKey) {
+        e.preventDefault();
+        (async () => {
+          try {
+            const { open } = await import("@tauri-apps/plugin-dialog");
+            const { invoke } = await import("@tauri-apps/api/core");
+            const file = await open({ multiple: false, filters: [{ name: "Markdown", extensions: ["md"] }] });
+            if (file && typeof file === "string") {
+              const content = await invoke<string>("read_file", { path: file });
+              const s = useStore.getState();
+              s.setSelectedFile(file);
+              s.setCurrentFile(file, content);
+              if (!s.workspacePath) {
+                const parent = file.replace(/[\\\/][^\\\/]+$/, "");
+                s.setWorkspace(parent);
+                try { const t = await invoke<any[]>("open_workspace", { path: parent }); s.setTree(t); } catch {}
+              }
+            }
+          } catch {}
+        })();
+      }
+      else if (e.key === "o" && e.shiftKey) {
+        e.preventDefault();
+        (async () => {
+          try {
+            const { open } = await import("@tauri-apps/plugin-dialog");
+            const { invoke } = await import("@tauri-apps/api/core");
+            const folder = await open({ directory: true, multiple: false });
+            if (folder && typeof folder === "string") {
+              const s = useStore.getState();
+              s.setWorkspace(folder);
+              s.setLoading(true);
+              const t = await invoke<any[]>("open_workspace", { path: folder });
+              s.setTree(t);
+              s.setLoading(false);
+            }
+          } catch {}
+        })();
       }
       else if (e.key === "," && !e.shiftKey) {
         e.preventDefault();

@@ -189,7 +189,7 @@ export const useStore = create<EditorSlice & FileTreeSlice & OutlineSlice & Them
   // Config
   fontSize: 16,
   tabSize: 2,
-  autoSaveDelay: 2000,
+  autoSaveDelay: 0,  // 0 = disabled
   showHiddenFiles: false,
   showFileExtensions: true,
   defaultSourceMode: false,
