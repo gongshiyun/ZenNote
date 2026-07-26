@@ -36,6 +36,21 @@ export function Editor() {
     const container = containerRef.current;
     if (!container || !path) return;
 
+    // In source mode, destroy any existing editor and return (no Milkdown needed)
+    if (sourceMode) {
+      if (crepeRef.current) {
+        const oldCrepe = crepeRef.current;
+        crepeRef.current = null;
+        oldCrepe.destroy().catch(() => {});
+      }
+      tokenRef.current = null;
+      safeRef.current = false;
+      editorReadyRef.current = false;
+      setEditorReady(false);
+      if (container) container.innerHTML = "";
+      return;
+    }
+
     const token = {};
     tokenRef.current = token;
     safeRef.current = false;
@@ -212,7 +227,7 @@ export function Editor() {
         crepeRef.current = null;
       }
     };
-  }, [currentFilePath]);
+  }, [currentFilePath, sourceMode]);
 
   // Right-click table context menu handler
   useEffect(() => {

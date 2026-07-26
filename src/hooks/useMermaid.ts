@@ -2,79 +2,86 @@ import { useEffect, useRef } from "react";
 import { useStore } from "../store";
 
 let mermaidReady = false;
+let mermaidInitializedTheme = "";
 
-async function ensureMermaid() {
-  if (mermaidReady) return;
-  mermaidReady = true;
-  try {
-    const m = await import("mermaid");
-    m.default.initialize({
-      startOnLoad: false,
-      theme: "default",
-      securityLevel: "loose",
-    });
-  } catch { /* */ }
+async function ensureMermaid(theme: string) {
+  if (!mermaidReady || mermaidInitializedTheme !== theme) {
+    mermaidReady = true;
+    mermaidInitializedTheme = theme;
+    try {
+      const m = await import("mermaid");
+      m.default.initialize({
+        startOnLoad: false,
+        theme: theme === "dark" ? "dark" : "default",
+        securityLevel: "loose",
+      });
+    } catch { /* */ }
+  }
 }
 
 export function useMermaid() {
   const content = useStore(s => s.content);
   const currentFilePath = useStore(s => s.currentFilePath);
   const resolvedMode = useStore(s => s.resolvedMode);
-  const renderedRef = useRef(new Set<string>());
+  const sourceMode = useStore(s => s.sourceMode);
   const timerRef = useRef<number>(0);
 
-  useEffect(() => { ensureMermaid(); }, []);
-
-  // Reset rendered cache when file changes
+  // Init mermaid with current theme
   useEffect(() => {
-    renderedRef.current = new Set();
-  }, [currentFilePath]);
+    ensureMermaid(resolvedMode);
+  }, [resolvedMode]);
 
   useEffect(() => {
-    if (!currentFilePath) return;
+    // Don't render mermaid in source mode or if no file open
+    if (!currentFilePath || sourceMode) return;
 
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(async () => {
+      if (!mermaidReady) await ensureMermaid(resolvedMode);
       if (!mermaidReady) return;
 
-      try {
-        const m = await import("mermaid");
-        // Update theme based on resolved mode
-        m.default.initialize({
-          startOnLoad: false,
-          theme: resolvedMode === "dark" ? "dark" : "default",
-          securityLevel: "loose",
-        });
-      } catch { /* */ }
+      // Clean up previously rendered wrappers (mermaid content changed)
+      document.querySelectorAll(".zn-mermaid-wrapper").forEach(w => {
+        const pre = w.previousElementSibling;
+        if (pre && pre.tagName === "PRE") {
+          const preEl = pre as HTMLElement;
+          preEl.style.display = "";
+          delete preEl.dataset.mermaidDone;
+        }
+        w.remove();
+      });
 
+      // Milkdown stores language as: <pre data-language="mermaid"><code>...</code></pre>
+      // Also supports: <pre><code class="language-mermaid">...</code></pre>
       const blocks = document.querySelectorAll(
-        ".ProseMirror pre code.language-mermaid"
+        ".ProseMirror pre[data-language='mermaid'] code, .ProseMirror pre code.language-mermaid"
       );
-      for (const block of blocks) {
-        const text = block.textContent || "";
-        const key = text.substring(0, 80);
-        if (renderedRef.current.has(key)) continue;
-        renderedRef.current.add(key);
+
+      for (const code of blocks) {
+        const pre = code.closest("pre") as HTMLElement | null;
+        if (!pre || pre.dataset.mermaidDone === "1") continue;
+
+        const text = code.textContent || "";
+        if (!text.trim()) continue;
 
         try {
           const m = await import("mermaid");
           const id = "mermaid-" + Math.random().toString(36).slice(2, 10);
           const { svg } = await m.default.render(id, text);
-          const pre = block.parentElement;
-          if (pre && pre.tagName === "PRE") {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = svg;
-            wrapper.style.cssText =
-              "display:flex;justify-content:center;padding:16px 0;overflow-x:auto;";
-            // Add dark mode background for the SVG wrapper
-            if (resolvedMode === "dark") {
-              wrapper.style.background = "#2A2A2A";
-              wrapper.style.borderRadius = "8px";
-            }
-            pre.replaceWith(wrapper);
-          }
+
+          const wrapper = document.createElement("div");
+          wrapper.className = "zn-mermaid-wrapper";
+          wrapper.innerHTML = svg;
+          wrapper.style.cssText =
+            "display:flex;justify-content:center;padding:16px 0;overflow-x:auto;background:" +
+            (resolvedMode === "dark" ? "#2A2A2A" : "#F8F8F8") + ";border-radius:8px;";
+
+          // Hide <pre> (keep in DOM for ProseMirror) and insert SVG after
+          pre.style.display = "none";
+          pre.dataset.mermaidDone = "1";
+          pre.insertAdjacentElement("afterend", wrapper);
         } catch {
-          // Render failed, keep code block as fallback
+          // Render failed — keep code block as fallback
         }
       }
     }, 600);
@@ -82,5 +89,5 @@ export function useMermaid() {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [content, currentFilePath, resolvedMode]);
+  }, [content, currentFilePath, resolvedMode, sourceMode]);
 }
