@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: master
 nodes_managed: true
-exported_at: "2026-07-26T13:53:27Z"
+exported_at: "2026-07-26T15:02:15Z"
 modules:
     "":
-        dir_name: ZenNote 桌面应用（React + Tauri 全栈）
-        title: ZenNote 桌面应用（React + Tauri 全栈）
+        dir_name: ZenNote 桌面 Markdown 笔记应用根工程
+        title: ZenNote 桌面 Markdown 笔记应用根工程
         scope:
             - README.md
             - .gitignore
@@ -28,18 +28,17 @@ modules:
         depends_on: []
         related_to: []
     docs:
-        dir_name: ZenNote 项目文档（需求_技术_UI_UX_渲染规范）
-        title: ZenNote 项目文档（需求/技术/UI/UX/渲染规范）
+        dir_name: ZenNote 产品设计与技术规范文档集
+        title: ZenNote 产品设计与技术规范文档集
         scope:
             - docs/
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: frontend_app/app_shell
+        related_to: []
     frontend_app:
-        dir_name: ZenNote 前端应用（React + Zustand）
-        title: ZenNote 前端应用（React + Zustand）
+        dir_name: React Markdown 编辑器前端应用
+        title: React Markdown 编辑器前端应用
         scope:
             - src/
         source_files: []
@@ -59,8 +58,7 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: docs
+        related_to: []
     tauri_backend:
         dir_name: ZenNote Tauri 桌面后端
         title: ZenNote Tauri 桌面后端

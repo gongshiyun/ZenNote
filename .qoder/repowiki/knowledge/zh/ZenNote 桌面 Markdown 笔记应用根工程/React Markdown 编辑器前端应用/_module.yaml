@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: frontend_app
-title: ZenNote 前端应用（React + Zustand）
+title: React Markdown 编辑器前端应用
 scope:
     - src/
 source_files: []
