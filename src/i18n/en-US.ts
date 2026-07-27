@@ -41,7 +41,9 @@ const enUS = {
   "editor": {
     "loading": "Loading editor...",
     "openNote": "Open a note to start writing",
-    "initFailed": "Editor initialization failed"
+    "initFailed": "Editor initialization failed",
+    "zoomOpen": "Zoom in",
+    "zoomClose": "Close"
   },
   "outline": {
     "title": "Outline",

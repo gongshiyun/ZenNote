@@ -276,6 +276,14 @@ export function Editor() {
         const onPreviewClick = (e: MouseEvent) => {
           const target = e.target as HTMLElement;
           if (!target.closest(".preview-panel")) return;
+          // Zoom button: open the enlarged overlay instead of toggling edit mode.
+          const zoomBtn = target.closest(".zn-mermaid-zoom-btn");
+          if (zoomBtn) {
+            const panel = zoomBtn.closest(".preview-panel");
+            const svg = panel ? panel.querySelector(".preview svg") : null;
+            if (svg) openMermaidZoom(svg as SVGElement);
+            return;
+          }
           const cb = target.closest(".milkdown-code-block") as HTMLElement | null;
           if (!cb) return;
           const wasPreviewOnly = isPreviewOnly(cb);
@@ -303,6 +311,178 @@ export function Editor() {
         container.addEventListener("click", onPreviewClick);
         container.addEventListener("focusout", onCodeBlockBlur);
 
+        // ---- Mermaid zoom: enlarged floating view with resizable frame ----
+        let zoomOverlay: HTMLElement | null = null;
+
+        const onZoomKeydown = (e: KeyboardEvent) => {
+          if (e.key === "Escape") closeMermaidZoom();
+        };
+
+        function closeMermaidZoom() {
+          if (zoomOverlay) { zoomOverlay.remove(); zoomOverlay = null; }
+          document.removeEventListener("keydown", onZoomKeydown);
+        }
+
+        // Drag a handle to resize the zoom box. Directions: n/s/e/w/ne/nw/se/sw.
+        const startZoomResize = (ev: MouseEvent, box: HTMLElement, dir: string) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          const startX = ev.clientX, startY = ev.clientY;
+          const r = box.getBoundingClientRect();
+          const startW = r.width, startH = r.height, startL = r.left, startT = r.top;
+          const minW = 280, minH = 200;
+          const onMove = (e: MouseEvent) => {
+            const dx = e.clientX - startX, dy = e.clientY - startY;
+            let w = startW, h = startH, l = startL, t = startT;
+            if (dir.includes("e")) w = Math.max(minW, startW + dx);
+            if (dir.includes("s")) h = Math.max(minH, startH + dy);
+            if (dir.includes("w")) { w = Math.max(minW, startW - dx); l = startL + (startW - w); }
+            if (dir.includes("n")) { h = Math.max(minH, startH - dy); t = startT + (startH - h); }
+            box.style.width = w + "px"; box.style.height = h + "px";
+            box.style.left = l + "px"; box.style.top = t + "px";
+          };
+          const onUp = () => {
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+          };
+          document.addEventListener("mousemove", onMove);
+          document.addEventListener("mouseup", onUp);
+        };
+
+        function openMermaidZoom(svg: SVGElement) {
+          closeMermaidZoom();
+          const overlay = document.createElement("div");
+          overlay.className = "zn-mermaid-zoom-overlay";
+
+          const box = document.createElement("div");
+          box.className = "zn-mermaid-zoom-box";
+          const vw = window.innerWidth, vh = window.innerHeight;
+          const w = Math.min(vw * 0.85, 1400), h = vh * 0.85;
+          box.style.width = w + "px"; box.style.height = h + "px";
+          box.style.left = ((vw - w) / 2) + "px"; box.style.top = ((vh - h) / 2) + "px";
+
+          const closeBtn = document.createElement("button");
+          closeBtn.className = "zn-mermaid-zoom-close";
+          closeBtn.type = "button";
+          closeBtn.title = t().editor.zoomClose;
+          closeBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+          closeBtn.addEventListener("click", closeMermaidZoom);
+
+          const body = document.createElement("div");
+          body.className = "zn-mermaid-zoom-body";
+          const cloned = svg.cloneNode(true) as SVGElement;
+          cloned.removeAttribute("width");
+          cloned.removeAttribute("height");
+          cloned.style.maxWidth = "none";
+          cloned.style.maxHeight = "none";
+          cloned.style.flexShrink = "0";
+
+          // Zoom (wheel) & pan (drag diagram) state. The SVG is sized as a percentage
+          // of the body so it scales with the resizable box; panning translates it.
+          let zoom = 1, panX = 0, panY = 0;
+          const applyZoom = () => {
+            cloned.style.width = (100 * zoom) + "%";
+            cloned.style.height = (100 * zoom) + "%";
+          };
+          const applyPan = () => {
+            cloned.style.transform = "translate(" + panX + "px, " + panY + "px)";
+          };
+          applyZoom();
+
+          // Drag on the diagram itself -> pan the diagram (box stays put).
+          cloned.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const startX = e.clientX, startY = e.clientY;
+            const startPanX = panX, startPanY = panY;
+            const onMove = (ev: MouseEvent) => {
+              panX = startPanX + ev.clientX - startX;
+              panY = startPanY + ev.clientY - startY;
+              applyPan();
+            };
+            const onUp = () => {
+              document.removeEventListener("mousemove", onMove);
+              document.removeEventListener("mouseup", onUp);
+            };
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
+          });
+
+          body.appendChild(cloned);
+
+          box.appendChild(closeBtn);
+          box.appendChild(body);
+
+          // Drag on the box's empty area (not the diagram/close/handles) -> move the whole box.
+          box.addEventListener("mousedown", (e) => {
+            const tgt = e.target as Element;
+            if (tgt.closest(".zn-mermaid-zoom-close") || tgt.closest(".zn-mermaid-zoom-handle")) return;
+            if (tgt === cloned || cloned.contains(tgt)) return; // diagram pans instead
+            e.preventDefault();
+            const startX = e.clientX, startY = e.clientY;
+            const startL = parseFloat(box.style.left) || 0;
+            const startT = parseFloat(box.style.top) || 0;
+            const onMove = (ev: MouseEvent) => {
+              box.style.left = (startL + ev.clientX - startX) + "px";
+              box.style.top = (startT + ev.clientY - startY) + "px";
+            };
+            const onUp = () => {
+              document.removeEventListener("mousemove", onMove);
+              document.removeEventListener("mouseup", onUp);
+            };
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
+          });
+
+          ["n", "s", "e", "w", "ne", "nw", "se", "sw"].forEach((dir) => {
+            const handle = document.createElement("div");
+            handle.className = "zn-mermaid-zoom-handle zn-mermaid-zoom-handle-" + dir;
+            handle.addEventListener("mousedown", (ev) => startZoomResize(ev, box, dir));
+            box.appendChild(handle);
+          });
+
+          // Mouse wheel -> zoom the diagram in/out (centered).
+          overlay.addEventListener("wheel", (e) => {
+            e.preventDefault();
+            const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+            zoom = Math.min(10, Math.max(0.2, zoom * factor));
+            applyZoom();
+          }, { passive: false });
+
+          overlay.appendChild(box);
+          // Click on the dimmed background (outside the diagram box) closes the zoom view.
+          overlay.addEventListener("mousedown", (ev) => {
+            if (ev.target === overlay) closeMermaidZoom();
+          });
+
+          document.body.appendChild(overlay);
+          zoomOverlay = overlay;
+          document.addEventListener("keydown", onZoomKeydown);
+        }
+
+        // Ensure every mermaid preview panel has a zoom button (re-add after re-renders).
+        const ZOOM_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35M11 8v6M8 11h6"/></svg>';
+        const ensureZoomButtons = () => {
+          if (tokenRef.current !== token) return;
+          container.querySelectorAll(".milkdown-code-block .preview-panel").forEach((panel) => {
+            if (!panel.querySelector(".preview svg")) return; // only mermaid previews have an svg
+            if (panel.querySelector(".zn-mermaid-zoom-btn")) return;
+            const btn = document.createElement("button");
+            btn.className = "zn-mermaid-zoom-btn";
+            btn.type = "button";
+            btn.title = t().editor.zoomOpen;
+            btn.innerHTML = ZOOM_ICON;
+            panel.appendChild(btn);
+          });
+        };
+        let zoomBtnTimer = 0;
+        const zoomBtnObserver = new MutationObserver(() => {
+          if (zoomBtnTimer) return;
+          zoomBtnTimer = window.setTimeout(() => { zoomBtnTimer = 0; ensureZoomButtons(); }, 0);
+        });
+        zoomBtnObserver.observe(container, { childList: true, subtree: true });
+        ensureZoomButtons();
+
         focusCleanupRef.current = () => {
           container.removeEventListener("keyup", onFocusInput);
           container.removeEventListener("pointerup", onFocusInput);
@@ -311,6 +491,9 @@ export function Editor() {
           container.removeEventListener("click", onPreviewClick);
           container.removeEventListener("focusout", onCodeBlockBlur);
           document.removeEventListener("selectionchange", onSelChange);
+          zoomBtnObserver.disconnect();
+          if (zoomBtnTimer) clearTimeout(zoomBtnTimer);
+          closeMermaidZoom();
         };
 
         if (scrollPosition > 0) {

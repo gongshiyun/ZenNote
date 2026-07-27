@@ -281,6 +281,89 @@
 .dark [id^="mermaid-"] svg .arrowheadPath {
   fill: #999999 !important;
 }
+
+/* ===== Mermaid zoom (enlarged floating view) ===== */
+.milkdown .milkdown-code-block .preview-panel { position: relative; }
+
+.zn-mermaid-zoom-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-editor);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+  opacity: 0.85;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+.zn-mermaid-zoom-btn:hover { opacity: 1; color: var(--text-primary); }
+.zn-mermaid-zoom-btn svg { width: 15px; height: 15px; }
+
+.zn-mermaid-zoom-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 9999;
+}
+.zn-mermaid-zoom-box {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-editor);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+.zn-mermaid-zoom-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: rgba(127, 127, 127, 0.18);
+  color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+.zn-mermaid-zoom-close:hover { background: rgba(127, 127, 127, 0.32); }
+.zn-mermaid-zoom-close svg { width: 16px; height: 16px; }
+.zn-mermaid-zoom-body {
+  flex: 1;
+  overflow: hidden;
+  padding: 44px 16px 16px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: move;
+}
+.zn-mermaid-zoom-body svg { cursor: grab; }
+.zn-mermaid-zoom-body svg:active { cursor: grabbing; }
+
+/* Resize handles */
+.zn-mermaid-zoom-handle { position: absolute; z-index: 3; }
+.zn-mermaid-zoom-handle-n  { top: -4px;    left: 10px;  right: 10px; height: 8px;  cursor: n-resize; }
+.zn-mermaid-zoom-handle-s  { bottom: -4px; left: 10px;  right: 10px; height: 8px;  cursor: s-resize; }
+.zn-mermaid-zoom-handle-e  { right: -4px;  top: 10px;   bottom: 10px; width: 8px;  cursor: e-resize; }
+.zn-mermaid-zoom-handle-w  { left: -4px;   top: 10px;   bottom: 10px; width: 8px;  cursor: w-resize; }
+.zn-mermaid-zoom-handle-ne { top: -5px;    right: -5px; width: 14px; height: 14px; cursor: ne-resize; }
+.zn-mermaid-zoom-handle-nw { top: -5px;    left: -5px;  width: 14px; height: 14px; cursor: nw-resize; }
+.zn-mermaid-zoom-handle-se { bottom: -5px; right: -5px; width: 14px; height: 14px; cursor: se-resize; }
+.zn-mermaid-zoom-handle-sw { bottom: -5px; left: -5px;  width: 14px; height: 14px; cursor: sw-resize; }
 .dark .milkdown .ProseMirror {
   color: #E0E0E0 !important;
   caret-color: #E0E0E0 !important;

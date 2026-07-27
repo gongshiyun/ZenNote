@@ -41,7 +41,9 @@ const zhCN = {
   "editor": {
     "loading": "编辑器加载中...",
     "openNote": "打开一篇笔记开始写作",
-    "initFailed": "编辑器初始化失败"
+    "initFailed": "编辑器初始化失败",
+    "zoomOpen": "放大查看",
+    "zoomClose": "关闭"
   },
   "outline": {
     "title": "大纲",
