@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: master
 nodes_managed: true
-exported_at: "2026-07-27T14:53:47Z"
+exported_at: "2026-07-27T17:33:47Z"
 modules:
     "":
-        dir_name: ZenNote 桌面笔记应用（根工程）
-        title: ZenNote 桌面笔记应用（根工程）
+        dir_name: ZenNote 桌面笔记应用根工程
+        title: ZenNote 桌面笔记应用根工程
         scope:
             - README.md
             - .gitignore
@@ -37,8 +37,8 @@ modules:
         depends_on: []
         related_to: []
     frontend_app:
-        dir_name: ZenNote 前端应用（React + Vite + Zustand Markdown 编辑器）
-        title: ZenNote 前端应用（React + Vite + Zustand Markdown 编辑器）
+        dir_name: Markdown 编辑器前端应用
+        title: Markdown 编辑器前端应用
         scope:
             - src/
         source_files: []
