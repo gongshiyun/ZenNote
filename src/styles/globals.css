@@ -606,6 +606,20 @@
   color: #FEF9C3;
 }
 
+/* ===== Code block (CodeMirror) gutter / line-number contrast =====
+   The default active-line gutter number is near-black in light mode (too harsh).
+   Soften both normal and active line numbers using theme variables. */
+.milkdown .milkdown-code-block .cm-lineNumbers .cm-gutterElement {
+  color: var(--text-tertiary);
+}
+.milkdown .milkdown-code-block .cm-activeLineGutter {
+  color: var(--text-secondary) !important;
+  background: var(--crepe-color-surface-low) !important;
+}
+.milkdown .milkdown-code-block .cm-activeLine {
+  background: var(--crepe-color-surface-low) !important;
+}
+
 .dark .milkdown .ProseMirror {
   color: #E0E0E0 !important;
   caret-color: #E0E0E0 !important;

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useStore } from "../../store";
 import { t, setLocale } from "../../i18n";
+import { exportToHtml, exportToPdf } from "../../lib/exportNote";
 
 // Tauri window API - lazy init to survive browser dev
 let _appWindow: any = null;
@@ -29,6 +30,8 @@ export function Titlebar() {
   const [isMaximized, setIsMaximized] = useState(false);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const themeMenuRef = useRef<HTMLDivElement>(null);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     getAppWindow().then(win => {
@@ -46,6 +49,16 @@ export function Titlebar() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [themeMenuOpen]);
+
+  // Close export dropdown on outside click
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) setExportMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [exportMenuOpen]);
 
   const minimize = useCallback(() => {
     getAppWindow().then(win => win?.minimize().catch(() => {}));
@@ -74,6 +87,18 @@ export function Titlebar() {
       <div className="titlebar-no-drag" style={{ display: "flex", alignItems: "center", paddingLeft: 8, gap: 2 }}>
         <TB tn={t().titlebar.toggleSidebar} onClick={toggleSidebar}><SidebarIcon /></TB>
         <TB tn={t().titlebar.toggleOutline} onClick={toggleOutline}><OutlineIcon /></TB>
+        <div ref={exportMenuRef} style={{ position: "relative" }}>
+          <TB tn={t().titlebar.export} onClick={() => setExportMenuOpen(v => !v)} active={exportMenuOpen}><ExportIcon /></TB>
+          {exportMenuOpen && (
+            <ExportDropdown onSelect={(kind) => {
+              setExportMenuOpen(false);
+              const s = useStore.getState();
+              if (!s.currentFilePath || !s.content) return;
+              if (kind === "pdf") exportToPdf(s.content, s.currentFilePath);
+              else exportToHtml(s.content, s.currentFilePath);
+            }} />
+          )}
+        </div>
         <TB tn={t().titlebar.settings} onClick={() => setSettingsVisible(true)}><SettingsIcon /></TB>
       </div>
       <div style={{ flex: 1, textAlign: "center", fontSize: 13, color: "var(--text-secondary)", pointerEvents: "none" }}>{fileName}</div>
@@ -128,6 +153,32 @@ function MaxIcon() { return (<svg width="10" height="10" viewBox="0 0 10 10"><re
 function RestoreIcon() { return (<svg width="10" height="10" viewBox="0 0 10 10"><rect x="1" y="3" width="6" height="6" rx="1" fill="none" stroke="currentColor" strokeWidth="1"/><rect x="3" y="1" width="6" height="6" rx="1" fill="var(--bg-toolbar)" stroke="currentColor" strokeWidth="1"/></svg>); }
 function CloseIcon() { return (<svg width="10" height="10" viewBox="0 0 10 10"><line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>); }
 function PaletteIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M8 1.5a6.5 6.5 0 100 13c1.1 0 1.6-.7 1.6-1.5 0-.5-.2-.8-.5-1.1-.3-.3-.5-.6-.5-1.1 0-.8.7-1.5 1.5-1.5h1.4A3 3 0 0014.5 8c0-3.6-2.9-6.5-6.5-6.5z"/><circle cx="5.5" cy="6" r="0.9" fill="currentColor" stroke="none"/><circle cx="8" cy="4.5" r="0.9" fill="currentColor" stroke="none"/><circle cx="10.5" cy="6" r="0.9" fill="currentColor" stroke="none"/><circle cx="5" cy="9" r="0.9" fill="currentColor" stroke="none"/></svg>); }
+function ExportIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2v8"/><path d="M4.5 6.5L8 10l3.5-3.5"/><path d="M2.5 12.5v1a1 1 0 001 1h9a1 1 0 001-1v-1"/></svg>); }
+
+// ---- Export Dropdown ----
+function ExportDropdown({ onSelect }: { onSelect: (kind: "html" | "pdf") => void }) {
+  const item = (kind: "html" | "pdf", label: string, hint: string) => (
+    <div onClick={() => onSelect(kind)}
+      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "7px 12px", fontSize: 12, cursor: "pointer", borderRadius: 6, margin: "1px 4px", color: "var(--text-primary)" }}
+      onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+      onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
+      <span>{label}</span>
+      <span style={{ fontSize: 10, color: "var(--text-tertiary)" }}>{hint}</span>
+    </div>
+  );
+  return (
+    <div style={{
+      position: "absolute", top: "100%", left: 0, marginTop: 6, width: 210,
+      background: "var(--bg-toolbar)", border: "1px solid var(--border)",
+      borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", padding: "6px 0",
+      zIndex: 1000,
+    }}>
+      <div style={{ padding: "4px 12px 6px", fontSize: 11, fontWeight: 500, color: "var(--text-tertiary)" }}>{t().titlebar.export}</div>
+      {item("pdf", t().titlebar.exportPdf, "Ctrl+Shift+P")}
+      {item("html", t().titlebar.exportHtml, "Ctrl+Shift+E")}
+    </div>
+  );
+}
 
 // ---- Theme Dropdown ----
 const THEMES = [

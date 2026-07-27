@@ -191,8 +191,12 @@ export function FileTree() {
         const store = useStore.getState();
         store.setSelectedFile(file);
         store.setCurrentFile(file, content);
-        if (!store.workspacePath) {
-          const parent = file.replace(/[\\\/][^\\\/]+$/, "");
+        // Auto-add the file's directory as the workspace (shown in the sidebar)
+        // when it lies outside the current workspace.
+        const parent = file.replace(/[\\/][^\\/]+$/, "");
+        const ws = store.workspacePath;
+        const inCurrent = !!ws && (parent === ws || parent.startsWith(ws + "\\") || parent.startsWith(ws + "/"));
+        if (!inCurrent) {
           store.setWorkspace(parent);
           try { const t = await invoke<any[]>("open_workspace", { path: parent }); store.setTree(t); } catch {}
         }
