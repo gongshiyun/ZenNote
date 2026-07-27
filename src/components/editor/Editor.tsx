@@ -26,6 +26,46 @@ if (!codeMirrorLanguages.some((l) => l.name === "mermaid")) {
   codeMirrorLanguages.unshift(mermaidLanguage);
 }
 
+// Sanitize raw HTML before rendering (local notes, but strip obvious hazards).
+// Uses <template> so nothing executes during parsing.
+function sanitizeHtml(html: string): string {
+  const tpl = document.createElement("template");
+  tpl.innerHTML = html;
+  tpl.content.querySelectorAll("script, iframe, object, embed, link, meta, base").forEach(el => el.remove());
+  tpl.content.querySelectorAll("*").forEach(el => {
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase();
+      if (name.startsWith("on")) el.removeAttribute(attr.name);
+      else if ((name === "href" || name === "src") && attr.value.trim().toLowerCase().startsWith("javascript:")) el.removeAttribute(attr.name);
+    }
+  });
+  return tpl.innerHTML;
+}
+
+// Render simple markdown (links/bold/italic/code/lists) inside an HTML block's
+// inner text — Typora also processes markdown within block-level HTML tags.
+function renderInnerMarkdown(text: string): string {
+  let s = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+  s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+  const lines = s.split("\n");
+  let out = "", inList = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^[-*]\s+/.test(trimmed)) {
+      if (!inList) { out += "<ul>"; inList = true; }
+      out += "<li>" + trimmed.replace(/^[-*]\s+/, "") + "</li>";
+    } else {
+      if (inList) { out += "</ul>"; inList = false; }
+      if (trimmed) out += "<p>" + trimmed + "</p>";
+    }
+  }
+  if (inList) out += "</ul>";
+  return out;
+}
+
 export function Editor() {
   const currentFilePath = useStore(s => s.currentFilePath);
   const sourceMode = useStore(s => s.sourceMode);
@@ -42,6 +82,9 @@ export function Editor() {
   // Table context menu state
   const [tableMenuVisible, setTableMenuVisible] = useState(false);
   const [tableMenuPos, setTableMenuPos] = useState({ x: 0, y: 0 });
+  // Copy context menu state (right-click with text selected)
+  const [copyMenuVisible, setCopyMenuVisible] = useState(false);
+  const [copyMenuPos, setCopyMenuPos] = useState({ x: 0, y: 0 });
 
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -159,6 +202,37 @@ export function Editor() {
         crepeRef.current = crepe;
         if (tokenRef.current !== token) return;
 
+        // Override the commonmark "html" node to RENDER raw HTML (Typora-like)
+        // instead of showing escaped tag text. Must be done before create().
+        try {
+          const { htmlSchema } = await import("@milkdown/kit/preset/commonmark");
+          (crepe as any).editor.config((ctx: any) => {
+            ctx.update((htmlSchema as any).key, (prev: any) => (ctx2: any) => {
+              const spec = prev(ctx2);
+              return {
+                ...spec,
+                toDOM: (node: any) => {
+                  const value: string = node.attrs.value || "";
+                  const el = document.createElement("span");
+                  el.setAttribute("data-type", "html");
+                  el.setAttribute("data-value", value);
+                  const isBlock = /\n/.test(value) || /^<(div|p|h[1-6]|ul|ol|dl|table|blockquote|pre|section|article|cite|figure|details|header|footer|nav|aside|hr|form|fieldset|address|center)/i.test(value.trim());
+                  el.className = isBlock ? "zn-html-render zn-html-block" : "zn-html-render";
+                  // If the block is a single tag pair whose inner content is pure
+                  // markdown (no nested HTML), render the inner markdown too.
+                  const m = isBlock ? value.trim().match(/^<(\w+)([^>]*)>([\s\S]*)<\/\1>\s*$/) : null;
+                  if (m && !m[3].includes("<")) {
+                    el.innerHTML = sanitizeHtml("<" + m[1] + m[2] + ">" + renderInnerMarkdown(m[3]) + "</" + m[1] + ">");
+                  } else {
+                    el.innerHTML = sanitizeHtml(value);
+                  }
+                  return el;
+                },
+              };
+            });
+          });
+        } catch { /* html override is best-effort */ }
+
         await crepe.create();
         if (tokenRef.current !== token) return;
 
@@ -246,14 +320,15 @@ export function Editor() {
         container.addEventListener("pointerup", onFocusInput, { passive: true });
         container.addEventListener("click", onFocusInput, { passive: true });
         container.addEventListener("focusin", onFocusInput, { passive: true });
-        // Throttle selectionchange 鈥?fires very frequently during typing
+        // Throttle selectionchange — fires on EVERY mousemove during drag selection;
+        // 80ms keeps the status bar responsive without per-frame store churn.
         let selChangeTimer = 0;
         const onSelChange = () => {
           if (selChangeTimer) return;
           selChangeTimer = window.setTimeout(() => {
             selChangeTimer = 0;
             onFocusInput();
-          }, 0);
+          }, 80);
         };
         document.addEventListener("selectionchange", onSelChange);
 
@@ -478,7 +553,7 @@ export function Editor() {
         let zoomBtnTimer = 0;
         const zoomBtnObserver = new MutationObserver(() => {
           if (zoomBtnTimer) return;
-          zoomBtnTimer = window.setTimeout(() => { zoomBtnTimer = 0; ensureZoomButtons(); }, 0);
+          zoomBtnTimer = window.setTimeout(() => { zoomBtnTimer = 0; ensureZoomButtons(); }, 300);
         });
         zoomBtnObserver.observe(container, { childList: true, subtree: true });
         ensureZoomButtons();
@@ -525,7 +600,7 @@ export function Editor() {
     };
   }, [currentFilePath, sourceMode]);
 
-  // Right-click table context menu handler
+  // Right-click context menu: table menu inside tables, copy menu on text selection
   useEffect(() => {
     const container = containerRef.current;
     if (!container || sourceMode) return;
@@ -533,18 +608,45 @@ export function Editor() {
     const handler = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       const cell = target.closest("th, td") as HTMLElement | null;
-      if (!cell) return;
-      const tableBlock = target.closest(".milkdown-table-block");
-      if (!tableBlock) return;
-
-      e.preventDefault();
-      setTableMenuPos({ x: e.clientX, y: e.clientY });
-      setTableMenuVisible(true);
+      if (cell && target.closest(".milkdown-table-block")) {
+        e.preventDefault();
+        setCopyMenuVisible(false);
+        setTableMenuPos({ x: e.clientX, y: e.clientY });
+        setTableMenuVisible(true);
+        return;
+      }
+      // Non-table area: offer copy menu when there is a text selection
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed && sel.toString().length > 0 && container.contains(sel.anchorNode)) {
+        e.preventDefault();
+        setTableMenuVisible(false);
+        setCopyMenuPos({ x: e.clientX, y: e.clientY });
+        setCopyMenuVisible(true);
+      }
     };
 
+    const closeAll = () => { setCopyMenuVisible(false); };
     container.addEventListener("contextmenu", handler);
-    return () => container.removeEventListener("contextmenu", handler);
+    document.addEventListener("mousedown", closeAll);
+    return () => {
+      container.removeEventListener("contextmenu", handler);
+      document.removeEventListener("mousedown", closeAll);
+    };
   }, [sourceMode, editorReady]);
+
+  // Copy actions for the context menu
+  const copyPlainText = useCallback(() => {
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) {
+      navigator.clipboard.writeText(sel.toString()).catch(() => {});
+    }
+    setCopyMenuVisible(false);
+  }, []);
+  const copyMarkdown = useCallback(() => {
+    // execCommand("copy") triggers ProseMirror/Milkdown clipboard serializer (markdown)
+    document.execCommand("copy");
+    setCopyMenuVisible(false);
+  }, []);
 
   // Save scroll position periodically and on unmount
   useEffect(() => {
@@ -683,6 +785,29 @@ export function Editor() {
         onClose={() => setTableMenuVisible(false)}
         crepeRef={crepeRef}
       />
+      {/* Copy context menu (right-click with selection) */}
+      {copyMenuVisible && (
+        <div style={{
+          position: "fixed", left: copyMenuPos.x, top: copyMenuPos.y, zIndex: 1100,
+          background: "var(--bg-toolbar)", border: "1px solid var(--border)",
+          borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.18)", padding: "4px 0",
+          minWidth: 160,
+        }} onMouseDown={e => e.stopPropagation()}>
+          <CopyMenuItem label={t().editor.copyPlainText} onClick={copyPlainText} />
+          <CopyMenuItem label={t().editor.copyMarkdown} onClick={copyMarkdown} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CopyMenuItem({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <div onClick={onClick}
+      style={{ padding: "7px 14px", fontSize: 12, cursor: "pointer", color: "var(--text-primary)" }}
+      onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+      onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
+      {label}
     </div>
   );
 }

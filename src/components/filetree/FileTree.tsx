@@ -48,6 +48,41 @@ function ContextMenu({ state, onClose, onNewFile, onNewFolder, onRename, onDelet
   );
 }
 
+// ---- Recent Workspaces Dropdown ----
+function RecentWorkspacesDropdown({ current, recents, onSelect, onRemove }: {
+  current: string | null; recents: string[];
+  onSelect: (p: string) => void; onRemove: (p: string) => void;
+}) {
+  return (
+    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100, background: "var(--bg-toolbar)", borderBottom: "1px solid var(--border)", boxShadow: "0 4px 16px rgba(0,0,0,0.15)", maxHeight: 280, overflowY: "auto", padding: "4px 0" }}>
+      <div style={{ padding: "4px 12px 6px", fontSize: 11, fontWeight: 500, color: "var(--text-tertiary)" }}>{t().filetree.recentWorkspaces}</div>
+      {recents.length === 0 ? (
+        <div style={{ padding: "8px 12px", fontSize: 12, color: "var(--text-tertiary)" }}>{t().filetree.noNotes}</div>
+      ) : (
+        recents.map((p) => {
+          const name = p.split(/[\\/]/).pop() || p;
+          const isCurrent = p === current;
+          return (
+            <div key={p} onClick={() => onSelect(p)} title={p}
+              style={{ display: "flex", alignItems: "center", padding: "6px 12px", cursor: "pointer", fontSize: 13, color: isCurrent ? "var(--text-accent)" : "var(--text-primary)", background: isCurrent ? "var(--bg-sidebar-active)" : "transparent", whiteSpace: "nowrap" }}
+              onMouseEnter={e => { if (!isCurrent) e.currentTarget.style.background = "var(--bg-sidebar-hover)"; }}
+              onMouseLeave={e => { if (!isCurrent) e.currentTarget.style.background = "transparent"; }}>
+              <span style={{ marginRight: 6, flexShrink: 0 }}>{"\uD83D\uDCC1"}</span>
+              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span>
+              <span
+                onClick={(e) => { e.stopPropagation(); onRemove(p); }}
+                title={t().filetree.removeWorkspace}
+                style={{ marginLeft: 6, flexShrink: 0, width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, color: "var(--text-tertiary)", fontSize: 11 }}
+                onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "#E81123"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-tertiary)"; }}>{"\u2715"}</span>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
 // ---- FileTree ----
 export function FileTree() {
   const tree = useStore(s => s.tree);
@@ -58,9 +93,13 @@ export function FileTree() {
   const setSelectedFile = useStore(s => s.setSelectedFile);
   const setCurrentFile = useStore(s => s.setCurrentFile);
   const setTree = useStore(s => s.setTree);
+  const recentWorkspaces = useStore(s => s.recentWorkspaces);
+  const removeRecentWorkspace = useStore(s => s.removeRecentWorkspace);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [focusIndex, setFocusIndex] = useState(-1);
+  const [showWorkspaces, setShowWorkspaces] = useState(false);
   const treeRef = useRef<HTMLDivElement>(null);
+  const workspaceAreaRef = useRef<HTMLDivElement>(null);
 
   const flatNodes = useMemo(() => flattenTree(tree, expandedFolders), [tree, expandedFolders]);
 
@@ -129,6 +168,56 @@ export function FileTree() {
     } catch { /* */ }
   }, [refreshTree]);
 
+  // Switch to a workspace: update current + recents, then load its tree.
+  const switchWorkspace = useCallback(async (path: string) => {
+    const store = useStore.getState();
+    store.setWorkspace(path);
+    store.setLoading(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const t = await invoke<any[]>("open_workspace", { path });
+      store.setTree(t);
+    } catch { store.setTree([]); }
+    store.setLoading(false);
+  }, []);
+
+  const handleOpenFileDialog = useCallback(async () => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const { invoke } = await import("@tauri-apps/api/core");
+      const file = await open({ multiple: false, filters: [{ name: "Markdown", extensions: ["md"] }] });
+      if (file && typeof file === "string") {
+        const content = await invoke<string>("read_file", { path: file });
+        const store = useStore.getState();
+        store.setSelectedFile(file);
+        store.setCurrentFile(file, content);
+        if (!store.workspacePath) {
+          const parent = file.replace(/[\\\/][^\\\/]+$/, "");
+          store.setWorkspace(parent);
+          try { const t = await invoke<any[]>("open_workspace", { path: parent }); store.setTree(t); } catch {}
+        }
+      }
+    } catch { /* */ }
+  }, []);
+
+  const handleOpenFolderDialog = useCallback(async () => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const folder = await open({ directory: true, multiple: false, title: t().filetree.openFolder });
+      if (folder && typeof folder === "string") switchWorkspace(folder);
+    } catch { /* */ }
+  }, [switchWorkspace]);
+
+  // Close the workspace dropdown when clicking outside of it.
+  useEffect(() => {
+    if (!showWorkspaces) return;
+    const h = (e: MouseEvent) => {
+      if (workspaceAreaRef.current && !workspaceAreaRef.current.contains(e.target as Node)) setShowWorkspaces(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [showWorkspaces]);
+
   // Keyboard navigation
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -183,13 +272,33 @@ export function FileTree() {
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      <div style={{ height: 32, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", flexShrink: 0 }}>
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t().filetree.folder}: {workspaceName}</span>
-        <button onClick={() => handleNewFile()} title={t().filetree.newNote + " (Ctrl+N)"}
-          style={{ border: "none", background: "transparent", color: "var(--text-secondary)", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px", borderRadius: 4 }}
-          onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>+</button>
+      {/* Action row: open file / open folder / new note */}
+      <div style={{ height: 36, display: "flex", alignItems: "center", padding: "0 8px", gap: 2, borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+        <HeaderBtn title={t().filetree.openFile} onClick={handleOpenFileDialog}><OpenFileIcon /></HeaderBtn>
+        <HeaderBtn title={t().filetree.openFolder} onClick={handleOpenFolderDialog}><OpenFolderIcon /></HeaderBtn>
+        <div style={{ flex: 1 }} />
+        <HeaderBtn title={t().filetree.newNote + " (Ctrl+N)"} onClick={() => handleNewFile()}>+</HeaderBtn>
       </div>
+
+      {/* Workspace selector with recent-workspaces dropdown */}
+      <div ref={workspaceAreaRef} style={{ position: "relative", flexShrink: 0 }}>
+        <div onClick={() => setShowWorkspaces(v => !v)}
+          style={{ height: 32, display: "flex", alignItems: "center", padding: "0 12px", cursor: "pointer", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", background: showWorkspaces ? "var(--bg-hover)" : "transparent", userSelect: "none" }}
+          onMouseEnter={e => { if (!showWorkspaces) e.currentTarget.style.background = "var(--bg-hover)"; }}
+          onMouseLeave={e => { if (!showWorkspaces) e.currentTarget.style.background = "transparent"; }}>
+          <span style={{ marginRight: 6, flexShrink: 0 }}>{"\uD83D\uDCC1"}</span>
+          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{workspaceName || t().filetree.folder}</span>
+          <span style={{ fontSize: 9, marginLeft: 4, flexShrink: 0, transform: showWorkspaces ? "rotate(180deg)" : "none", transition: "transform 150ms ease" }}>{"\u25BC"}</span>
+        </div>
+        {showWorkspaces && (
+          <RecentWorkspacesDropdown
+            current={workspacePath}
+            recents={recentWorkspaces}
+            onSelect={(p) => { setShowWorkspaces(false); switchWorkspace(p); }}
+            onRemove={removeRecentWorkspace} />
+        )}
+      </div>
+
       <div ref={treeRef} tabIndex={0} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "4px 0", outline: "none" }}>
         {tree.length === 0 ? (
           <div style={{ padding: "16px 12px", fontSize: 12, color: "var(--text-tertiary)", textAlign: "center" }}>{t().filetree.noNotes}</div>
@@ -246,3 +355,14 @@ function FileTreeNode({ node, depth, selectedFilePath, expandedFolders, onToggle
     </>
   );
 }
+
+// ---- Header action button ----
+function HeaderBtn(p: { children: React.ReactNode; onClick: () => void; title?: string }) {
+  return <button onClick={p.onClick} title={p.title}
+    style={{ width: 28, height: 26, display: "flex", alignItems: "center", justifyContent: "center", border: "none", borderRadius: 6, background: "transparent", color: "var(--text-secondary)", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0, transition: "background-color 120ms ease" }}
+    onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>{p.children}</button>;
+}
+
+function OpenFileIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 2h4l2 2h5a1 1 0 011 1v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z"/></svg>); }
+function OpenFolderIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2 4a1 1 0 011-1h3l2 2h5a1 1 0 011 1v6a1 1 0 01-1 1H3a1 1 0 01-1-1V4z"/><rect x="6" y="10" width="4" height="3" rx="0.5" fill="currentColor"/></svg>); }

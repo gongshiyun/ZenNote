@@ -1,4 +1,5 @@
-﻿import { create } from "zustand";
+import { create } from "zustand";
+import { getLocale } from "../i18n";
 
 // ---- Types ----
 export interface FileNode {
@@ -48,6 +49,7 @@ interface FileTreeSlice {
   selectedFilePath: string | null;
   setWorkspace: (path: string) => void;
   setRecentWorkspaces: (paths: string[]) => void;
+  removeRecentWorkspace: (path: string) => void;
   setTree: (tree: FileNode[]) => void;
   toggleFolder: (path: string) => void;
   setExpandedFolders: (paths: string[]) => void;
@@ -65,8 +67,12 @@ interface OutlineSlice {
 interface ThemeSlice {
   mode: ThemeMode;
   resolvedMode: "light" | "dark";
+  themeId: string;
+  fontFamily: string;
   setMode: (mode: ThemeMode) => void;
   setResolvedMode: (mode: "light" | "dark") => void;
+  setThemeId: (id: string) => void;
+  setFontFamily: (f: string) => void;
 }
 
 interface ConfigSlice {
@@ -129,7 +135,10 @@ export const useStore = create<EditorSlice & FileTreeSlice & OutlineSlice & Them
   setContent: (content) => set({ content, isDirty: true }),
   setDirty: (dirty) => set({ isDirty: dirty }),
   setSourceMode: (mode) => set({ sourceMode: mode }),
-  setCursorPosition: (line, col) => set({ cursorLine: line, cursorCol: col }),
+  setCursorPosition: (line, col) => {
+    const s = get();
+    if (s.cursorLine !== line || s.cursorCol !== col) set({ cursorLine: line, cursorCol: col });
+  },
   setScrollPosition: (pos) => set({ scrollPosition: pos }),
   cacheCurrentFileState: () => {
     const { currentFilePath, content, scrollPosition, cursorLine, cursorCol, fileStates } = get();
@@ -162,6 +171,7 @@ export const useStore = create<EditorSlice & FileTreeSlice & OutlineSlice & Them
     set({ workspacePath: path, recentWorkspaces: recents.slice(0, 5) });
   },
   setRecentWorkspaces: (paths) => set({ recentWorkspaces: paths }),
+  removeRecentWorkspace: (path) => set({ recentWorkspaces: get().recentWorkspaces.filter(p => p !== path) }),
   setTree: (tree) => set({ tree }),
   toggleFolder: (path) => {
     const expanded = [...get().expandedFolders];
@@ -183,8 +193,12 @@ export const useStore = create<EditorSlice & FileTreeSlice & OutlineSlice & Them
   // Theme
   mode: "system",
   resolvedMode: "light",
+  themeId: "zen",
+  fontFamily: "sans",
   setMode: (mode) => set({ mode }),
   setResolvedMode: (mode) => set({ resolvedMode: mode }),
+  setThemeId: (id) => set({ themeId: id }),
+  setFontFamily: (f) => set({ fontFamily: f }),
 
   // Config
   fontSize: 16,
@@ -200,8 +214,8 @@ export const useStore = create<EditorSlice & FileTreeSlice & OutlineSlice & Them
   setShowFileExtensions: (v) => set({ showFileExtensions: v }),
   setDefaultSourceMode: (v) => set({ defaultSourceMode: v }),
 
-  // Locale
-  locale: "zh-CN",
+  // Locale (init from persisted i18n module value to avoid mismatch on restart)
+  locale: getLocale(),
   setLocale: (locale) => set({ locale }),
 
   // UI

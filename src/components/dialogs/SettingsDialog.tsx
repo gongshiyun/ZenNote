@@ -2,6 +2,14 @@ import { useStore } from "../../store";
 import { t, setLocale } from "../../i18n";
 import { useRef, useEffect } from "react";
 
+const SETTINGS_THEMES = [
+  { id: "zen", label: "Zen", colors: ["#3B82F6", "#FFFFFF", "#1E1E1E"] },
+  { id: "github", label: "GitHub", colors: ["#0969DA", "#F6F8FA", "#0D1117"] },
+  { id: "notion", label: "Notion", colors: ["#2383E2", "#F7F7F5", "#191919"] },
+  { id: "paper", label: "Paper", colors: ["#B4823C", "#FBF7F0", "#2A2520"] },
+  { id: "ocean", label: "Ocean", colors: ["#1E64B4", "#F5F8FC", "#0F1923"] },
+];
+
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const fontSize = useStore(s => s.fontSize);
   const setFontSize = useStore(s => s.setFontSize);
@@ -17,6 +25,10 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const setDefaultSourceMode = useStore(s => s.setDefaultSourceMode);
   const mode = useStore(s => s.mode);
   const setMode = useStore(s => s.setMode);
+  const themeId = useStore(s => s.themeId);
+  const setThemeId = useStore(s => s.setThemeId);
+  const fontFamily = useStore(s => s.fontFamily);
+  const setFontFamily = useStore(s => s.setFontFamily);
   const locale = useStore(s => s.locale);
   const storeSetLocale = useStore(s => s.setLocale);
 
@@ -92,6 +104,32 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                   }}>{t.label}</button>
                 ))}
               </div>
+            </Row>
+            <Row label={t().settings.themeStyle}>
+              <div style={{ display: "flex", gap: 6 }}>
+                {SETTINGS_THEMES.map(th => (
+                  <button key={th.id} onClick={() => setThemeId(th.id)} title={th.label} style={{
+                    width: 32, height: 32, borderRadius: 8, cursor: "pointer", padding: 0,
+                    border: themeId === th.id ? "2px solid var(--text-accent)" : "1px solid var(--border)",
+                    background: "linear-gradient(135deg, " + th.colors[1] + " 50%, " + th.colors[2] + " 50%)",
+                    position: "relative", overflow: "hidden", transition: "border 120ms ease",
+                  }}>
+                    <span style={{ position: "absolute", top: 3, left: 3, width: 8, height: 8, borderRadius: "50%", background: th.colors[0] }} />
+                  </button>
+                ))}
+              </div>
+            </Row>
+            <Row label={t().settings.fontFamily}>
+              <select value={fontFamily} onChange={e => setFontFamily(e.target.value)} style={{
+                padding: "4px 8px", fontSize: 12, borderRadius: 6,
+                border: "1px solid var(--border)", background: "var(--bg-sidebar)",
+                color: "var(--text-primary)", cursor: "pointer", outline: "none",
+              }}>
+                <option value="sans">{t().settings.fontSans}</option>
+                <option value="serif">{t().settings.fontSerif}</option>
+                <option value="mono">{t().settings.fontMono}</option>
+                <option value="kai">{t().settings.fontKai}</option>
+              </select>
             </Row>
             <Row label={t().settings.fontSize}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

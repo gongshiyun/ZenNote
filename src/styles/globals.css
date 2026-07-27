@@ -67,6 +67,212 @@
 }
 
 /* ========================================
+   Additional Color Themes (light + dark variants)
+   Applied via data-theme attribute on <html>
+   "zen" is the default (variables above).
+   ======================================== */
+
+/* ---- GitHub Theme ---- */
+:root[data-theme="github"] {
+  --bg-editor: #FFFFFF;
+  --bg-sidebar: #F6F8FA;
+  --bg-statusbar: #F6F8FA;
+  --bg-toolbar: #FFFFFF;
+  --bg-hover: #EFF1F3;
+  --bg-sidebar-hover: #EAECEF;
+  --bg-sidebar-active: #DDDFE2;
+  --bg-code: #EFF1F3;
+  --bg-drop-overlay: rgba(9, 105, 218, 0.08);
+  --text-primary: #1F2328;
+  --text-secondary: #656D76;
+  --text-tertiary: #8C959F;
+  --text-accent: #0969DA;
+  --text-markdown-mark: #B3B9C0;
+  --border: #D0D7DE;
+  --border-light: #E8EBEE;
+  --selection-bg: #B6D5F5;
+  --scrollbar-thumb: #C4CAD1;
+  --titlebar-btn-hover: #EFF1F3;
+  --titlebar-close-hover: #E81123;
+}
+:root[data-theme="github"].dark {
+  --bg-editor: #0D1117;
+  --bg-sidebar: #161B22;
+  --bg-statusbar: #161B22;
+  --bg-toolbar: #0D1117;
+  --bg-hover: #1C2128;
+  --bg-sidebar-hover: #1C2128;
+  --bg-sidebar-active: #262C36;
+  --bg-code: #161B22;
+  --bg-drop-overlay: rgba(47, 133, 255, 0.1);
+  --text-primary: #E6EDF3;
+  --text-secondary: #8B949E;
+  --text-tertiary: #6E7681;
+  --text-accent: #58A6FF;
+  --text-markdown-mark: #6E7681;
+  --border: #30363D;
+  --border-light: #21262D;
+  --selection-bg: #1C3A5E;
+  --scrollbar-thumb: #484F58;
+  --titlebar-btn-hover: #1C2128;
+  --titlebar-close-hover: #E81123;
+}
+
+/* ---- Notion Theme ---- */
+:root[data-theme="notion"] {
+  --bg-editor: #FFFFFF;
+  --bg-sidebar: #F7F7F5;
+  --bg-statusbar: #F7F7F5;
+  --bg-toolbar: #FFFFFF;
+  --bg-hover: #EFEFEF;
+  --bg-sidebar-hover: #E9E9E7;
+  --bg-sidebar-active: #DFDFDD;
+  --bg-code: #F4F4F2;
+  --bg-drop-overlay: rgba(55, 53, 47, 0.06);
+  --text-primary: #37352F;
+  --text-secondary: #787774;
+  --text-tertiary: #9B9A97;
+  --text-accent: #2383E2;
+  --text-markdown-mark: #C3C2BF;
+  --border: #E9E9E7;
+  --border-light: #F1F1EF;
+  --selection-bg: #D4E4F6;
+  --scrollbar-thumb: #D3D3D0;
+  --titlebar-btn-hover: #EFEFEF;
+  --titlebar-close-hover: #E81123;
+}
+:root[data-theme="notion"].dark {
+  --bg-editor: #191919;
+  --bg-sidebar: #202020;
+  --bg-statusbar: #202020;
+  --bg-toolbar: #191919;
+  --bg-hover: #2C2C2C;
+  --bg-sidebar-hover: #2C2C2C;
+  --bg-sidebar-active: #373737;
+  --bg-code: #252525;
+  --bg-drop-overlay: rgba(147, 197, 253, 0.08);
+  --text-primary: #D4D4D4;
+  --text-secondary: #909090;
+  --text-tertiary: #5F5F5F;
+  --text-accent: #529CCA;
+  --text-markdown-mark: #5F5F5F;
+  --border: #373737;
+  --border-light: #2C2C2C;
+  --selection-bg: #2C3E50;
+  --scrollbar-thumb: #4A4A4A;
+  --titlebar-btn-hover: #2C2C2C;
+  --titlebar-close-hover: #E81123;
+}
+
+/* ---- Paper Theme (warm) ---- */
+:root[data-theme="paper"] {
+  --bg-editor: #FBF7F0;
+  --bg-sidebar: #F4EEE4;
+  --bg-statusbar: #F4EEE4;
+  --bg-toolbar: #FBF7F0;
+  --bg-hover: #EDE7DC;
+  --bg-sidebar-hover: #EAE3D7;
+  --bg-sidebar-active: #E0D8CA;
+  --bg-code: #F0EAE0;
+  --bg-drop-overlay: rgba(180, 130, 60, 0.08);
+  --text-primary: #3D3830;
+  --text-secondary: #8A8278;
+  --text-tertiary: #B0A898;
+  --text-accent: #B4823C;
+  --text-markdown-mark: #C8BFAF;
+  --border: #E2DACE;
+  --border-light: #EBE4D9;
+  --selection-bg: #E8DCC8;
+  --scrollbar-thumb: #CFC6B6;
+  --titlebar-btn-hover: #EDE7DC;
+  --titlebar-close-hover: #C0392B;
+}
+:root[data-theme="paper"].dark {
+  --bg-editor: #2A2520;
+  --bg-sidebar: #322C26;
+  --bg-statusbar: #322C26;
+  --bg-toolbar: #2A2520;
+  --bg-hover: #3B342D;
+  --bg-sidebar-hover: #3B342D;
+  --bg-sidebar-active: #463E35;
+  --bg-code: #352F28;
+  --bg-drop-overlay: rgba(216, 162, 92, 0.1);
+  --text-primary: #E8E0D4;
+  --text-secondary: #A89E90;
+  --text-tertiary: #7A7062;
+  --text-accent: #D8A25C;
+  --text-markdown-mark: #7A7062;
+  --border: #4A4238;
+  --border-light: #3B342D;
+  --selection-bg: #4E4234;
+  --scrollbar-thumb: #5A5044;
+  --titlebar-btn-hover: #3B342D;
+  --titlebar-close-hover: #C0392B;
+}
+
+/* ---- Ocean Theme (deep blue) ---- */
+:root[data-theme="ocean"] {
+  --bg-editor: #F5F8FC;
+  --bg-sidebar: #EBF1F8;
+  --bg-statusbar: #EBF1F8;
+  --bg-toolbar: #F5F8FC;
+  --bg-hover: #E2EAF3;
+  --bg-sidebar-hover: #DDE6F0;
+  --bg-sidebar-active: #D0DDEA;
+  --bg-code: #E8EFF6;
+  --bg-drop-overlay: rgba(30, 100, 180, 0.08);
+  --text-primary: #1B2B3C;
+  --text-secondary: #5C7186;
+  --text-tertiary: #8FA3B5;
+  --text-accent: #1E64B4;
+  --text-markdown-mark: #A8BAC9;
+  --border: #D4E0EB;
+  --border-light: #E4EDF5;
+  --selection-bg: #C8DCF0;
+  --scrollbar-thumb: #BCCBD9;
+  --titlebar-btn-hover: #E2EAF3;
+  --titlebar-close-hover: #E81123;
+}
+:root[data-theme="ocean"].dark {
+  --bg-editor: #0F1923;
+  --bg-sidebar: #152230;
+  --bg-statusbar: #152230;
+  --bg-toolbar: #0F1923;
+  --bg-hover: #1C2D3E;
+  --bg-sidebar-hover: #1C2D3E;
+  --bg-sidebar-active: #24384C;
+  --bg-code: #162636;
+  --bg-drop-overlay: rgba(94, 166, 234, 0.1);
+  --text-primary: #D6E2EE;
+  --text-secondary: #7E96AC;
+  --text-tertiary: #546B80;
+  --text-accent: #5EA6EA;
+  --text-markdown-mark: #546B80;
+  --border: #24384C;
+  --border-light: #1C2D3E;
+  --selection-bg: #1E3A54;
+  --scrollbar-thumb: #34506A;
+  --titlebar-btn-hover: #1C2D3E;
+  --titlebar-close-hover: #E81123;
+}
+
+/* ========================================
+   Font System (data-font attribute on <html>)
+   ======================================== */
+:root {
+  --zn-font-stack: "Microsoft YaHei", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+}
+:root[data-font="serif"] {
+  --zn-font-stack: Georgia, Cambria, "Noto Serif SC", "SimSun", "Times New Roman", serif;
+}
+:root[data-font="mono"] {
+  --zn-font-stack: "Cascadia Code", "JetBrains Mono", "Fira Code", Consolas, "Microsoft YaHei", monospace;
+}
+:root[data-font="kai"] {
+  --zn-font-stack: "KaiTi", "楷体", "STKaiti", Georgia, serif;
+}
+
+/* ========================================
    Milkdown Crepe Theme Variables
    These control ALL floating UI:
    toolbar, slash menu, link preview, image-block, table handles
@@ -92,7 +298,7 @@
   --crepe-color-selected: #E8E8E8;
   --crepe-color-inline-area: #EEEEEE;
   --crepe-font-title: Georgia, Cambria, "Times New Roman", Times, serif;
-  --crepe-font-default: "Microsoft YaHei", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  --crepe-font-default: var(--zn-font-stack);
   --crepe-font-code: "Cascadia Code", "Fira Code", Consolas, "Microsoft YaHei", monospace;
   --crepe-shadow-1: 0px 1px 3px 1px rgba(0,0,0,0.12), 0px 1px 2px 0px rgba(0,0,0,0.08);
   --crepe-shadow-2: 0px 2px 6px 2px rgba(0,0,0,0.12), 0px 1px 2px 0px rgba(0,0,0,0.08);
@@ -118,7 +324,7 @@
   --crepe-color-selected: #454545;
   --crepe-color-inline-area: #333333;
   --crepe-font-title: Georgia, Cambria, "Times New Roman", Times, serif;
-  --crepe-font-default: "Microsoft YaHei", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  --crepe-font-default: var(--zn-font-stack);
   --crepe-font-code: "Cascadia Code", "Fira Code", Consolas, "Microsoft YaHei", monospace;
   --crepe-shadow-1: 0px 1px 3px 1px rgba(0,0,0,0.5), 0px 1px 2px 0px rgba(0,0,0,0.4);
   --crepe-shadow-2: 0px 2px 6px 2px rgba(0,0,0,0.5), 0px 1px 2px 0px rgba(0,0,0,0.4);
@@ -364,6 +570,42 @@
 .zn-mermaid-zoom-handle-nw { top: -5px;    left: -5px;  width: 14px; height: 14px; cursor: nw-resize; }
 .zn-mermaid-zoom-handle-se { bottom: -5px; right: -5px; width: 14px; height: 14px; cursor: se-resize; }
 .zn-mermaid-zoom-handle-sw { bottom: -5px; left: -5px;  width: 14px; height: 14px; cursor: sw-resize; }
+
+/* ===== Rendered raw HTML blocks (Typora-like) ===== */
+.milkdown .ProseMirror span.zn-html-render { color: inherit; }
+.milkdown .ProseMirror span.zn-html-render.zn-html-block {
+  display: block;
+  margin: 0.5em 0;
+}
+.milkdown .ProseMirror span.zn-html-render cite {
+  display: block;
+  font-style: normal;
+  padding: 10px 16px;
+  border-left: 3px solid var(--border);
+  background: var(--bg-code);
+  border-radius: 0 6px 6px 0;
+  color: var(--text-secondary);
+  font-size: 0.92em;
+}
+.milkdown .ProseMirror span.zn-html-render kbd {
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--bg-code);
+  font-family: var(--crepe-font-code);
+  font-size: 0.85em;
+}
+.milkdown .ProseMirror span.zn-html-render mark {
+  background: #FEF08A;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+.dark .milkdown .ProseMirror span.zn-html-render mark {
+  background: #854D0E;
+  color: #FEF9C3;
+}
+
 .dark .milkdown .ProseMirror {
   color: #E0E0E0 !important;
   caret-color: #E0E0E0 !important;
@@ -541,7 +783,7 @@
 html, body, #root {
   height: 100%;
   overflow: hidden;
-  font-family: "Microsoft YaHei", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--zn-font-stack);
   font-size: 13px;
   color: var(--text-primary);
   background: var(--bg-editor);

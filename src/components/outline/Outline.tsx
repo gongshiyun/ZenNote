@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useCallback, useRef } from "react";
+import { useEffect, useMemo, useCallback, useRef } from "react";
 import { useStore } from "../../store";
 import { t } from "../../i18n";
 
@@ -76,6 +76,20 @@ export function Outline() {
 
   const handleClick = useCallback((displayIdx: number) => {
     setActiveHeading(String(displayIdx));
+    const heading = displayHeadings[displayIdx];
+    if (!heading) return;
+
+    // Source mode: scroll the textarea to the heading's line
+    if (sourceMode) {
+      const ta = document.querySelector("textarea") as HTMLTextAreaElement | null;
+      if (!ta) return;
+      const lines = ta.value.split("\n");
+      let charPos = 0;
+      for (let i = 0; i < heading.pos && i < lines.length; i++) charPos += lines[i].length + 1;
+      ta.focus();
+      ta.setSelectionRange(charPos, charPos);
+      return;
+    }
 
     const pm = document.querySelector(".ProseMirror");
     if (!pm) return;
@@ -86,7 +100,7 @@ export function Outline() {
 
     // Use native scrollIntoView — works regardless of scroll container nesting
     target.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [setActiveHeading]);
+  }, [setActiveHeading, displayHeadings, sourceMode]);
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>

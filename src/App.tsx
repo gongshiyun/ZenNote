@@ -5,6 +5,8 @@ import { AppShell } from './components/layout/AppShell';
 function App() {
   const mode = useStore(s => s.mode);
   const setResolvedMode = useStore(s => s.setResolvedMode);
+  const themeId = useStore(s => s.themeId);
+  const fontFamily = useStore(s => s.fontFamily);
 
   // Resolve theme (system / light / dark)
   useEffect(() => {
@@ -25,6 +27,15 @@ function App() {
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, [mode, setResolvedMode]);
+
+  // Apply color theme + font attributes
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', themeId);
+  }, [themeId]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-font', fontFamily);
+  }, [fontFamily]);
 
   return <AppShell />;
 }
