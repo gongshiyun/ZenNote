@@ -1,20 +1,208 @@
 // Shared note-export helpers (HTML / PDF), used by both the titlebar menu and shortcuts.
+//
+// The exported document reuses the LIVE editor styles: we walk the app's loaded
+// stylesheets, keep the rules that style the editor content (plus the theme
+// variable blocks), and embed them together with the current theme/font
+// attributes. This makes the export match the on-screen preview closely.
 
-function buildExportHtml(bodyHtml: string, title: string) {
-  return "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>" + title + "</title>\n<style>\nbody{max-width:860px;margin:40px auto;padding:0 20px;font-family:\"Microsoft YaHei\",-apple-system,sans-serif;font-size:16px;line-height:1.8;color:#1a1a1a;background:#fff}\nh1{font-size:2em;border-bottom:2px solid #eee;padding-bottom:.3em}\nh2{font-size:1.5em;border-bottom:1px solid #eee;padding-bottom:.2em}\nh3{font-size:1.25em}\ncode{background:#f4f4f4;padding:2px 6px;border-radius:3px;font-size:.9em}\npre{background:#f4f4f4;padding:16px;border-radius:6px;overflow-x:auto}\npre code{background:none;padding:0}\nblockquote{border-left:4px solid #ddd;margin:0;padding:0 16px;color:#666}\ntable{border-collapse:collapse;width:100%}\nth,td{border:1px solid #ddd;padding:8px 12px;text-align:left}\nth{background:#f9f9f9;font-weight:600}\nimg{max-width:100%;height:auto}\n@media print{body{margin:0;padding:20px}}\n</style>\n</head>\n<body>\n" + bodyHtml + "\n</body>\n</html>";
+// Selectors worth copying: theme variable blocks + anything that styles content.
+const KEEP_RE = /:root|\[data-theme|\[data-font|\.dark|\.milkdown|\.ProseMirror|(^|[\s,>+~(])(h[1-6]|p|blockquote|pre|code|table|thead|tbody|tr|th|td|ul|ol|li|a|strong|em|del|s|hr|img|mark|sub|sup|figure|figcaption|\.katex|\.cm-|\.zn-html-render)/;
+
+function collectEditorCss(): string {
+  const out: string[] = [];
+  const walk = (rules: CSSRuleList) => {
+    for (const rule of Array.from(rules)) {
+      if (rule instanceof CSSStyleRule) {
+        if (KEEP_RE.test(rule.selectorText)) out.push(rule.cssText);
+      } else if (rule instanceof CSSMediaRule) {
+        const inner: string[] = [];
+        for (const r of Array.from(rule.cssRules)) {
+          if (r instanceof CSSStyleRule && KEEP_RE.test(r.selectorText)) inner.push(r.cssText);
+        }
+        if (inner.length) out.push("@media " + rule.media.mediaText + " {\n" + inner.join("\n") + "\n}");
+      } else if (rule instanceof CSSSupportsRule) {
+        const inner: string[] = [];
+        for (const r of Array.from(rule.cssRules)) {
+          if (r instanceof CSSStyleRule && KEEP_RE.test(r.selectorText)) inner.push(r.cssText);
+        }
+        if (inner.length) out.push("@supports " + rule.conditionText + " {\n" + inner.join("\n") + "\n}");
+      }
+    }
+  };
+  for (const sheet of Array.from(document.styleSheets)) {
+    try { walk(sheet.cssRules); } catch { /* cross-origin sheet, skip */ }
+  }
+  return out.join("\n");
 }
 
-function currentBodyHtml(fallbackContent: string): { bodyHtml: string; name: string } {
+// Detect whether a code block is a mermaid diagram and return its source.
+// Rendered blocks expose the language via the .language-button text; unrendered
+// (lazy placeholder) blocks have no language UI, so fall back to matching the
+// source against known mermaid diagram-type keywords.
+const MERMAID_KEYWORDS = /^\s*(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|journey|gantt|pie|gitGraph|mindmap|timeline|quadrantChart|requirementDiagram|C4Context|zenuml|sankey|xychart|block)\b/;
+function getMermaidSource(cb: Element): string | null {
+  const codeEl = cb.querySelector(".cm-content") || cb.querySelector(".milkdown-code-block-placeholder code") || cb.querySelector("code");
+  const source = codeEl ? (codeEl.textContent || "") : "";
+  const langBtn = cb.querySelector(".language-button");
+  if (langBtn) {
+    return langBtn.textContent && langBtn.textContent.trim().toLowerCase() === "mermaid" ? source : null;
+  }
+  return MERMAID_KEYWORDS.test(source) ? source : null;
+}
+
+// Render any mermaid diagram that has not been rendered yet in the editor.
+// Code blocks are lazily initialised (only when scrolled into view), so a
+// diagram below the fold would otherwise be exported as raw source. This runs
+// on the DETACHED clone, so it never disturbs the live ProseMirror document.
+async function ensureMermaidRendered(root: HTMLElement): Promise<void> {
+  const blocks = Array.from(root.querySelectorAll(".milkdown-code-block"));
+  const pending = blocks.filter(cb => !cb.querySelector(".preview svg") && getMermaidSource(cb) != null);
+  if (!pending.length) return;
+  try {
+    const mermaidMod = await import("mermaid");
+    const { useStore } = await import("../store");
+    const isDark = useStore.getState().resolvedMode === "dark";
+    mermaidMod.default.initialize({ startOnLoad: false, theme: isDark ? "dark" : "default", securityLevel: "loose" });
+    for (const cb of pending) {
+      const source = getMermaidSource(cb);
+      if (source == null) continue;
+      try {
+        const id = "zn-exp-" + Math.random().toString(36).slice(2, 8);
+        const { svg } = await mermaidMod.default.render(id, source.trim());
+        let preview = cb.querySelector(".preview");
+        if (!preview) {
+          let panel = cb.querySelector(".preview-panel");
+          if (!panel) {
+            panel = document.createElement("div");
+            panel.className = "preview-panel";
+            cb.appendChild(panel);
+          }
+          preview = document.createElement("div");
+          preview.className = "preview";
+          panel.appendChild(preview);
+        }
+        preview.innerHTML = svg;
+      } catch { /* leave this block as source code */ }
+    }
+  } catch { /* mermaid unavailable; blocks stay as source */ }
+}
+
+// Serialize the rendered editor content, stripping editing chrome (zoom buttons,
+// code-block toolbars, block-edit handles) and normalising code blocks so the
+// output is clean, portable HTML.
+async function serializeEditorContent(fallbackContent: string): Promise<string> {
   const editorEl = document.querySelector(".ProseMirror") as HTMLElement | null;
-  const bodyHtml = editorEl ? editorEl.innerHTML : fallbackContent.replace(/</g, "<").replace(/>/g, ">").replace(/\n/g, "<br>");
-  return { bodyHtml, name: "" };
+  if (!editorEl) {
+    return fallbackContent.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+  }
+  const clone = editorEl.cloneNode(true) as HTMLElement;
+
+  // Remove editing-only UI chrome.
+  clone.querySelectorAll(
+    '.zn-mermaid-zoom-btn, .preview-toggle-button, .language-selector, [class*="block-edit"], [class*="crepe-toolbar"], .milkdown-cursor, .ProseMirror-trailingBreak'
+  ).forEach(el => el.remove());
+
+  // Render mermaid diagrams that were not yet rendered in the editor (lazy init).
+  await ensureMermaidRendered(clone);
+
+  // Normalise code blocks: keep mermaid SVGs, turn CodeMirror into plain <pre><code>.
+  clone.querySelectorAll(".milkdown-code-block").forEach(cb => {
+    const svg = cb.querySelector(".preview svg");
+    if (svg) {
+      const wrap = document.createElement("div");
+      wrap.className = "zn-export-mermaid";
+      const clonedSvg = svg.cloneNode(true) as SVGElement;
+      clonedSvg.removeAttribute("style");
+      clonedSvg.setAttribute("style", "max-width:100%;height:auto;");
+      wrap.appendChild(clonedSvg);
+      cb.replaceWith(wrap);
+    } else {
+      const codeText = (cb.querySelector(".cm-content")?.textContent) || cb.textContent || "";
+      const pre = document.createElement("pre");
+      const code = document.createElement("code");
+      code.textContent = codeText.replace(/\n$/, "");
+      pre.appendChild(code);
+      cb.replaceWith(pre);
+    }
+  });
+
+  return clone.innerHTML;
+}
+
+// Collect the CURRENTLY-RESOLVED values of every CSS custom property used by
+// the app, read straight from the live computed styles. Emitting these as
+// concrete :root / .milkdown blocks guarantees the export uses exactly the
+// colors/fonts the user sees, regardless of which theme rules get copied.
+function collectResolvedVariables(): string {
+  const names = new Set<string>();
+  for (const sheet of Array.from(document.styleSheets)) {
+    try {
+      for (const rule of Array.from(sheet.cssRules)) {
+        if (rule instanceof CSSStyleRule) {
+          const re = /--[\w-]+/g;
+          let m;
+          while ((m = re.exec(rule.style.cssText))) names.add(m[0]);
+        }
+      }
+    } catch { /* cross-origin */ }
+  }
+  const rootCS = getComputedStyle(document.documentElement);
+  const milkEl = document.querySelector(".milkdown");
+  const milkCS = milkEl ? getComputedStyle(milkEl) : null;
+  const rootVars: string[] = [];
+  const milkVars: string[] = [];
+  for (const name of names) {
+    const rv = rootCS.getPropertyValue(name).trim();
+    if (rv) rootVars.push(name + ":" + rv + ";");
+    if (milkCS) {
+      const mv = milkCS.getPropertyValue(name).trim();
+      if (mv && mv !== rv) milkVars.push(name + ":" + mv + ";");
+    }
+  }
+  let out = ":root{" + rootVars.join("") + "}";
+  if (milkVars.length) out += "\n.milkdown{" + milkVars.join("") + "}";
+  return out;
+}
+
+function buildExportHtml(bodyHtml: string, title: string): string {
+  // Match the current app theme attributes so any copied theme rules resolve.
+  const root = document.documentElement;
+  const isDark = root.classList.contains("dark");
+  const themeId = root.getAttribute("data-theme") || "zen";
+  const dataFont = root.getAttribute("data-font") || "sans";
+  const css = collectEditorCss();
+  const vars = collectResolvedVariables();
+
+  return (
+    "<!DOCTYPE html>\n" +
+    '<html lang="zh-CN" class="' + (isDark ? "dark" : "") + '" data-theme="' + themeId + '" data-font="' + dataFont + '">\n' +
+    "<head>\n" +
+    '<meta charset="UTF-8">\n' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">\n' +
+    "<title>" + title + "</title>\n" +
+    "<style>\n" +
+    // Concrete resolved variables first (exact WYSIWYG colors/fonts), then the
+    // copied structural rules, then a small base layout.
+    vars + "\n" +
+    css + "\n" +
+    "*{-webkit-print-color-adjust:exact;print-color-adjust:exact;}\n" +
+    "html,body{margin:0;padding:0;background:var(--bg-editor,#fff);color:var(--text-primary,#1a1a1a);}\n" +
+    "body{max-width:860px;margin:0 auto;padding:40px 24px;font-family:var(--zn-font-stack,'Microsoft YaHei',sans-serif);}\n" +
+    ".zn-export-mermaid{margin:1em 0;text-align:center;}\n" +
+    "@media print{body{max-width:none;padding:12mm;}}\n" +
+    "</style>\n" +
+    "</head>\n" +
+    "<body>\n" +
+    '<div class="milkdown"><div class="ProseMirror">' + bodyHtml + "</div></div>\n" +
+    "</body>\n</html>"
+  );
 }
 
 export async function exportToHtml(content: string, filePath: string) {
   try {
     const { save } = await import("@tauri-apps/plugin-dialog");
     const { invoke } = await import("@tauri-apps/api/core");
-    const { bodyHtml } = currentBodyHtml(content);
+    const bodyHtml = await serializeEditorContent(content);
     const name = filePath.split(/[\\/]/).pop()?.replace(/\.md$/, "") || "Note";
     const html = buildExportHtml(bodyHtml, name);
     const defaultPath = filePath.replace(/\.md$/, ".html");
@@ -25,30 +213,139 @@ export async function exportToHtml(content: string, filePath: string) {
   } catch { /* */ }
 }
 
-// PDF export: open a hidden window with rendered content, trigger print
-// (Windows: user selects "Microsoft Print to PDF" in the print dialog)
+// Simple toast feedback (used for export results).
+function showToast(message: string, isError = false) {
+  let host = document.getElementById("zn-toast-host");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "zn-toast-host";
+    host.style.cssText = "position:fixed;top:48px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;";
+    document.body.appendChild(host);
+  }
+  const el = document.createElement("div");
+  el.style.cssText = "padding:8px 18px;border-radius:8px;font-size:13px;color:#fff;background:" + (isError ? "#DC2626" : "#16A34A") + ";box-shadow:0 4px 12px rgba(0,0,0,0.25);opacity:0;transition:opacity 200ms ease;white-space:nowrap;";
+  el.textContent = message;
+  host.appendChild(el);
+  requestAnimationFrame(() => { el.style.opacity = "1"; });
+  setTimeout(() => {
+    el.style.opacity = "0";
+    setTimeout(() => el.remove(), 250);
+  }, 3000);
+}
+
+// Debug logger: appends to a file via the Rust `export_debug_log` command so it
+// works in release builds (no devtools). Returns the log file path.
+let dbgLogPath = "";
+async function dbg(msg: string): Promise<void> {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    dbgLogPath = await invoke<string>("export_debug_log", { msg });
+  } catch { /* logging must never break the export */ }
+}
+
+// Encode a UTF-8 string as base64 (for building a data: URL).
+function utf8ToBase64(str: string): string {
+  const bytes = new TextEncoder().encode(str);
+  let binary = "";
+  const chunk = 8192;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...Array.from(bytes.subarray(i, i + chunk)));
+  }
+  return btoa(binary);
+}
+
+// PDF export (Typora-style): render the styled document into an off-screen
+// webview and ask WebView2 to print it straight to a PDF file — no print dialog.
+//
+// The export HTML is loaded as a base64 data: URL set as the window's INITIAL
+// url. (We previously loaded index.html and then called WebView2
+// NavigateToString, but that navigation never completed and left a pending
+// navigation that made PrintToPdf block the UI thread → the app froze.) A data:
+// URL loads as a normal, self-contained document with no pending navigation.
 export async function exportToPdf(content: string, filePath: string) {
   try {
-    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    const { save } = await import("@tauri-apps/plugin-dialog");
     const { invoke } = await import("@tauri-apps/api/core");
-    const { bodyHtml } = currentBodyHtml(content);
+    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    await dbg("=== exportToPdf start ===");
+    const bodyHtml = await serializeEditorContent(content);
     const name = filePath.split(/[\\/]/).pop()?.replace(/\.md$/, "") || "Note";
     const html = buildExportHtml(bodyHtml, name);
+    await dbg("html built, length=" + html.length);
+
+    const defaultPath = filePath.replace(/\.md$/, ".pdf");
+    const savePath = await save({ defaultPath, filters: [{ name: "PDF", extensions: ["pdf"] }] });
+    if (!savePath || typeof savePath !== "string") {
+      await dbg("save cancelled");
+      return;
+    }
+    await dbg("savePath=" + savePath);
+
     const label = "pdf-export-" + Date.now();
-    const win = new WebviewWindow(label, {
-      title: "Export PDF - " + name,
-      width: 900,
-      height: 700,
-      visible: false,
-      url: "data:text/html;charset=utf-8," + encodeURIComponent(html),
+    const dataUrl = "data:text/html;base64," + utf8ToBase64(html);
+    await dbg("creating WebviewWindow label=" + label + " dataUrl length=" + dataUrl.length);
+
+    // Guard so the export only ever starts once (created-event OR fallback timer).
+    let started = false;
+    const startExport = (via: string) => {
+      if (started) return;
+      started = true;
+      dbg("startExport via " + via).then(() => {
+        invoke("export_pdf", { label, path: savePath })
+          .then(() => { dbg("export_pdf SUCCESS"); showToast("PDF 导出成功 ✓"); })
+          .catch((err: unknown) => {
+            dbg("export_pdf FAILED: " + String(err));
+            showToast("PDF 导出失败: " + String(err) + " 日志: " + dbgLogPath, true);
+          });
+      });
+    };
+
+    try {
+      // The render window is created HIDDEN (and off-screen as a safety net).
+      // A hidden WebView2 webview still loads the document and runs JS — only
+      // on-screen painting is suspended — and PrintToPdf does its own print
+      // render pass, so the PDF is produced without ever showing a window.
+      const win = new WebviewWindow(label, {
+        title: name,
+        width: 1024,
+        height: 768,
+        visible: false,
+        x: -32000,
+        y: -32000,
+        url: dataUrl,
+      });
+      win.once("tauri://created", () => {
+        dbg("window created OK");
+        // Give the data: document a moment to load & render, then print in Rust.
+        setTimeout(() => startExport("created-event"), 1200);
+      });
+      win.once("tauri://error", (e: unknown) => {
+        let detail = "";
+        try {
+          const anyE = e as { payload?: unknown };
+          detail = JSON.stringify(anyE?.payload ?? e) || String(e);
+        } catch { detail = String(e); }
+        dbg("window tauri://error: " + detail).then(() => {
+          showToast("PDF 导出失败: 无法创建渲染窗口 [" + detail + "] 日志: " + dbgLogPath, true);
+        });
+      });
+    } catch (e) {
+      await dbg("WebviewWindow constructor threw: " + String(e));
+      showToast("PDF 导出失败: 无法创建渲染窗口: " + String(e), true);
+      return;
+    }
+    // Fallback: if the created event never fires (event delivery issue), attempt
+    // the export anyway — the window may still have been created.
+    setTimeout(() => startExport("timeout-fallback"), 4000);
+  } catch (err) {
+    dbg("exportToPdf exception: " + String(err)).then(() => {
+      showToast("PDF 导出失败: " + String(err), true);
     });
-    win.once("tauri://created", () => {
-      // Wait for content to load, then trigger print dialog via core command
-      setTimeout(() => {
-        invoke("plugin:webview|print", { label }).catch(() => {});
-        setTimeout(() => { win.close().catch(() => {}); }, 2000);
-      }, 1500);
-    });
-    win.once("tauri://error", () => { /* window creation failed */ });
-  } catch { /* */ }
+  }
+}
+
+// Test helper: build the full export HTML for the current editor content.
+export async function generateExportHtml(content: string): Promise<string> {
+  const bodyHtml = await serializeEditorContent(content);
+  return buildExportHtml(bodyHtml, "export");
 }

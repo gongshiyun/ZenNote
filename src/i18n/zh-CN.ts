@@ -10,6 +10,7 @@ const zhCN = {
     "export": "导出",
     "exportPdf": "导出为 PDF",
     "exportHtml": "导出为 HTML",
+    "installUpdate": "安装更新",
     "theme": "主题",
     "themeStyle": "主题风格",
     "themeMode": "显示模式",
@@ -84,7 +85,18 @@ const zhCN = {
     "fileTree": "文件树",
     "showHiddenFiles": "显示隐藏文件",
     "showFileExtensions": "显示文件扩展名",
-    "language": "语言"
+    "language": "语言",
+    "update": "更新",
+    "autoCheckUpdate": "自动检查更新",
+    "updateInterval": "检查间隔",
+    "interval30m": "30 分钟",
+    "interval1h": "1 小时",
+    "interval6h": "6 小时",
+    "interval24h": "24 小时",
+    "checkNow": "立即检查",
+    "checking": "检查中...",
+    "downloading": "下载中...",
+    "updateReady": "已下载，点击安装"
   },
   "search": {
     "placeholder": "在工作区中搜索...",

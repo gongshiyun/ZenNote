@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useStore } from "../../store";
 import { t, setLocale } from "../../i18n";
 import { exportToHtml, exportToPdf } from "../../lib/exportNote";
+import { installUpdate } from "../../lib/updater";
 
 // Tauri window API - lazy init to survive browser dev
 let _appWindow: any = null;
@@ -27,6 +28,8 @@ export function Titlebar() {
   const setThemeId = useStore(s => s.setThemeId);
   const locale = useStore(s => s.locale);
   const storeSetLocale = useStore(s => s.setLocale);
+  const updateState = useStore(s => s.updateState);
+  const updateVersion = useStore(s => s.updateVersion);
   const [isMaximized, setIsMaximized] = useState(false);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const themeMenuRef = useRef<HTMLDivElement>(null);
@@ -103,6 +106,21 @@ export function Titlebar() {
       </div>
       <div style={{ flex: 1, textAlign: "center", fontSize: 13, color: "var(--text-secondary)", pointerEvents: "none" }}>{fileName}</div>
       <div className="titlebar-no-drag" style={{ display: "flex", alignItems: "center", gap: 0 }}>
+        {/* Update ready: show an install button (top-right) */}
+        {updateState === "ready" && (
+          <button onClick={() => { installUpdate(); }}
+            title={t().titlebar.installUpdate + " v" + (updateVersion || "")}
+            style={{
+              display: "flex", alignItems: "center", gap: 5, height: 24, padding: "0 10px",
+              border: "none", borderRadius: 12, cursor: "pointer", marginRight: 6,
+              background: "var(--text-accent)", color: "#fff", fontSize: 11, fontWeight: 600,
+              transition: "opacity 120ms ease",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = "0.85"; }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
+            <UpdateIcon />{t().titlebar.installUpdate}{updateVersion ? " v" + updateVersion : ""}
+          </button>
+        )}
         {/* Theme selector */}
         <div ref={themeMenuRef} style={{ position: "relative" }}>
           <TB tn={t().titlebar.theme} onClick={() => setThemeMenuOpen(v => !v)} active={themeMenuOpen}><PaletteIcon /></TB>
@@ -153,7 +171,8 @@ function MaxIcon() { return (<svg width="10" height="10" viewBox="0 0 10 10"><re
 function RestoreIcon() { return (<svg width="10" height="10" viewBox="0 0 10 10"><rect x="1" y="3" width="6" height="6" rx="1" fill="none" stroke="currentColor" strokeWidth="1"/><rect x="3" y="1" width="6" height="6" rx="1" fill="var(--bg-toolbar)" stroke="currentColor" strokeWidth="1"/></svg>); }
 function CloseIcon() { return (<svg width="10" height="10" viewBox="0 0 10 10"><line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>); }
 function PaletteIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M8 1.5a6.5 6.5 0 100 13c1.1 0 1.6-.7 1.6-1.5 0-.5-.2-.8-.5-1.1-.3-.3-.5-.6-.5-1.1 0-.8.7-1.5 1.5-1.5h1.4A3 3 0 0014.5 8c0-3.6-2.9-6.5-6.5-6.5z"/><circle cx="5.5" cy="6" r="0.9" fill="currentColor" stroke="none"/><circle cx="8" cy="4.5" r="0.9" fill="currentColor" stroke="none"/><circle cx="10.5" cy="6" r="0.9" fill="currentColor" stroke="none"/><circle cx="5" cy="9" r="0.9" fill="currentColor" stroke="none"/></svg>); }
-function ExportIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2v8"/><path d="M4.5 6.5L8 10l3.5-3.5"/><path d="M2.5 12.5v1a1 1 0 001 1h9a1 1 0 001-1v-1"/></svg>); }
+function ExportIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 10V2"/><path d="M4.5 5.5L8 2l3.5 3.5"/><path d="M2.5 12.5v1a1 1 0 001 1h9a1 1 0 001-1v-1"/></svg>); }
+function UpdateIcon() { return (<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M13.5 8a5.5 5.5 0 11-1.6-3.9"/><path d="M13.5 2.5v2.6h-2.6"/></svg>); }
 
 // ---- Export Dropdown ----
 function ExportDropdown({ onSelect }: { onSelect: (kind: "html" | "pdf") => void }) {

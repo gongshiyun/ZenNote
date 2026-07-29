@@ -1,6 +1,7 @@
 import { useStore } from "../../store";
 import { t, setLocale } from "../../i18n";
 import { useRef, useEffect } from "react";
+import { checkAndDownloadUpdate } from "../../lib/updater";
 
 const SETTINGS_THEMES = [
   { id: "zen", label: "Zen", colors: ["#3B82F6", "#FFFFFF", "#1E1E1E"] },
@@ -31,6 +32,12 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const setFontFamily = useStore(s => s.setFontFamily);
   const locale = useStore(s => s.locale);
   const storeSetLocale = useStore(s => s.setLocale);
+  const autoCheckUpdate = useStore(s => s.autoCheckUpdate);
+  const setAutoCheckUpdate = useStore(s => s.setAutoCheckUpdate);
+  const updateCheckInterval = useStore(s => s.updateCheckInterval);
+  const setUpdateCheckInterval = useStore(s => s.setUpdateCheckInterval);
+  const updateState = useStore(s => s.updateState);
+  const updateVersion = useStore(s => s.updateVersion);
 
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -188,6 +195,39 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                   boxShadow: locale === "en-US" ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
                 }}>English</button>
               </div>
+            </Row>
+          </Section>
+
+          {/* Section: Update */}
+          <Section title={t().settings.update}>
+            <Row label={t().settings.autoCheckUpdate}>
+              <Toggle checked={autoCheckUpdate} onChange={setAutoCheckUpdate} />
+            </Row>
+            <Row label={t().settings.updateInterval}>
+              <select value={updateCheckInterval} onChange={e => setUpdateCheckInterval(Number(e.target.value))}
+                disabled={!autoCheckUpdate}
+                style={{
+                  padding: "4px 8px", fontSize: 12, borderRadius: 6,
+                  border: "1px solid var(--border)", background: "var(--bg-sidebar)",
+                  color: "var(--text-primary)", cursor: "pointer", outline: "none",
+                  opacity: autoCheckUpdate ? 1 : 0.5,
+                }}>
+                <option value={30}>{t().settings.interval30m}</option>
+                <option value={60}>{t().settings.interval1h}</option>
+                <option value={360}>{t().settings.interval6h}</option>
+                <option value={1440}>{t().settings.interval24h}</option>
+              </select>
+            </Row>
+            <Row label={t().settings.checkNow}>
+              <button onClick={() => { void checkAndDownloadUpdate(); }} style={{
+                padding: "5px 14px", border: "1px solid var(--border)", borderRadius: 6,
+                fontSize: 12, background: "var(--bg-sidebar)", color: "var(--text-primary)",
+                cursor: "pointer", transition: "all 120ms ease",
+              }}
+                onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "var(--bg-sidebar)"; }}>
+                {updateState === "checking" ? t().settings.checking : updateState === "downloading" ? t().settings.downloading : updateState === "ready" ? (t().settings.updateReady + " v" + (updateVersion || "")) : t().settings.checkNow}
+              </button>
             </Row>
           </Section>
 

@@ -280,23 +280,23 @@
 
 /* Light Crepe Theme */
 :root .milkdown {
-  --crepe-color-background: #FFFFFF;
-  --crepe-color-on-background: #1A1A1A;
-  --crepe-color-surface: #FFFFFF;
-  --crepe-color-surface-low: #F6F6F6;
-  --crepe-color-on-surface: #1A1A1A;
-  --crepe-color-on-surface-variant: #666666;
-  --crepe-color-outline: #666666;
-  --crepe-color-primary: #3B82F6;
-  --crepe-color-secondary: #DBEAFE;
-  --crepe-color-on-secondary: #1E40AF;
-  --crepe-color-inverse: #1A1A1A;
-  --crepe-color-on-inverse: #F6F6F6;
+  --crepe-color-background: var(--bg-editor);
+  --crepe-color-on-background: var(--text-primary);
+  --crepe-color-surface: var(--bg-toolbar);
+  --crepe-color-surface-low: var(--bg-code);
+  --crepe-color-on-surface: var(--text-primary);
+  --crepe-color-on-surface-variant: var(--text-secondary);
+  --crepe-color-outline: var(--text-tertiary);
+  --crepe-color-primary: var(--text-accent);
+  --crepe-color-secondary: var(--selection-bg);
+  --crepe-color-on-secondary: var(--text-accent);
+  --crepe-color-inverse: var(--text-primary);
+  --crepe-color-on-inverse: var(--bg-editor);
   --crepe-color-inline-code: #D92A2A;
   --crepe-color-error: #D92A2A;
-  --crepe-color-hover: #F0F0F0;
-  --crepe-color-selected: #E8E8E8;
-  --crepe-color-inline-area: #EEEEEE;
+  --crepe-color-hover: var(--bg-hover);
+  --crepe-color-selected: var(--bg-sidebar-active);
+  --crepe-color-inline-area: var(--bg-code);
   --crepe-font-title: Georgia, Cambria, "Times New Roman", Times, serif;
   --crepe-font-default: var(--zn-font-stack);
   --crepe-font-code: "Cascadia Code", "Fira Code", Consolas, "Microsoft YaHei", monospace;
@@ -306,23 +306,23 @@
 
 /* Dark Crepe Theme */
 .dark .milkdown {
-  --crepe-color-background: #1E1E1E;
-  --crepe-color-on-background: #E0E0E0;
-  --crepe-color-surface: #2D2D2D;
-  --crepe-color-surface-low: #252525;
-  --crepe-color-on-surface: #E0E0E0;
-  --crepe-color-on-surface-variant: #A0A0A0;
-  --crepe-color-outline: #999999;
-  --crepe-color-primary: #60A5FA;
-  --crepe-color-secondary: #1E3A5F;
-  --crepe-color-on-secondary: #BFDBFE;
-  --crepe-color-inverse: #E0E0E0;
-  --crepe-color-on-inverse: #1E1E1E;
+  --crepe-color-background: var(--bg-editor);
+  --crepe-color-on-background: var(--text-primary);
+  --crepe-color-surface: var(--bg-toolbar);
+  --crepe-color-surface-low: var(--bg-code);
+  --crepe-color-on-surface: var(--text-primary);
+  --crepe-color-on-surface-variant: var(--text-secondary);
+  --crepe-color-outline: var(--text-tertiary);
+  --crepe-color-primary: var(--text-accent);
+  --crepe-color-secondary: var(--selection-bg);
+  --crepe-color-on-secondary: var(--text-accent);
+  --crepe-color-inverse: var(--text-primary);
+  --crepe-color-on-inverse: var(--bg-editor);
   --crepe-color-inline-code: #FF8A80;
   --crepe-color-error: #FF8A80;
-  --crepe-color-hover: #3A3A3A;
-  --crepe-color-selected: #454545;
-  --crepe-color-inline-area: #333333;
+  --crepe-color-hover: var(--bg-hover);
+  --crepe-color-selected: var(--bg-sidebar-active);
+  --crepe-color-inline-area: var(--bg-code);
   --crepe-font-title: Georgia, Cambria, "Times New Roman", Times, serif;
   --crepe-font-default: var(--zn-font-stack);
   --crepe-font-code: "Cascadia Code", "Fira Code", Consolas, "Microsoft YaHei", monospace;

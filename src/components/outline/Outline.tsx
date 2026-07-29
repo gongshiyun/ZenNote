@@ -14,6 +14,7 @@ export function Outline() {
   const setHeadings = useStore(s => s.setHeadings);
   const setActiveHeading = useStore(s => s.setActiveHeading);
   const sourceMode = useStore(s => s.sourceMode);
+  const setSourceMode = useStore(s => s.setSourceMode);
   const scrollTimer = useRef<number>(0);
 
   // Parse all headings (h1-h6), then display only h1-h3
@@ -79,28 +80,32 @@ export function Outline() {
     const heading = displayHeadings[displayIdx];
     if (!heading) return;
 
-    // Source mode: scroll the textarea to the heading's line
+    // Scroll to the heading inside the rendered (preview) editor.
+    const scrollToHeading = (idx: number): boolean => {
+      const pm = document.querySelector(".ProseMirror");
+      if (!pm) return false;
+      const headingEls = pm.querySelectorAll("h1, h2, h3");
+      const target = headingEls[idx] as HTMLElement | undefined;
+      if (!target) return false;
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      return true;
+    };
+
+    // Clicking the outline always navigates in the rendered view — never the
+    // markdown source. If we are in source mode, switch back to preview first,
+    // then scroll once the editor has re-rendered.
     if (sourceMode) {
-      const ta = document.querySelector("textarea") as HTMLTextAreaElement | null;
-      if (!ta) return;
-      const lines = ta.value.split("\n");
-      let charPos = 0;
-      for (let i = 0; i < heading.pos && i < lines.length; i++) charPos += lines[i].length + 1;
-      ta.focus();
-      ta.setSelectionRange(charPos, charPos);
+      setSourceMode(false);
+      let tries = 0;
+      const timer = window.setInterval(() => {
+        tries++;
+        if (scrollToHeading(displayIdx) || tries > 40) window.clearInterval(timer);
+      }, 100);
       return;
     }
 
-    const pm = document.querySelector(".ProseMirror");
-    if (!pm) return;
-
-    const headingEls = pm.querySelectorAll("h1, h2, h3");
-    const target = headingEls[displayIdx] as HTMLElement | undefined;
-    if (!target) return;
-
-    // Use native scrollIntoView — works regardless of scroll container nesting
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [setActiveHeading, displayHeadings, sourceMode]);
+    scrollToHeading(displayIdx);
+  }, [setActiveHeading, displayHeadings, sourceMode, setSourceMode]);
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>

@@ -95,6 +95,19 @@ interface LocaleSlice {
   setLocale: (locale: string) => void;
 }
 
+export type UpdateState = "idle" | "checking" | "downloading" | "ready" | "error";
+
+interface UpdateSlice {
+  autoCheckUpdate: boolean;
+  updateCheckInterval: number; // minutes
+  updateState: UpdateState;
+  updateVersion: string | null;
+  setAutoCheckUpdate: (v: boolean) => void;
+  setUpdateCheckInterval: (n: number) => void;
+  setUpdateState: (s: UpdateState) => void;
+  setUpdateVersion: (v: string | null) => void;
+}
+
 interface UIState {
   sidebarVisible: boolean;
   outlineVisible: boolean;
@@ -108,7 +121,7 @@ interface UIState {
 
 // ---- Store ----
 
-export const useStore = create<EditorSlice & FileTreeSlice & OutlineSlice & ThemeSlice & ConfigSlice & UIState & LocaleSlice>((set, get) => ({
+export const useStore = create<EditorSlice & FileTreeSlice & OutlineSlice & ThemeSlice & ConfigSlice & UIState & LocaleSlice & UpdateSlice>((set, get) => ({
   // Editor
   currentFilePath: null,
   content: "",
@@ -217,6 +230,16 @@ export const useStore = create<EditorSlice & FileTreeSlice & OutlineSlice & Them
   // Locale (init from persisted i18n module value to avoid mismatch on restart)
   locale: getLocale(),
   setLocale: (locale) => set({ locale }),
+
+  // Updater
+  autoCheckUpdate: true,
+  updateCheckInterval: 60, // minutes (default: 1 hour)
+  updateState: "idle",
+  updateVersion: null,
+  setAutoCheckUpdate: (v) => set({ autoCheckUpdate: v }),
+  setUpdateCheckInterval: (n) => set({ updateCheckInterval: n }),
+  setUpdateState: (s) => set({ updateState: s }),
+  setUpdateVersion: (v) => set({ updateVersion: v }),
 
   // UI
   sidebarVisible: true,

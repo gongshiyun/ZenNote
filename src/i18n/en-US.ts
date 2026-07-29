@@ -10,6 +10,7 @@ const enUS = {
     "export": "Export",
     "exportPdf": "Export as PDF",
     "exportHtml": "Export as HTML",
+    "installUpdate": "Install Update",
     "theme": "Theme",
     "themeStyle": "Theme Style",
     "themeMode": "Display Mode",
@@ -84,7 +85,18 @@ const enUS = {
     "fileTree": "File Tree",
     "showHiddenFiles": "Show hidden files",
     "showFileExtensions": "Show file extensions",
-    "language": "Language"
+    "language": "Language",
+    "update": "Update",
+    "autoCheckUpdate": "Auto-check for updates",
+    "updateInterval": "Check interval",
+    "interval30m": "30 minutes",
+    "interval1h": "1 hour",
+    "interval6h": "6 hours",
+    "interval24h": "24 hours",
+    "checkNow": "Check now",
+    "checking": "Checking...",
+    "downloading": "Downloading...",
+    "updateReady": "Downloaded, click to install"
   },
   "search": {
     "placeholder": "Search in workspace...",

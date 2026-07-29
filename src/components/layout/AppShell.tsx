@@ -7,6 +7,7 @@ import { Outline } from "../outline/Outline";
 import { SearchPanel } from "../search/SearchPanel";
 import { SettingsDialog } from "../dialogs/SettingsDialog";
 import { useMermaid } from "../../hooks/useMermaid";
+import { useUpdater } from "../../hooks/useUpdater";
 import { useStore } from "../../store";
 import { t } from "../../i18n";
 import { exportToHtml, exportToPdf } from "../../lib/exportNote";
@@ -81,6 +82,8 @@ function useWindowPersistence() {
           mode: s.mode,
           themeId: s.themeId,
           fontFamily: s.fontFamily,
+          autoCheckUpdate: s.autoCheckUpdate,
+          updateCheckInterval: s.updateCheckInterval,
           sidebarVisible: s.sidebarVisible,
           outlineVisible: s.outlineVisible,
         };
@@ -100,6 +103,8 @@ function useWindowPersistence() {
       if (data.mode) useStore.getState().setMode(data.mode);
       if (data.themeId) useStore.getState().setThemeId(data.themeId);
       if (data.fontFamily) useStore.getState().setFontFamily(data.fontFamily);
+      if (typeof data.autoCheckUpdate === "boolean") useStore.getState().setAutoCheckUpdate(data.autoCheckUpdate);
+      if (typeof data.updateCheckInterval === "number") useStore.getState().setUpdateCheckInterval(data.updateCheckInterval);
       if (data.workspacePath) {
         useStore.getState().setWorkspace(data.workspacePath);
         import("@tauri-apps/api/core").then(({ invoke }) => {
@@ -141,6 +146,7 @@ export function AppShell() {
   useMermaid();
   useImagePaste();
   useWindowPersistence();
+  useUpdater();
 
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const [outlineWidth, setOutlineWidth] = useState(180);

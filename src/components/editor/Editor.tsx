@@ -246,7 +246,12 @@ export function Editor() {
         const pmView = (crepe as any).editor.action((ctx: any) => ctx.get(editorViewCtx));
 
         const FOCUS_TYPES = new Set(["heading", "paragraph", "list_item", "blockquote", "code_block"]);
+        // Only reveal the markdown source of the focused block AFTER the user has
+        // actually interacted (clicked/typed). On first open the cursor lands at the
+        // start of the doc, but we don't want the heading to show its "#" source yet.
+        let hasInteracted = false;
         const computeFocusDecos = (state: any) => {
+          if (!hasInteracted) return DecorationSet.empty;
           const sel = state.selection;
           if (!sel || !sel.empty) return DecorationSet.empty;
           const $head = sel.$head;
@@ -287,6 +292,12 @@ export function Editor() {
           selection: pmView.state.selection,
           plugins: [...pmView.state.plugins, focusDecoPlugin],
         }));
+
+        // Mark interaction in the CAPTURE phase so the flag is set before
+        // ProseMirror's own handlers dispatch the selection transaction.
+        const markInteracted = () => { hasInteracted = true; };
+        container.addEventListener("pointerdown", markInteracted, { capture: true, passive: true });
+        container.addEventListener("keydown", markInteracted, { capture: true, passive: true });
 
         safeRef.current = true;
         editorReadyRef.current = true;
@@ -565,6 +576,8 @@ export function Editor() {
           container.removeEventListener("focusin", onFocusInput);
           container.removeEventListener("click", onPreviewClick);
           container.removeEventListener("focusout", onCodeBlockBlur);
+          container.removeEventListener("pointerdown", markInteracted, { capture: true });
+          container.removeEventListener("keydown", markInteracted, { capture: true });
           document.removeEventListener("selectionchange", onSelChange);
           zoomBtnObserver.disconnect();
           if (zoomBtnTimer) clearTimeout(zoomBtnTimer);
