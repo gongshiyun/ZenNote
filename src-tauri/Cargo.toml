@@ -1,6 +1,6 @@
 [package]
 name = "zennote"
-version = "0.3.0"
+version = "0.4.0"
 description = "ZenNote - 极简本地 Markdown 笔记"
 authors = ["ZenNote"]
 license = "MIT"
@@ -18,9 +18,16 @@ tauri-build = { version = "2.6.3", features = [] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
-tauri = { version = "2.11.3", features = [] }
+tauri = { version = "2.11.3", features = ["webview-data-url"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-shell = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 walkdir = "2"
+
+# Windows-only: direct WebView2 PrintToPdf for Typora-style PDF export (no print dialog)
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.38"
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
