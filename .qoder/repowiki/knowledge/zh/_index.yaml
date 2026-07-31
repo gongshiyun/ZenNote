@@ -3,7 +3,7 @@ schema_version: 1
 locale: zh-CN
 branch: master
 nodes_managed: true
-exported_at: "2026-07-27T18:02:42Z"
+exported_at: "2026-07-29T14:26:53Z"
 modules:
     "":
         dir_name: ZenNote 桌面笔记应用根工程
@@ -60,8 +60,8 @@ modules:
         depends_on: []
         related_to: []
     tauri_backend:
-        dir_name: ZenNote Tauri 桌面后端
-        title: ZenNote Tauri 桌面后端
+        dir_name: ZenNote Tauri 桌面后端（Rust）
+        title: ZenNote Tauri 桌面后端（Rust）
         scope:
             - src-tauri/
         source_files: []
