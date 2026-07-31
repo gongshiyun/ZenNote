@@ -1,5 +1,7 @@
+import { useMemo } from "react";
 import { useStore } from "../../store";
 import { t } from "../../i18n";
+import { computeWordCount } from "../../domain";
 
 export function StatusBar() {
   const cursorLine = useStore(s => s.cursorLine);
@@ -10,11 +12,7 @@ export function StatusBar() {
   const setSourceMode = useStore(s => s.setSourceMode);
   const currentFilePath = useStore(s => s.currentFilePath);
 
-  const chineseChars = (content.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length;
-  const englishWords = content.replace(/[\u4e00-\u9fff\u3400-\u4dbf]/g, " ").split(/\s+/).filter(Boolean).length;
-  const totalWords = chineseChars + englishWords;
-  const totalChars = content.length;
-  const lineCount = content ? content.split(/\r?\n/).length : 0;
+  const { totalWords, totalChars, lineCount } = useMemo(() => computeWordCount(content), [content]);
 
   return (
     <div style={{

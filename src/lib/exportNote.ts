@@ -5,6 +5,8 @@
 // variable blocks), and embed them together with the current theme/font
 // attributes. This makes the export match the on-screen preview closely.
 
+import { currentFontStack } from "./fontStack";
+
 // Selectors worth copying: theme variable blocks + anything that styles content.
 const KEEP_RE = /:root|\[data-theme|\[data-font|\.dark|\.milkdown|\.ProseMirror|(^|[\s,>+~(])(h[1-6]|p|blockquote|pre|code|table|thead|tbody|tr|th|td|ul|ol|li|a|strong|em|del|s|hr|img|mark|sub|sup|figure|figcaption|\.katex|\.cm-|\.zn-html-render)/;
 
@@ -62,7 +64,7 @@ async function ensureMermaidRendered(root: HTMLElement): Promise<void> {
     const mermaidMod = await import("mermaid");
     const { useStore } = await import("../store");
     const isDark = useStore.getState().resolvedMode === "dark";
-    mermaidMod.default.initialize({ startOnLoad: false, theme: isDark ? "dark" : "default", securityLevel: "loose" });
+    mermaidMod.default.initialize({ startOnLoad: false, theme: isDark ? "dark" : "default", securityLevel: "loose", fontFamily: currentFontStack() });
     for (const cb of pending) {
       const source = getMermaidSource(cb);
       if (source == null) continue;

@@ -11,6 +11,23 @@ const SETTINGS_THEMES = [
   { id: "ocean", label: "Ocean", colors: ["#1E64B4", "#F5F8FC", "#0F1923"] },
 ];
 
+// Curated font styles. `stack` is a representative preview stack (the full stack
+// lives in globals.css under :root[data-font="..."]).
+const FONT_OPTIONS = [
+  { value: "sans", labelKey: "fontSans", stack: '"Microsoft YaHei", "Segoe UI", sans-serif' },
+  { value: "serif", labelKey: "fontSerif", stack: 'Georgia, "Noto Serif SC", serif' },
+  { value: "mono", labelKey: "fontMono", stack: '"Cascadia Code", Consolas, monospace' },
+  { value: "kai", labelKey: "fontKai", stack: '"KaiTi", "楷体", serif' },
+  { value: "song", labelKey: "fontSong", stack: '"SimSun", "宋体", serif' },
+  { value: "heiti", labelKey: "fontHeiti", stack: '"SimHei", "黑体", sans-serif' },
+  { value: "fangsong", labelKey: "fontFangsong", stack: '"FangSong", "仿宋", serif' },
+  { value: "rounded", labelKey: "fontRounded", stack: '"Yuanti SC", "YouYuan", sans-serif' },
+  { value: "humanist", labelKey: "fontHumanist", stack: '"Segoe UI", Verdana, sans-serif' },
+  { value: "geometric", labelKey: "fontGeometric", stack: '"Century Gothic", Futura, sans-serif' },
+  { value: "literary", labelKey: "fontLiterary", stack: '"Palatino Linotype", Palatino, serif' },
+  { value: "slab", labelKey: "fontSlab", stack: 'Rockwell, "Roboto Slab", serif' },
+];
+
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const fontSize = useStore(s => s.fontSize);
   const setFontSize = useStore(s => s.setFontSize);
@@ -126,18 +143,39 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                 ))}
               </div>
             </Row>
-            <Row label={t().settings.fontFamily}>
-              <select value={fontFamily} onChange={e => setFontFamily(e.target.value)} style={{
-                padding: "4px 8px", fontSize: 12, borderRadius: 6,
-                border: "1px solid var(--border)", background: "var(--bg-sidebar)",
-                color: "var(--text-primary)", cursor: "pointer", outline: "none",
+            <div style={{ padding: "6px 0" }}>
+              <div style={{ fontSize: 13, color: "var(--text-primary)", marginBottom: 8 }}>{t().settings.fontFamily}</div>
+              <div style={{
+                display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6,
+                maxHeight: 240, overflowY: "auto", paddingRight: 2,
               }}>
-                <option value="sans">{t().settings.fontSans}</option>
-                <option value="serif">{t().settings.fontSerif}</option>
-                <option value="mono">{t().settings.fontMono}</option>
-                <option value="kai">{t().settings.fontKai}</option>
-              </select>
-            </Row>
+                {FONT_OPTIONS.map(f => {
+                  const active = fontFamily === f.value;
+                  return (
+                    <div key={f.value} onClick={() => setFontFamily(f.value)}
+                      onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = "var(--text-accent)"; }}
+                      onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = "var(--border)"; }}
+                      style={{
+                        padding: "8px 10px", borderRadius: 8, cursor: "pointer",
+                        border: "1px solid " + (active ? "var(--text-accent)" : "var(--border)"),
+                        background: active ? "var(--bg-sidebar-active)" : "var(--bg-sidebar)",
+                        transition: "border-color 120ms ease, background 120ms ease",
+                      }}>
+                      <div style={{
+                        fontFamily: f.stack, fontSize: 16, color: "var(--text-primary)",
+                        lineHeight: 1.4, marginBottom: 3, whiteSpace: "nowrap",
+                        overflow: "hidden", textOverflow: "ellipsis",
+                      }}>
+                        字体预览 Aa
+                      </div>
+                      <div style={{ fontSize: 10, color: active ? "var(--text-accent)" : "var(--text-tertiary)" }}>
+                        {(t().settings as Record<string, string>)[f.labelKey]}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
             <Row label={t().settings.fontSize}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <input type="range" min={12} max={24} step={1} value={fontSize}

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useStore } from "../../store";
 import { t } from "../../i18n";
+import * as fs from "../../services";
 
 interface SearchResult {
   filePath: string;
@@ -31,8 +32,7 @@ export function SearchPanel({ onClose }: { onClose: () => void }) {
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const tree = await invoke<any[]>("open_workspace", { path: workspacePath });
+        const tree = await fs.openWorkspace(workspacePath);
         if (abortRef.current) return;
         const found: SearchResult[] = [];
         const q = query.toLowerCase();
@@ -42,7 +42,7 @@ export function SearchPanel({ onClose }: { onClose: () => void }) {
             if (node.children) for (const c of node.children) await searchNode(c);
           } else if (node.name.endsWith(".md")) {
             try {
-              const content: string = await invoke("read_file", { path: node.path });
+              const content = await fs.readFile(node.path);
               const lines = content.split("\n");
               lines.forEach((line, i) => {
                 if (line.toLowerCase().includes(q)) {
@@ -74,8 +74,7 @@ export function SearchPanel({ onClose }: { onClose: () => void }) {
 
   const handleClick = useCallback(async (r: SearchResult) => {
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const content = await invoke<string>("read_file", { path: r.filePath });
+      const content = await fs.readFile(r.filePath);
       setSelectedFile(r.filePath);
       setCurrentFile(r.filePath, content);
       onClose();

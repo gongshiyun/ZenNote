@@ -1,7 +1,9 @@
-import { useCallback, useState, useEffect, useRef, useMemo } from "react";
+import { useCallback, useState, useEffect, useRef, useMemo, memo } from "react";
 import { useStore } from "../../store";
 import { t } from "../../i18n";
-import type { FileNode } from "../../store";
+import type { FileNode } from "../../domain";
+import { parentDir, isWithinWorkspace } from "../../domain";
+import * as fs from "../../services";
 
 // ---- Flatten tree for keyboard nav ----
 function flattenTree(nodes: FileNode[], expanded: string[]): FileNode[] {
@@ -30,7 +32,7 @@ function ContextMenu({ state, onClose, onNewFile, onNewFolder, onRename, onDelet
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, [onClose]);
-  const parentPath = state.node.isDir ? state.node.path : state.node.path.replace(/[\\/][^\\/]+$/, "");
+  const parentPath = state.node.isDir ? state.node.path : parentDir(state.node.path);
   const items: { label: string; action: () => void; danger?: boolean }[] = [
     { label: t().filetree.newNote, action: () => { onNewFile(parentPath); onClose(); } },
     { label: t().filetree.newFolder, action: () => { onNewFolder(parentPath); onClose(); } },
@@ -106,8 +108,7 @@ export function FileTree() {
   const refreshTree = useCallback(async () => {
     if (!workspacePath) return;
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const t = await invoke<any[]>("open_workspace", { path: workspacePath });
+      const t = await fs.openWorkspace(workspacePath);
       setTree(t);
     } catch { /* */ }
   }, [workspacePath, setTree]);
@@ -115,8 +116,7 @@ export function FileTree() {
   const openFile = useCallback(async (filePath: string) => {
     setSelectedFile(filePath);
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const content = await invoke<string>("read_file", { path: filePath });
+      const content = await fs.readFile(filePath);
       setCurrentFile(filePath, content);
     } catch {
       setCurrentFile(filePath, "# " + (filePath.split(/[\\/]/).pop() || "") + "\n\n");
@@ -129,8 +129,7 @@ export function FileTree() {
     const base = parentPath || workspacePath || "";
     const newPath = base + "\\" + name;
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("create_file", { path: newPath });
+      await fs.createFile(newPath);
       await refreshTree();
       openFile(newPath);
     } catch { /* */ }
@@ -141,8 +140,7 @@ export function FileTree() {
     if (!name) return;
     const base = parentPath || workspacePath || "";
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("create_folder", { path: base + "\\" + name });
+      await fs.createFolder(base + "\\" + name);
       await refreshTree();
     } catch { /* */ }
   }, [workspacePath, refreshTree]);
@@ -152,8 +150,7 @@ export function FileTree() {
     if (!newName || newName === oldName) return;
     const newPath = path.replace(/[\\/][^\\/]+$/, "\\" + newName);
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("rename_file", { oldPath: path, newPath });
+      await fs.renameFile(path, newPath);
       await refreshTree();
     } catch { /* */ }
   }, [refreshTree]);
@@ -162,8 +159,7 @@ export function FileTree() {
     const name = path.split(/[\\/]/).pop() || "";
     if (!confirm("Delete \"" + name + "\"?")) return;
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("delete_file", { path });
+      await fs.deleteFile(path);
       await refreshTree();
     } catch { /* */ }
   }, [refreshTree]);
@@ -174,8 +170,7 @@ export function FileTree() {
     store.setWorkspace(path);
     store.setLoading(true);
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const t = await invoke<any[]>("open_workspace", { path });
+      const t = await fs.openWorkspace(path);
       store.setTree(t);
     } catch { store.setTree([]); }
     store.setLoading(false);
@@ -184,21 +179,20 @@ export function FileTree() {
   const handleOpenFileDialog = useCallback(async () => {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
-      const { invoke } = await import("@tauri-apps/api/core");
       const file = await open({ multiple: false, filters: [{ name: "Markdown", extensions: ["md"] }] });
       if (file && typeof file === "string") {
-        const content = await invoke<string>("read_file", { path: file });
+        const content = await fs.readFile(file);
         const store = useStore.getState();
         store.setSelectedFile(file);
         store.setCurrentFile(file, content);
         // Auto-add the file's directory as the workspace (shown in the sidebar)
         // when it lies outside the current workspace.
-        const parent = file.replace(/[\\/][^\\/]+$/, "");
+        const parent = parentDir(file);
         const ws = store.workspacePath;
-        const inCurrent = !!ws && (parent === ws || parent.startsWith(ws + "\\") || parent.startsWith(ws + "/"));
+        const inCurrent = isWithinWorkspace(parent, ws);
         if (!inCurrent) {
           store.setWorkspace(parent);
-          try { const t = await invoke<any[]>("open_workspace", { path: parent }); store.setTree(t); } catch {}
+          try { const t = await fs.openWorkspace(parent); store.setTree(t); } catch {}
         }
       }
     } catch { /* */ }
@@ -325,8 +319,8 @@ export function FileTree() {
   );
 }
 
-// ---- FileTreeNode ----
-function FileTreeNode({ node, depth, selectedFilePath, expandedFolders, onToggle, onSelect, onContextMenu, focusIndex, flatNodes }: {
+// ---- FileTreeNode (memoized — avoids re-rendering the whole tree on unrelated state changes) ----
+const FileTreeNode = memo(function FileTreeNode({ node, depth, selectedFilePath, expandedFolders, onToggle, onSelect, onContextMenu, focusIndex, flatNodes }: {
   node: FileNode; depth: number; selectedFilePath: string | null;
   expandedFolders: string[]; onToggle: (p: string) => void; onSelect: (p: string) => void;
   onContextMenu: (e: React.MouseEvent, n: FileNode) => void;
@@ -358,7 +352,7 @@ function FileTreeNode({ node, depth, selectedFilePath, expandedFolders, onToggle
       ))}
     </>
   );
-}
+});
 
 // ---- Header action button ----
 function HeaderBtn(p: { children: React.ReactNode; onClick: () => void; title?: string }) {

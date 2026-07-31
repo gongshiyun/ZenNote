@@ -271,6 +271,30 @@
 :root[data-font="kai"] {
   --zn-font-stack: "KaiTi", "楷体", "STKaiti", Georgia, serif;
 }
+:root[data-font="song"] {
+  --zn-font-stack: "SimSun", "宋体", "Noto Serif SC", "Times New Roman", serif;
+}
+:root[data-font="heiti"] {
+  --zn-font-stack: "SimHei", "黑体", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+}
+:root[data-font="fangsong"] {
+  --zn-font-stack: "FangSong", "仿宋", "STFangsong", "SimSun", serif;
+}
+:root[data-font="rounded"] {
+  --zn-font-stack: "Yuanti SC", "YouYuan", "幼圆", "Microsoft YaHei", sans-serif;
+}
+:root[data-font="humanist"] {
+  --zn-font-stack: "Segoe UI", Verdana, "Helvetica Neue", "Microsoft YaHei", sans-serif;
+}
+:root[data-font="geometric"] {
+  --zn-font-stack: "Century Gothic", "Futura", "Avenir Next", "Microsoft YaHei", sans-serif;
+}
+:root[data-font="literary"] {
+  --zn-font-stack: "Palatino Linotype", "Book Antiqua", Palatino, "Noto Serif SC", "SimSun", serif;
+}
+:root[data-font="slab"] {
+  --zn-font-stack: Rockwell, "Roboto Slab", "Courier New", "Microsoft YaHei", serif;
+}
 
 /* ========================================
    Milkdown Crepe Theme Variables

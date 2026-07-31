@@ -3,9 +3,12 @@ import { useStore } from "../../store";
 import { FindReplaceBar } from "./FindReplaceBar";
 import { TableContextMenu } from "./TableContextMenu";
 import { t } from "../../i18n";
+import { writeFile } from "../../services";
+import { currentFontStack } from "../../lib/fontStack";
 import "@milkdown/crepe/theme/common/style.css";
-import { LanguageDescription, LanguageSupport, StreamLanguage } from "@codemirror/language";
+import { LanguageDescription, LanguageSupport, StreamLanguage, indentUnit } from "@codemirror/language";
 import { languages as codeMirrorLanguages } from "@codemirror/language-data";
+import { EditorState as CMEditorState } from "@codemirror/state";
 
 // Mermaid 无需语法高亮（内容会被渲染为图表），用纯文本占位语言。
 // 将其注入 @codemirror/language-data 的共享语言列表（Crepe 默认配置直接引用该列表），
@@ -75,6 +78,9 @@ export function Editor() {
   const scrollPosition = useStore(s => s.scrollPosition);
   const setScrollPosition = useStore(s => s.setScrollPosition);
   const setEditorRef = useStore(s => s.setEditorRef);
+  const tabSize = useStore(s => s.tabSize);
+  const resolvedMode = useStore(s => s.resolvedMode);
+  const fontFamily = useStore(s => s.fontFamily);
   const [error, setError] = useState<string | null>(null);
   const [findVisible, setFindVisible] = useState(false);
   const [editorReady, setEditorReady] = useState(false);
@@ -94,6 +100,11 @@ export function Editor() {
   const scrollSaveTimer = useRef<number>(0);
   const focusCleanupRef = useRef<(() => void) | null>(null);
   const editorReadyRef = useRef(false);
+
+  // Registry of rendered mermaid blocks: applyPreview callback -> mermaid source.
+  // applyPreview updates Milkdown's internal preview ref (the source of truth),
+  // so re-rendering through it survives theme/font changes without being reverted.
+  const mermaidApplyPreviews = useRef(new Map<(v: null | string | HTMLElement) => void, string>());
 
   // Initialize Milkdown Crepe editor
   useEffect(() => {
@@ -123,6 +134,8 @@ export function Editor() {
     editorReadyRef.current = false;
     setEditorReady(false);
     setError(null);
+    // Fresh editor: drop any stale mermaid applyPreview registrations.
+    mermaidApplyPreviews.current.clear();
 
     const init = async () => {
       if (crepeRef.current) {
@@ -159,10 +172,17 @@ export function Editor() {
             [CrepeFeature.CodeMirror]: {
               // Show the rendered diagram by default; toggle button reveals source
               previewOnlyByDefault: true,
+              // Honor the user's indent setting inside code blocks
+              extensions: [
+                CMEditorState.tabSize.of(useStore.getState().tabSize),
+                indentUnit.of(" ".repeat(useStore.getState().tabSize)),
+              ],
               // Native Milkdown code-block preview — rendered inside the node view,
               // so ProseMirror never parses the SVG back into the document.
               renderPreview: (language: string, content: string, applyPreview: (v: null | string | HTMLElement) => void) => {
                 if (language.trim().toLowerCase() !== "mermaid") return null;
+                // Register this block so we can re-render it on theme/font changes.
+                mermaidApplyPreviews.current.set(applyPreview, content.trim());
                 void (async () => {
                   try {
                     const mermaidMod = await import("mermaid");
@@ -172,6 +192,8 @@ export function Editor() {
                       startOnLoad: false,
                       theme: isDark ? "dark" : "default",
                       securityLevel: "loose",
+                      // Follow the user's selected UI font
+                      fontFamily: currentFontStack(),
                     });
                     const id = "m-" + Math.random().toString(36).slice(2, 8);
                     const { svg } = await mermaidMod.default.render(id, content.trim());
@@ -647,6 +669,59 @@ export function Editor() {
     };
   }, [sourceMode, editorReady]);
 
+  // Re-render already-drawn mermaid diagrams when the theme or font changes.
+  // Milkdown only re-runs renderPreview on text/language edits, so a theme/font
+  // switch would otherwise leave the old-colored SVGs in place. The .preview
+  // container is opaque to ProseMirror (Milkdown itself fills it via innerHTML),
+  // so replacing the SVG there is safe.
+  const mermaidThemeFontFirstRun = useRef(true);
+  useEffect(() => {
+    // Debug logger (writes to export-debug.log so we can diagnose in release builds)
+    const log = (msg: string) => {
+      import("@tauri-apps/api/core").then(({ invoke }) => invoke("export_debug_log", { msg: "[mermaid-re] " + msg })).catch(() => {});
+    };
+    if (mermaidThemeFontFirstRun.current) { mermaidThemeFontFirstRun.current = false; log("skip first run"); return; }
+    log("effect fired: resolvedMode=" + resolvedMode + " font=" + fontFamily + " sourceMode=" + sourceMode + " editorReady=" + editorReady + " registered=" + mermaidApplyPreviews.current.size);
+    if (sourceMode || !editorReady) { log("early return (sourceMode or not ready)"); return; }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const mermaidMod = await import("mermaid");
+        const isDark = useStore.getState().resolvedMode === "dark";
+        mermaidMod.default.initialize({
+          startOnLoad: false,
+          theme: isDark ? "dark" : "default",
+          securityLevel: "loose",
+          fontFamily: currentFontStack(),
+        });
+        // Group registered blocks by source so identical diagrams render once.
+        const bySource = new Map<string, Array<(v: null | string | HTMLElement) => void>>();
+        mermaidApplyPreviews.current.forEach((source, applyPreview) => {
+          if (!source) return;
+          const list = bySource.get(source) || [];
+          list.push(applyPreview);
+          bySource.set(source, list);
+        });
+        log("re-rendering " + bySource.size + " unique mermaid sources, isDark=" + isDark);
+        let reRendered = 0;
+        for (const [source, applyFns] of bySource) {
+          if (cancelled) return;
+          try {
+            const id = "m-re-" + Math.random().toString(36).slice(2, 8);
+            const { svg } = await mermaidMod.default.render(id, source);
+            if (cancelled) return;
+            // Update Milkdown's preview ref (source of truth) — NOT the DOM directly,
+            // so Milkdown's own watchEffect won't revert it back to the old SVG.
+            applyFns.forEach(fn => fn(svg));
+            reRendered++;
+          } catch (err) { log("render failed: " + String(err)); }
+        }
+        log("re-rendered " + reRendered + " mermaid diagrams via applyPreview");
+      } catch (err) { log("mermaid import/init failed: " + String(err)); }
+    })();
+    return () => { cancelled = true; };
+  }, [resolvedMode, fontFamily, sourceMode, editorReady]);
+
   // Copy actions for the context menu
   const copyPlainText = useCallback(() => {
     const sel = window.getSelection();
@@ -692,11 +767,9 @@ export function Editor() {
       e.preventDefault();
       const s = useStore.getState();
       if (s.content !== undefined && s.currentFilePath) {
-        import("@tauri-apps/api/core").then(({ invoke }) =>
-          invoke("write_file", { path: s.currentFilePath, content: s.content })
-            .then(() => useStore.getState().setDirty(false))
-            .catch(() => {})
-        );
+        writeFile(s.currentFilePath, s.content)
+          .then(() => useStore.getState().setDirty(false))
+          .catch(() => {});
       }
     }
   }, [currentFilePath]);
@@ -723,6 +796,19 @@ export function Editor() {
       setCursorPosition(lines.length, lines[lines.length - 1].length + 1);
     }, 0);
   }, [setCursorPosition]);
+
+  // Tab key inserts `tabSize` spaces in source mode (honors the indent setting).
+  const handleTextareaKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== "Tab" || e.shiftKey) return;
+    e.preventDefault();
+    const ta = e.currentTarget;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const spaces = " ".repeat(tabSize);
+    const next = ta.value.slice(0, start) + spaces + ta.value.slice(end);
+    setContent(next);
+    requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = start + tabSize; });
+  }, [tabSize, setContent]);
 
   useEffect(() => {
     return () => {
@@ -758,6 +844,7 @@ export function Editor() {
         value={content}
         onChange={handleTextareaChange}
         onClick={handleTextareaClick}
+        onKeyDown={handleTextareaKeyDown}
         onKeyUp={() => {
           const ta = textareaRef.current;
           if (ta) {

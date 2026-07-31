@@ -1,16 +1,20 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, lazy, Suspense } from "react";
 import { Titlebar } from "./Titlebar";
 import { StatusBar } from "./StatusBar";
 import { FileTree } from "../filetree/FileTree";
 import { Editor } from "../editor/Editor";
 import { Outline } from "../outline/Outline";
-import { SearchPanel } from "../search/SearchPanel";
-import { SettingsDialog } from "../dialogs/SettingsDialog";
+
+// Lazy-load heavy, rarely-visible panels
+const SearchPanel = lazy(() => import("../search/SearchPanel").then(m => ({ default: m.SearchPanel })));
+const SettingsDialog = lazy(() => import("../dialogs/SettingsDialog").then(m => ({ default: m.SettingsDialog })));
 import { useMermaid } from "../../hooks/useMermaid";
 import { useUpdater } from "../../hooks/useUpdater";
 import { useStore } from "../../store";
 import { t } from "../../i18n";
 import { exportToHtml, exportToPdf } from "../../lib/exportNote";
+import { parentDir, isWithinWorkspace } from "../../domain";
+import * as fs from "../../services";
 
 // ---- Auto-save ----
 function useAutoSave() {
@@ -25,8 +29,7 @@ function useAutoSave() {
       const s = useStore.getState();
       if (!s.isDirty || !s.currentFilePath) return;
       try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        await invoke("write_file", { path: s.currentFilePath, content: s.content });
+        await fs.writeFile(s.currentFilePath, s.content);
         useStore.getState().setDirty(false);
       } catch { /* */ }
     }, autoSaveDelay);
@@ -107,16 +110,14 @@ function useWindowPersistence() {
       if (typeof data.updateCheckInterval === "number") useStore.getState().setUpdateCheckInterval(data.updateCheckInterval);
       if (data.workspacePath) {
         useStore.getState().setWorkspace(data.workspacePath);
-        import("@tauri-apps/api/core").then(({ invoke }) => {
-          invoke<any[]>("open_workspace", { path: data.workspacePath }).then(tree => {
-            useStore.getState().setTree(tree);
-            if (data.currentFilePath) {
-              invoke<string>("read_file", { path: data.currentFilePath }).then(content => {
-                useStore.getState().setSelectedFile(data.currentFilePath);
-                useStore.getState().setCurrentFile(data.currentFilePath, content);
-              }).catch(() => {});
-            }
-          }).catch(() => {});
+        fs.openWorkspace(data.workspacePath).then(tree => {
+          useStore.getState().setTree(tree);
+          if (data.currentFilePath) {
+            fs.readFile(data.currentFilePath).then(content => {
+              useStore.getState().setSelectedFile(data.currentFilePath);
+              useStore.getState().setCurrentFile(data.currentFilePath, content);
+            }).catch(() => {});
+          }
         }).catch(() => {});
       }
     } catch { /* */ }
@@ -148,17 +149,26 @@ export function AppShell() {
   useWindowPersistence();
   useUpdater();
 
-  const [sidebarWidth, setSidebarWidth] = useState(240);
-  const [outlineWidth, setOutlineWidth] = useState(180);
+  const [sidebarWidth] = useState(240);
+  const [outlineWidth] = useState(180);
   const isDraggingSidebar = useRef(false);
   const isDraggingOutline = useRef(false);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const outlineRef = useRef<HTMLDivElement>(null);
   const onSidebarMouseDown = useCallback(() => { isDraggingSidebar.current = true; }, []);
   const onOutlineMouseDown = useCallback(() => { isDraggingOutline.current = true; }, []);
 
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
-      if (isDraggingSidebar.current) setSidebarWidth(w => Math.max(160, Math.min(480, w + e.movementX)));
-      if (isDraggingOutline.current) setOutlineWidth(w => Math.max(140, Math.min(360, w + e.movementX)));
+      // Direct DOM manipulation during drag — avoids React re-render on every mousemove
+      if (isDraggingSidebar.current && sidebarRef.current) {
+        const w = Math.max(160, Math.min(480, sidebarRef.current.offsetWidth + e.movementX));
+        sidebarRef.current.style.width = w + "px";
+      }
+      if (isDraggingOutline.current && outlineRef.current) {
+        const w = Math.max(140, Math.min(360, outlineRef.current.offsetWidth + e.movementX));
+        outlineRef.current.style.width = w + "px";
+      }
     };
     const onMouseUp = () => { isDraggingSidebar.current = false; isDraggingOutline.current = false; };
     window.addEventListener("mousemove", onMouseMove);
@@ -189,20 +199,19 @@ export function AppShell() {
         (async () => {
           try {
             const { open } = await import("@tauri-apps/plugin-dialog");
-            const { invoke } = await import("@tauri-apps/api/core");
             const file = await open({ multiple: false, filters: [{ name: "Markdown", extensions: ["md"] }] });
             if (file && typeof file === "string") {
-              const content = await invoke<string>("read_file", { path: file });
+              const content = await fs.readFile(file);
               const s = useStore.getState();
               s.setSelectedFile(file);
               s.setCurrentFile(file, content);
               // Auto-add the file's directory as the workspace when outside the current one.
-              const parent = file.replace(/[\\/][^\\/]+$/, "");
+              const parent = parentDir(file);
               const ws = s.workspacePath;
-              const inCurrent = !!ws && (parent === ws || parent.startsWith(ws + "\\") || parent.startsWith(ws + "/"));
+              const inCurrent = isWithinWorkspace(parent, ws);
               if (!inCurrent) {
                 s.setWorkspace(parent);
-                try { const t = await invoke<any[]>("open_workspace", { path: parent }); s.setTree(t); } catch {}
+                try { const t = await fs.openWorkspace(parent); s.setTree(t); } catch {}
               }
             }
           } catch {}
@@ -213,13 +222,12 @@ export function AppShell() {
         (async () => {
           try {
             const { open } = await import("@tauri-apps/plugin-dialog");
-            const { invoke } = await import("@tauri-apps/api/core");
             const folder = await open({ directory: true, multiple: false });
             if (folder && typeof folder === "string") {
               const s = useStore.getState();
               s.setWorkspace(folder);
               s.setLoading(true);
-              const t = await invoke<any[]>("open_workspace", { path: folder });
+              const t = await fs.openWorkspace(folder);
               s.setTree(t);
               s.setLoading(false);
             }
@@ -251,7 +259,7 @@ export function AppShell() {
         {/* Left sidebar: FileTree */}
         {sidebarVisible && (
           <>
-            <div style={{ width: sidebarWidth, flexShrink: 0, background: "var(--bg-sidebar)", borderRight: "1px solid var(--border)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+            <div ref={sidebarRef} style={{ width: sidebarWidth, flexShrink: 0, background: "var(--bg-sidebar)", borderRight: "1px solid var(--border)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
               <FileTree />
             </div>
             <div className="resize-handle" onMouseDown={onSidebarMouseDown} />
@@ -260,7 +268,7 @@ export function AppShell() {
         {/* Left side: Outline panel (between FileTree and Editor) */}
         {outlineVisible && (
           <>
-            <div style={{ width: outlineWidth, flexShrink: 0, background: "var(--bg-sidebar)", borderRight: "1px solid var(--border)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+            <div ref={outlineRef} style={{ width: outlineWidth, flexShrink: 0, background: "var(--bg-sidebar)", borderRight: "1px solid var(--border)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
               <Outline />
             </div>
             <div className="resize-handle" onMouseDown={onOutlineMouseDown} />
@@ -272,8 +280,10 @@ export function AppShell() {
         </div>
       </div>
       <StatusBar />
-      {searchVisible && <SearchPanel onClose={() => setSearchVisible(false)} />}
-      {settingsVisible && <SettingsDialog onClose={() => setSettingsVisible(false)} />}
+      <Suspense fallback={null}>
+        {searchVisible && <SearchPanel onClose={() => setSearchVisible(false)} />}
+        {settingsVisible && <SettingsDialog onClose={() => setSettingsVisible(false)} />}
+      </Suspense>
     </div>
   );
 }
@@ -288,13 +298,12 @@ function WelcomeScreen() {
   const openFolder = async () => {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
-      const { invoke } = await import("@tauri-apps/api/core");
       const folder = await open({ directory: true, multiple: false, title: t().welcome.openFolder });
       if (folder && typeof folder === "string") {
         setWorkspace(folder);
         setLoading(true);
         setLoadingState(true);
-        const tree = await invoke<any[]>("open_workspace", { path: folder });
+        const tree = await fs.openWorkspace(folder);
         setTree(tree);
         setLoading(false);
         setLoadingState(false);

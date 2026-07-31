@@ -1,12 +1,7 @@
 import { useEffect, useMemo, useCallback, useRef } from "react";
 import { useStore } from "../../store";
 import { t } from "../../i18n";
-
-interface Heading {
-  level: number;
-  text: string;
-  pos: number;
-}
+import { parseHeadings, displayableHeadings } from "../../domain";
 
 export function Outline() {
   const content = useStore(s => s.content);
@@ -18,24 +13,8 @@ export function Outline() {
   const scrollTimer = useRef<number>(0);
 
   // Parse all headings (h1-h6), then display only h1-h3
-  const headings: Heading[] = useMemo(() => {
-    const lines = content.split(/\r?\n/);
-    const result: Heading[] = [];
-    lines.forEach((line, idx) => {
-      const match = line.match(/^(#{1,6})\s+(.+)/);
-      if (match) {
-        result.push({ level: match[1].length, text: match[2].trim(), pos: idx });
-      }
-    });
-    return result;
-  }, [content]);
-
-  // Display headings filtered to h1-h3, with their original index
-  const displayHeadings = useMemo(() => {
-    return headings
-      .map((h, originalIdx) => ({ ...h, originalIdx }))
-      .filter(h => h.level <= 3);
-  }, [headings]);
+  const headings = useMemo(() => parseHeadings(content), [content]);
+  const displayHeadings = useMemo(() => displayableHeadings(headings), [headings]);
 
   useEffect(() => { setHeadings(headings); }, [headings, setHeadings]);
 
