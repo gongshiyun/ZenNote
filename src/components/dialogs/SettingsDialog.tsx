@@ -33,6 +33,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const setFontSize = useStore(s => s.setFontSize);
   const tabSize = useStore(s => s.tabSize);
   const setTabSize = useStore(s => s.setTabSize);
+  const editorPadding = useStore(s => s.editorPadding);
+  const setEditorPadding = useStore(s => s.setEditorPadding);
   const autoSaveDelay = useStore(s => s.autoSaveDelay);
   const setAutoSaveDelay = useStore(s => s.setAutoSaveDelay);
   const showHiddenFiles = useStore(s => s.showHiddenFiles);
@@ -194,6 +196,14 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                   onChange={e => setTabSize(Number(e.target.value))}
                   style={{ width: 100, accentColor: "var(--text-accent)" }} />
                 <span style={{ fontSize: 12, color: "var(--text-secondary)", minWidth: 20, textAlign: "center" }}>{tabSize}</span>
+              </div>
+            </Row>
+            <Row label={t().settings.editorPadding}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input type="range" min={16} max={500} step={4} value={editorPadding}
+                  onChange={e => setEditorPadding(Number(e.target.value))}
+                  style={{ width: 100, accentColor: "var(--text-accent)" }} />
+                <span style={{ fontSize: 12, color: "var(--text-secondary)", minWidth: 36, textAlign: "center" }}>{editorPadding}px</span>
               </div>
             </Row>
             <Row label={t().settings.autoSaveDelay}>

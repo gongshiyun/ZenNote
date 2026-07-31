@@ -79,6 +79,7 @@ export function Editor() {
   const setScrollPosition = useStore(s => s.setScrollPosition);
   const setEditorRef = useStore(s => s.setEditorRef);
   const tabSize = useStore(s => s.tabSize);
+  const editorPadding = useStore(s => s.editorPadding);
   const resolvedMode = useStore(s => s.resolvedMode);
   const fontFamily = useStore(s => s.fontFamily);
   const [error, setError] = useState<string | null>(null);
@@ -857,7 +858,7 @@ export function Editor() {
           display: sourceMode ? "block" : "none",
           flex: sourceMode ? 1 : undefined,
           width: "100%", border: "none", outline: "none", resize: "none",
-          padding: "40px 80px", fontSize: 16, lineHeight: 1.85,
+          padding: "40px " + editorPadding + "px", fontSize: 16, lineHeight: 1.85,
           fontFamily: '"Cascadia Code","Fira Code",Consolas,"Microsoft YaHei",monospace',
           background: "var(--bg-editor)", color: "var(--text-primary)",
         }}
@@ -868,7 +869,7 @@ export function Editor() {
           display: sourceMode ? "none" : "block",
           flex: sourceMode ? undefined : 1,
           overflow: "auto", background: "var(--bg-editor)",
-          padding: "40px 80px",
+          padding: "40px " + editorPadding + "px",
           opacity: editorReady ? 1 : 0.6,
           transition: "opacity 200ms ease",
           position: "relative",

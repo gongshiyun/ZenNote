@@ -359,6 +359,13 @@
   color-scheme: dark;
 }
 
+/* Crepe's reset.css hard-codes `.milkdown .ProseMirror { padding: 60px 120px; }`.
+   Zero it out so the editor page's left/right margin is driven solely by the
+   user's "editorPadding" setting (applied on the editor container in Editor.tsx). */
+.milkdown .ProseMirror {
+  padding: 0 !important;
+}
+
 /* ========================================
    Global dark-mode overrides for Milkdown Crepe
    floating elements rendered outside .milkdown (portals)

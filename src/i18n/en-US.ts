@@ -88,6 +88,7 @@ const enUS = {
     "fontSize": "Font size",
     "editorLabel": "Editor",
     "tabSize": "Tab size",
+    "editorPadding": "Page side margins",
     "autoSaveDelay": "Auto-save delay",
     "defaultSourceMode": "Default source mode",
     "fileTree": "File Tree",

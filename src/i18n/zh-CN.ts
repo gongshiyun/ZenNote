@@ -88,6 +88,7 @@ const zhCN = {
     "fontSize": "字体大小",
     "editorLabel": "编辑器",
     "tabSize": "缩进大小",
+    "editorPadding": "页面左右边距",
     "autoSaveDelay": "自动保存延迟",
     "defaultSourceMode": "默认源码模式",
     "fileTree": "文件树",

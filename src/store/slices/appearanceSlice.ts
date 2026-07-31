@@ -18,12 +18,14 @@ export interface ThemeSlice {
 export interface ConfigSlice {
   fontSize: number;
   tabSize: number;
+  editorPadding: number; // left/right padding (px) of the editor page
   autoSaveDelay: number;
   showHiddenFiles: boolean;
   showFileExtensions: boolean;
   defaultSourceMode: boolean;
   setFontSize: (n: number) => void;
   setTabSize: (n: number) => void;
+  setEditorPadding: (n: number) => void;
   setAutoSaveDelay: (n: number) => void;
   setShowHiddenFiles: (v: boolean) => void;
   setShowFileExtensions: (v: boolean) => void;
@@ -44,12 +46,14 @@ export const createThemeSlice: StateCreator<ThemeSlice, [], [], ThemeSlice> = (s
 export const createConfigSlice: StateCreator<ConfigSlice, [], [], ConfigSlice> = (set) => ({
   fontSize: 16,
   tabSize: 2,
+  editorPadding: 80,
   autoSaveDelay: 0,
   showHiddenFiles: false,
   showFileExtensions: true,
   defaultSourceMode: false,
   setFontSize: (n) => set({ fontSize: n }),
   setTabSize: (n) => set({ tabSize: n }),
+  setEditorPadding: (n) => set({ editorPadding: n }),
   setAutoSaveDelay: (n) => set({ autoSaveDelay: n }),
   setShowHiddenFiles: (v) => set({ showHiddenFiles: v }),
   setShowFileExtensions: (v) => set({ showFileExtensions: v }),
