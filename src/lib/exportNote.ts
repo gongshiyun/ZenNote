@@ -128,7 +128,41 @@ async function serializeEditorContent(fallbackContent: string): Promise<string> 
     }
   });
 
+  // Normalise raw-HTML blocks: the editor wraps them in a <span data-type="html">,
+  // but block-level content inside a <span> is invalid HTML and gets mangled when
+  // the export is re-parsed for PDF. Convert block ones to <div>. If the block was
+  // being edited at export time (a source <textarea> is present), render its value.
+  clone.querySelectorAll('span[data-type="html"]').forEach(span => {
+    const isBlock = span.classList.contains("zn-html-block");
+    const ta = span.querySelector(".zn-html-textarea") as HTMLTextAreaElement | null;
+    const wrap = document.createElement(isBlock ? "div" : "span");
+    wrap.className = "zn-html-render" + (isBlock ? " zn-html-block" : "");
+    if (ta) {
+      wrap.textContent = "";
+      wrap.innerHTML = renderRawHtmlForExport(ta.value);
+    } else {
+      wrap.innerHTML = span.innerHTML;
+    }
+    span.replaceWith(wrap);
+  });
+
   return clone.innerHTML;
+}
+
+// Minimal sanitizer for the rare "html block was being edited at export time"
+// case (mirrors the editor's sanitizeHtml).
+function renderRawHtmlForExport(html: string): string {
+  const tpl = document.createElement("template");
+  tpl.innerHTML = html;
+  tpl.content.querySelectorAll("script, iframe, object, embed, link, meta, base").forEach(el => el.remove());
+  tpl.content.querySelectorAll("*").forEach(el => {
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase();
+      if (name.startsWith("on")) el.removeAttribute(attr.name);
+      else if ((name === "href" || name === "src") && attr.value.trim().toLowerCase().startsWith("javascript:")) el.removeAttribute(attr.name);
+    }
+  });
+  return tpl.innerHTML;
 }
 
 // Collect the CURRENTLY-RESOLVED values of every CSS custom property used by
@@ -217,13 +251,7 @@ export async function exportToHtml(content: string, filePath: string) {
 
 // Simple toast feedback (used for export results).
 function showToast(message: string, isError = false) {
-  let host = document.getElementById("zn-toast-host");
-  if (!host) {
-    host = document.createElement("div");
-    host.id = "zn-toast-host";
-    host.style.cssText = "position:fixed;top:48px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;";
-    document.body.appendChild(host);
-  }
+  const host = ensureToastHost();
   const el = document.createElement("div");
   el.style.cssText = "padding:8px 18px;border-radius:8px;font-size:13px;color:#fff;background:" + (isError ? "#DC2626" : "#16A34A") + ";box-shadow:0 4px 12px rgba(0,0,0,0.25);opacity:0;transition:opacity 200ms ease;white-space:nowrap;";
   el.textContent = message;
@@ -233,6 +261,46 @@ function showToast(message: string, isError = false) {
     el.style.opacity = "0";
     setTimeout(() => el.remove(), 250);
   }, 3000);
+}
+
+// Shared toast container.
+function ensureToastHost(): HTMLElement {
+  let host = document.getElementById("zn-toast-host");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "zn-toast-host";
+    host.style.cssText = "position:fixed;top:48px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;";
+    document.body.appendChild(host);
+  }
+  return host;
+}
+
+// Persistent "loading" toast with a spinner. Returns a function that dismisses it.
+function showLoadingToast(message: string): () => void {
+  const host = ensureToastHost();
+  if (!document.getElementById("zn-toast-spinner-style")) {
+    const style = document.createElement("style");
+    style.id = "zn-toast-spinner-style";
+    style.textContent = "@keyframes zn-toast-spin { to { transform: rotate(360deg); } }";
+    document.head.appendChild(style);
+  }
+  const el = document.createElement("div");
+  el.style.cssText = "display:flex;align-items:center;gap:8px;padding:8px 18px;border-radius:8px;font-size:13px;color:#fff;background:#2563EB;box-shadow:0 4px 12px rgba(0,0,0,0.25);opacity:0;transition:opacity 200ms ease;white-space:nowrap;";
+  const spinner = document.createElement("span");
+  spinner.style.cssText = "width:14px;height:14px;border:2px solid rgba(255,255,255,0.4);border-top-color:#fff;border-radius:50%;animation:zn-toast-spin 0.8s linear infinite;flex-shrink:0;";
+  const text = document.createElement("span");
+  text.textContent = message;
+  el.appendChild(spinner);
+  el.appendChild(text);
+  host.appendChild(el);
+  requestAnimationFrame(() => { el.style.opacity = "1"; });
+  let dismissed = false;
+  return () => {
+    if (dismissed) return;
+    dismissed = true;
+    el.style.opacity = "0";
+    setTimeout(() => el.remove(), 250);
+  };
 }
 
 // Debug logger: appends to a file via the Rust `export_debug_log` command so it
@@ -283,6 +351,9 @@ export async function exportToPdf(content: string, filePath: string) {
     }
     await dbg("savePath=" + savePath);
 
+    // Show a persistent loading indicator for the duration of the export.
+    const dismissLoading = showLoadingToast("正在导出 PDF…");
+
     const label = "pdf-export-" + Date.now();
     const dataUrl = "data:text/html;base64," + utf8ToBase64(html);
     await dbg("creating WebviewWindow label=" + label + " dataUrl length=" + dataUrl.length);
@@ -294,32 +365,39 @@ export async function exportToPdf(content: string, filePath: string) {
       started = true;
       dbg("startExport via " + via).then(() => {
         invoke("export_pdf", { label, path: savePath })
-          .then(() => { dbg("export_pdf SUCCESS"); showToast("PDF 导出成功 ✓"); })
+          .then(() => { dbg("export_pdf SUCCESS"); dismissLoading(); showToast("PDF 导出成功 ✓"); })
           .catch((err: unknown) => {
             dbg("export_pdf FAILED: " + String(err));
+            dismissLoading();
             showToast("PDF 导出失败: " + String(err) + " 日志: " + dbgLogPath, true);
           });
       });
     };
 
     try {
-      // The render window is created HIDDEN (and off-screen as a safety net).
-      // A hidden WebView2 webview still loads the document and runs JS — only
-      // on-screen painting is suspended — and PrintToPdf does its own print
-      // render pass, so the PDF is produced without ever showing a window.
+      // The render window is created HIDDEN. The Rust side makes it fully
+      // transparent (alpha=0) and THEN shows it, so WebView2 renders (PrintToPdf
+      // works) but the user never sees any window — no flash, no popup, regardless
+      // of monitor layout/DPI. (A merely off-screen window gets clamped on-screen
+      // on some setups; transparency guarantees invisibility.)
       const win = new WebviewWindow(label, {
         title: name,
-        width: 1024,
-        height: 768,
+        width: 200,
+        height: 150,
         visible: false,
-        x: -32000,
-        y: -32000,
+        x: -2000,
+        y: -2000,
         url: dataUrl,
+        skipTaskbar: true,
+        focus: false,
+        focusable: false,
+        decorations: false,
+        resizable: false,
       });
       win.once("tauri://created", () => {
         dbg("window created OK");
-        // Give the data: document a moment to load & render, then print in Rust.
-        setTimeout(() => startExport("created-event"), 1200);
+        // Rust shows the (transparent) window and settles before printing.
+        setTimeout(() => startExport("created-event"), 150);
       });
       win.once("tauri://error", (e: unknown) => {
         let detail = "";
@@ -328,11 +406,13 @@ export async function exportToPdf(content: string, filePath: string) {
           detail = JSON.stringify(anyE?.payload ?? e) || String(e);
         } catch { detail = String(e); }
         dbg("window tauri://error: " + detail).then(() => {
+          dismissLoading();
           showToast("PDF 导出失败: 无法创建渲染窗口 [" + detail + "] 日志: " + dbgLogPath, true);
         });
       });
     } catch (e) {
       await dbg("WebviewWindow constructor threw: " + String(e));
+      dismissLoading();
       showToast("PDF 导出失败: 无法创建渲染窗口: " + String(e), true);
       return;
     }

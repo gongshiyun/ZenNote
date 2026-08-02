@@ -6,6 +6,7 @@ use walkdir::WalkDir;
 // ---- Data structures ----
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct FileNode {
     pub name: String,
     pub path: String,
@@ -88,6 +89,16 @@ fn move_file(src: String, dest: String) -> Result<(), String> {
     fs::rename(&src, &dest).map_err(|e| format!("移动失败: {}", e))
 }
 
+/// Write binary data (e.g. an image) to disk, creating parent dirs as needed.
+/// `bytes` arrives from the frontend as a Uint8Array.
+#[tauri::command]
+fn write_file_binary(path: String, bytes: Vec<u8>) -> Result<(), String> {
+    if let Some(parent) = Path::new(&path).parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
+    }
+    fs::write(&path, &bytes).map_err(|e| format!("保存图片失败: {}", e))
+}
+
 // ---- Tree builder ----
 
 fn build_tree(root: &Path) -> Result<Vec<FileNode>, String> {
@@ -135,36 +146,62 @@ fn build_tree(root: &Path) -> Result<Vec<FileNode>, String> {
 
 // ---- PDF export (Windows: WebView2 PrintToPdf, no print dialog) ----
 
+/// Make a window fully transparent (alpha = 0) via Win32 layered-window
+/// attributes, and hide it from the taskbar (WS_EX_TOOLWINDOW, clear
+/// WS_EX_APPWINDOW). The window stays "shown" (so WebView2 keeps rendering and
+/// PrintToPdf works) but is completely invisible to the user. Logs each step so
+/// failures can be diagnosed from export-debug.log.
 #[cfg(windows)]
-#[tauri::command]
-fn export_pdf(app: tauri::AppHandle, label: String, path: String) -> Result<(), String> {
-    use tauri::Manager;
+fn make_window_transparent(webview_window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
+    use windows::Win32::Foundation::{COLORREF, HWND};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetLayeredWindowAttributes, SetWindowLongPtrW, GWL_EXSTYLE,
+        LWA_ALPHA, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
+    };
+    let hwnd: HWND = match webview_window.hwnd() {
+        Ok(h) => h,
+        Err(e) => {
+            append_debug_log(app, "rust", &format!("transparent: hwnd() FAILED: {}", e));
+            return;
+        }
+    };
+    unsafe {
+        let ex_before = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        // Add WS_EX_LAYERED (enables alpha), add WS_EX_TOOLWINDOW (no taskbar
+        // button), clear WS_EX_APPWINDOW (which forces a taskbar button).
+        let new_style = (ex_before | WS_EX_LAYERED.0 as isize | WS_EX_TOOLWINDOW.0 as isize)
+            & !(WS_EX_APPWINDOW.0 as isize);
+        let set_result = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_style);
+        let ex_after = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        let alpha_ok = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA).is_ok();
+        append_debug_log(
+            app,
+            "rust",
+            &format!(
+                "transparent: hwnd={:?} ex_before={:#x} set_result={} ex_after={:#x} alpha_ok={}",
+                hwnd.0, ex_before, set_result, ex_after, alpha_ok
+            ),
+        );
+    }
+}
+
+/// Fire a single PrintToPdf call on the render window (fire-and-forget; the
+/// completion callback is not relied upon — the caller polls the output file).
+#[cfg(windows)]
+fn fire_print_to_pdf(
+    webview_window: &tauri::WebviewWindow,
+    app: &tauri::AppHandle,
+    path: &str,
+) -> Result<(), String> {
     use webview2_com::Microsoft::Web::WebView2::Win32::{
         ICoreWebView2, ICoreWebView2_7, ICoreWebView2Environment6,
     };
     use webview2_com::PrintToPdfCompletedHandler;
     use windows::core::{Interface, HSTRING};
 
-    let webview_window = app
-        .get_webview_window(&label)
-        .ok_or_else(|| "export window not found".to_string())?;
-    append_debug_log(&app, "rust", &format!("export_pdf: got window label={}", label));
-
-    // The export HTML is loaded by the window itself (base64 data: URL set on
-    // creation). In this environment WebView2's async completion callbacks
-    // (ExecuteScript / NavigationCompleted / PrintToPdf) are never delivered to
-    // registered handlers, so we cannot wait on them. Instead we:
-    //   1. give the (static, self-contained) document a moment to finish rendering,
-    //   2. fire PrintToPdf (fire-and-forget),
-    //   3. poll the output FILE until WebView2 finishes writing it.
-    // The PDF file appearing with a stable, non-zero size is the success signal.
-    std::thread::sleep(std::time::Duration::from_millis(800));
-
-    // ---- Kick off PrintToPdf ----
-    let pdf_path = std::path::PathBuf::from(&path);
-    let (print_setup_tx, print_setup_rx) = std::sync::mpsc::channel::<Result<(), String>>();
-    let (print_done_tx, print_done_rx) = std::sync::mpsc::channel::<Result<(), String>>();
+    let (setup_tx, setup_rx) = std::sync::mpsc::channel::<Result<(), String>>();
     let app_p = app.clone();
+    let path_owned = path.to_string();
     webview_window
         .with_webview(move |webview| {
             let result = (|| -> Result<(), String> {
@@ -172,72 +209,105 @@ fn export_pdf(app: tauri::AppHandle, label: String, path: String) -> Result<(), 
                 let core: ICoreWebView2 =
                     unsafe { controller.CoreWebView2() }.map_err(|e| e.to_string())?;
                 let core7: ICoreWebView2_7 = core.cast().map_err(|e| e.to_string())?;
-                // Print settings: keep theme backgrounds/colors so the PDF matches
-                // the editor (by default WebView2 strips backgrounds when printing).
+                // Keep theme backgrounds/colors so the PDF matches the editor
+                // (WebView2 strips backgrounds when printing by default).
                 let env = webview.environment();
                 let env6: ICoreWebView2Environment6 = env.cast().map_err(|e| e.to_string())?;
                 let settings = unsafe { env6.CreatePrintSettings() }.map_err(|e| e.to_string())?;
                 unsafe { settings.SetShouldPrintBackgrounds(true) }.map_err(|e| e.to_string())?;
                 // Zero the page margins so the document's own themed background fills
-                // the entire page (otherwise the default 0.5in margins show as a white
-                // ring around the content). The document provides its own inner padding.
+                // the entire page (the document provides its own inner padding).
                 unsafe { settings.SetMarginTop(0.0) }.map_err(|e| e.to_string())?;
                 unsafe { settings.SetMarginBottom(0.0) }.map_err(|e| e.to_string())?;
                 unsafe { settings.SetMarginLeft(0.0) }.map_err(|e| e.to_string())?;
                 unsafe { settings.SetMarginRight(0.0) }.map_err(|e| e.to_string())?;
-                let path_h = HSTRING::from(&path);
-                append_debug_log(&app_p, "rust", &format!("export_pdf: PrintToPdf path={}", path));
-                let handler = PrintToPdfCompletedHandler::create(Box::new(
-                    move |print_result, _success| {
-                        let r = print_result.map_err(|e| format!("{:?}", e));
-                        let _ = print_done_tx.send(r);
-                        Ok(())
-                    },
-                ));
+                let path_h = HSTRING::from(&path_owned);
+                append_debug_log(&app_p, "rust", &format!("export_pdf: PrintToPdf path={}", path_owned));
+                // Completion handler is required by the API but is NOT relied upon
+                // (in this environment it is never delivered). Success is detected
+                // by polling the output file instead.
+                let handler = PrintToPdfCompletedHandler::create(Box::new(|_r, _ok| Ok(())));
                 unsafe { core7.PrintToPdf(&path_h, Some(&settings), &handler) }
                     .map_err(|e| e.to_string())?;
                 Ok(())
             })();
-            let _ = print_setup_tx.send(result);
+            let _ = setup_tx.send(result);
         })
         .map_err(|e| e.to_string())?;
-
-    // Confirm the PrintToPdf call was actually issued (otherwise the closure
-    // failed/blocked and no file will ever appear).
-    print_setup_rx
+    // Confirm the PrintToPdf call was actually issued.
+    setup_rx
         .recv_timeout(std::time::Duration::from_secs(10))
         .map_err(|e| e.to_string())??;
+    Ok(())
+}
 
-    // ---- Wait for the PDF file to be written (primary success signal) ----
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(40);
+#[cfg(windows)]
+#[tauri::command]
+async fn export_pdf(app: tauri::AppHandle, label: String, path: String) -> Result<(), String> {
+    use tauri::Manager;
+
+    let webview_window = app
+        .get_webview_window(&label)
+        .ok_or_else(|| "export window not found".to_string())?;
+    append_debug_log(&app, "rust", &format!("export_pdf: got window label={}", label));
+
+    // Make the render window FULLY TRANSPARENT (alpha = 0) and then show it.
+    // The window is created hidden by the frontend; we set transparency BEFORE
+    // showing so it is never visible to the user (no flash), yet once shown
+    // WebView2 renders normally and PrintToPdf can complete. This is the only
+    // reliable way to guarantee invisibility regardless of monitor layout / DPI
+    // (off-screen coordinates alone get clamped on some setups). We re-apply
+    // transparency right after showing in case WebView2/window-manager resets the
+    // extended style during the show transition.
+    make_window_transparent(&webview_window, &app);
+    let _ = webview_window.show();
+    make_window_transparent(&webview_window, &app);
+    append_debug_log(&app, "rust", "export_pdf: window shown (transparent)");
+
+    let pdf_path = std::path::PathBuf::from(&path);
+    // Remove any stale file from a previous failed attempt so polling is clean.
+    let _ = std::fs::remove_file(&pdf_path);
+
+    // Settle so the (self-contained data:) document finishes loading/rendering
+    // now that the window is shown.
+    std::thread::sleep(std::time::Duration::from_millis(600));
+
+    // The export window is visible (off-screen), so rendering is active. Fire
+    // PrintToPdf and poll the output file; if the first attempt doesn't produce
+    // a file in time, retry (guards against the call landing before the document
+    // is fully ready). Up to 3 attempts, ~40s total.
     let mut result: Result<(), String> =
         Err("timed out waiting for the PDF file to be written".to_string());
-    loop {
-        // Fast path: the completion handler did fire (some environments deliver it).
-        if let Ok(r) = print_done_rx.try_recv() {
-            append_debug_log(&app, "rust", &format!("export_pdf: PrintToPdf completion={:?}", r));
-            if r.is_ok() {
-                result = Ok(());
-                break;
-            }
+    'outer: for attempt in 0..3u32 {
+        if attempt > 0 {
+            append_debug_log(&app, "rust", &format!("export_pdf: retry attempt={}", attempt));
         }
-        // File-based check: non-zero size that stays stable across two samples.
-        if pdf_path.exists() {
-            let size1 = std::fs::metadata(&pdf_path).map(|m| m.len()).unwrap_or(0);
-            if size1 > 0 {
-                std::thread::sleep(std::time::Duration::from_millis(600));
-                let size2 = std::fs::metadata(&pdf_path).map(|m| m.len()).unwrap_or(0);
-                if size2 > 0 && size2 == size1 {
-                    append_debug_log(&app, "rust", &format!("export_pdf: PDF file ready, size={}", size2));
-                    result = Ok(());
-                    break;
+        fire_print_to_pdf(&webview_window, &app, &path)?;
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(13);
+        loop {
+            if pdf_path.exists() {
+                let size1 = std::fs::metadata(&pdf_path).map(|m| m.len()).unwrap_or(0);
+                if size1 > 0 {
+                    // Ensure the size is stable (file fully written, not mid-write).
+                    std::thread::sleep(std::time::Duration::from_millis(400));
+                    let size2 = std::fs::metadata(&pdf_path).map(|m| m.len()).unwrap_or(0);
+                    if size2 > 0 && size2 == size1 {
+                        append_debug_log(
+                            &app,
+                            "rust",
+                            &format!("export_pdf: PDF ready attempt={} size={}", attempt, size2),
+                        );
+                        result = Ok(());
+                        break 'outer;
+                    }
                 }
             }
+            if std::time::Instant::now() > deadline {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(300));
         }
-        if std::time::Instant::now() > deadline {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(400));
     }
     append_debug_log(&app, "rust", &format!("export_pdf: result={:?}", result));
 
@@ -314,6 +384,7 @@ pub fn run() {
             rename_file,
             delete_file,
             move_file,
+            write_file_binary,
             export_pdf,
             export_debug_log,
         ])

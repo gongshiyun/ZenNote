@@ -11,3 +11,5 @@ export {
   deleteFile,
   openWorkspace,
 } from "./fileService";
+
+export { saveImage, resolveImageUrl } from "./imageService";

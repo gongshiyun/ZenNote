@@ -61,7 +61,10 @@ const enUS = {
     "zoomOpen": "Zoom in",
     "zoomClose": "Close",
     "copyPlainText": "Copy as plain text",
-    "copyMarkdown": "Copy as Markdown"
+    "copyMarkdown": "Copy as Markdown",
+    "align_left": "Align left",
+    "align_center": "Align center",
+    "align_right": "Align right"
   },
   "outline": {
     "title": "Outline",
@@ -91,6 +94,8 @@ const enUS = {
     "editorPadding": "Page side margins",
     "autoSaveDelay": "Auto-save delay",
     "defaultSourceMode": "Default source mode",
+    "typewriterMode": "Typewriter mode",
+    "focusMode": "Focus mode",
     "fileTree": "File Tree",
     "showHiddenFiles": "Show hidden files",
     "showFileExtensions": "Show file extensions",

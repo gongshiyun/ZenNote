@@ -15,6 +15,7 @@ import { t } from "../../i18n";
 import { exportToHtml, exportToPdf } from "../../lib/exportNote";
 import { parentDir, isWithinWorkspace } from "../../domain";
 import * as fs from "../../services";
+import { saveImage } from "../../services";
 
 // ---- Auto-save ----
 function useAutoSave() {
@@ -37,33 +38,38 @@ function useAutoSave() {
   }, [content, isDirty, currentFilePath, autoSaveDelay]);
 }
 
-// ---- Image paste ----
+// ---- Image paste (source mode only) ----
+// In PREVIEW mode, Crepe's ImageBlock feature natively handles image paste and
+// calls the blockOnUpload/onUpload callbacks (configured in Editor.tsx) which
+// persist the image and insert an image-block node. So here we only cover the
+// SOURCE-mode textarea (where Crepe is not active), persisting the image too.
 function useImagePaste() {
   const currentFilePath = useStore(s => s.currentFilePath);
   useEffect(() => {
-    const handler = (e: ClipboardEvent) => {
+    const handler = async (e: ClipboardEvent) => {
       if (!currentFilePath) return;
+      const ta = document.querySelector("textarea") as HTMLTextAreaElement | null;
+      // Only act in source mode (textarea focused); in preview mode Crepe handles it.
+      if (!ta || document.activeElement !== ta) return;
       const items = e.clipboardData?.items;
       if (!items) return;
       for (const item of items) {
         if (item.type.startsWith("image/")) {
           e.preventDefault();
-          const blob = item.getAsFile();
-          if (!blob) continue;
-          const url = URL.createObjectURL(blob);
-          const name = "image-" + Date.now();
-          const mdImg = "![" + name + "](" + url + ")";
-          const ta = document.querySelector("textarea") as HTMLTextAreaElement;
-          if (ta && document.activeElement === ta) {
+          const file = item.getAsFile();
+          if (!file) continue;
+          try {
+            const rel = await saveImage(file, currentFilePath);
+            const mdImg = "![image](" + rel + ")";
             const s = ta.selectionStart;
             const val = ta.value;
             const newVal = val.substring(0, s) + "\n" + mdImg + "\n" + val.substring(s);
-            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
-            if (nativeInputValueSetter) {
-              nativeInputValueSetter.call(ta, newVal);
+            const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+            if (setter) {
+              setter.call(ta, newVal);
               ta.dispatchEvent(new Event("input", { bubbles: true }));
             }
-          }
+          } catch { /* ignore */ }
           return;
         }
       }
@@ -86,6 +92,8 @@ function useWindowPersistence() {
           themeId: s.themeId,
           fontFamily: s.fontFamily,
           editorPadding: s.editorPadding,
+          typewriterMode: s.typewriterMode,
+          focusMode: s.focusMode,
           autoCheckUpdate: s.autoCheckUpdate,
           updateCheckInterval: s.updateCheckInterval,
           sidebarVisible: s.sidebarVisible,
@@ -108,6 +116,8 @@ function useWindowPersistence() {
       if (data.themeId) useStore.getState().setThemeId(data.themeId);
       if (data.fontFamily) useStore.getState().setFontFamily(data.fontFamily);
       if (typeof data.editorPadding === "number") useStore.getState().setEditorPadding(data.editorPadding);
+      if (typeof data.typewriterMode === "boolean") useStore.getState().setTypewriterMode(data.typewriterMode);
+      if (typeof data.focusMode === "boolean") useStore.getState().setFocusMode(data.focusMode);
       if (typeof data.autoCheckUpdate === "boolean") useStore.getState().setAutoCheckUpdate(data.autoCheckUpdate);
       if (typeof data.updateCheckInterval === "number") useStore.getState().setUpdateCheckInterval(data.updateCheckInterval);
       if (data.workspacePath) {
@@ -183,20 +193,23 @@ export function AppShell() {
     const onKeyDown = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
       if (!mod) return;
-      if (e.key === "b" && e.shiftKey) { e.preventDefault(); toggleOutline(); }
-      else if (e.key === "b") { e.preventDefault(); toggleSidebar(); }
-      else if (e.key === "f" && e.shiftKey) { e.preventDefault(); setSearchVisible(true); }
-      else if (e.key === "e" && e.shiftKey) {
+      // e.key is UPPERCASE when Shift is held (e.g. "O" for Ctrl+Shift+O),
+      // so compare case-insensitively.
+      const key = e.key.toLowerCase();
+      if (key === "b" && e.shiftKey) { e.preventDefault(); toggleOutline(); }
+      else if (key === "b") { e.preventDefault(); toggleSidebar(); }
+      else if (key === "f" && e.shiftKey) { e.preventDefault(); setSearchVisible(true); }
+      else if (key === "e" && e.shiftKey) {
         e.preventDefault();
         const s = useStore.getState();
         if (s.currentFilePath && s.content) exportToHtml(s.content, s.currentFilePath);
       }
-      else if (e.key === "p" && e.shiftKey) {
+      else if (key === "p" && e.shiftKey) {
         e.preventDefault();
         const s = useStore.getState();
         if (s.currentFilePath && s.content) exportToPdf(s.content, s.currentFilePath);
       }
-      else if (e.key === "o" && !e.shiftKey) {
+      else if (key === "o" && !e.shiftKey) {
         e.preventDefault();
         (async () => {
           try {
@@ -219,7 +232,7 @@ export function AppShell() {
           } catch {}
         })();
       }
-      else if (e.key === "o" && e.shiftKey) {
+      else if (key === "o" && e.shiftKey) {
         e.preventDefault();
         (async () => {
           try {
@@ -236,7 +249,7 @@ export function AppShell() {
           } catch {}
         })();
       }
-      else if (e.key === "," && !e.shiftKey) {
+      else if (key === "," && !e.shiftKey) {
         e.preventDefault();
         setSettingsVisible(true);
       }

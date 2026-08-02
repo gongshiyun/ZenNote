@@ -19,6 +19,8 @@ export interface ConfigSlice {
   fontSize: number;
   tabSize: number;
   editorPadding: number; // left/right padding (px) of the editor page
+  typewriterMode: boolean; // keep the active line vertically centered
+  focusMode: boolean; // dim all blocks except the current one
   autoSaveDelay: number;
   showHiddenFiles: boolean;
   showFileExtensions: boolean;
@@ -26,6 +28,8 @@ export interface ConfigSlice {
   setFontSize: (n: number) => void;
   setTabSize: (n: number) => void;
   setEditorPadding: (n: number) => void;
+  setTypewriterMode: (v: boolean) => void;
+  setFocusMode: (v: boolean) => void;
   setAutoSaveDelay: (n: number) => void;
   setShowHiddenFiles: (v: boolean) => void;
   setShowFileExtensions: (v: boolean) => void;
@@ -47,6 +51,8 @@ export const createConfigSlice: StateCreator<ConfigSlice, [], [], ConfigSlice> =
   fontSize: 16,
   tabSize: 2,
   editorPadding: 80,
+  typewriterMode: false,
+  focusMode: false,
   autoSaveDelay: 0,
   showHiddenFiles: false,
   showFileExtensions: true,
@@ -54,6 +60,8 @@ export const createConfigSlice: StateCreator<ConfigSlice, [], [], ConfigSlice> =
   setFontSize: (n) => set({ fontSize: n }),
   setTabSize: (n) => set({ tabSize: n }),
   setEditorPadding: (n) => set({ editorPadding: n }),
+  setTypewriterMode: (v) => set({ typewriterMode: v }),
+  setFocusMode: (v) => set({ focusMode: v }),
   setAutoSaveDelay: (n) => set({ autoSaveDelay: n }),
   setShowHiddenFiles: (v) => set({ showHiddenFiles: v }),
   setShowFileExtensions: (v) => set({ showFileExtensions: v }),

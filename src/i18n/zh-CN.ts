@@ -61,7 +61,10 @@ const zhCN = {
     "zoomOpen": "放大查看",
     "zoomClose": "关闭",
     "copyPlainText": "复制纯文本",
-    "copyMarkdown": "复制 Markdown 源码"
+    "copyMarkdown": "复制 Markdown 源码",
+    "align_left": "左对齐",
+    "align_center": "居中",
+    "align_right": "右对齐"
   },
   "outline": {
     "title": "大纲",
@@ -91,6 +94,8 @@ const zhCN = {
     "editorPadding": "页面左右边距",
     "autoSaveDelay": "自动保存延迟",
     "defaultSourceMode": "默认源码模式",
+    "typewriterMode": "打字机模式",
+    "focusMode": "专注模式",
     "fileTree": "文件树",
     "showHiddenFiles": "显示隐藏文件",
     "showFileExtensions": "显示文件扩展名",

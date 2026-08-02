@@ -4,6 +4,7 @@ import { FindReplaceBar } from "./FindReplaceBar";
 import { TableContextMenu } from "./TableContextMenu";
 import { t } from "../../i18n";
 import { writeFile } from "../../services";
+import { saveImage, resolveImageUrl } from "../../services";
 import { currentFontStack } from "../../lib/fontStack";
 import "@milkdown/crepe/theme/common/style.css";
 import { LanguageDescription, LanguageSupport, StreamLanguage, indentUnit } from "@codemirror/language";
@@ -69,6 +70,91 @@ function renderInnerMarkdown(text: string): string {
   return out;
 }
 
+// Whether a raw-HTML value is block-level (multi-line or starts with a block tag).
+function isBlockHtml(value: string): boolean {
+  return /\n/.test(value) || /^<(div|p|h[1-6]|ul|ol|dl|table|blockquote|pre|section|article|cite|figure|details|header|footer|nav|aside|hr|form|fieldset|address|center)/i.test(value.trim());
+}
+
+// Produce the innerHTML for a rendered raw-HTML node. If the block is a single
+// tag pair whose inner content is pure markdown (no nested HTML), render the
+// inner markdown too (Typora processes markdown inside block-level HTML).
+function renderHtmlValue(value: string): string {
+  const block = isBlockHtml(value);
+  const m = block ? value.trim().match(/^<(\w+)([^>]*)>([\s\S]*)<\/\1>\s*$/) : null;
+  if (m && !m[3].includes("<")) {
+    return sanitizeHtml("<" + m[1] + m[2] + ">" + renderInnerMarkdown(m[3]) + "</" + m[1] + ">");
+  }
+  return sanitizeHtml(value);
+}
+
+// Typora-style node view for the raw-HTML node: shows the RENDERED html by
+// default; clicking it swaps in an editable <textarea> of the raw source;
+// blurring the textarea saves the edited source back to the node and re-renders.
+// This makes html blocks selectable/editable without the "typing replaces
+// everything" data-loss of a plain atom node.
+function createHtmlNodeView(node: any, view: any, getPos: any) {
+  let currentNode = node;
+  let editing = false;
+  const dom = document.createElement("span");
+  dom.setAttribute("data-type", "html");
+
+  const renderPreview = () => {
+    editing = false;
+    dom.className = "zn-html-node zn-html-render" + (isBlockHtml(currentNode.attrs.value) ? " zn-html-block" : "");
+    dom.innerHTML = renderHtmlValue(currentNode.attrs.value);
+  };
+
+  const enterEdit = () => {
+    editing = true;
+    dom.className = "zn-html-node zn-html-source" + (isBlockHtml(currentNode.attrs.value) ? " zn-html-block" : "");
+    dom.innerHTML = "";
+    const ta = document.createElement("textarea");
+    ta.className = "zn-html-textarea";
+    ta.value = currentNode.attrs.value;
+    ta.spellcheck = false;
+    ta.addEventListener("blur", () => {
+      if (!editing) return;
+      editing = false;
+      const newValue = ta.value;
+      const pos = typeof getPos === "function" ? getPos() : null;
+      if (pos != null && newValue !== currentNode.attrs.value) {
+        // Persist the edited source; update() will re-render the preview.
+        view.dispatch(view.state.tr.setNodeMarkup(pos, undefined, { value: newValue }));
+      } else {
+        renderPreview();
+      }
+    });
+    dom.appendChild(ta);
+    ta.focus();
+  };
+
+  dom.addEventListener("mousedown", (e) => {
+    if (!editing) {
+      // Stop ProseMirror from selecting/replacing the atom; we handle the click.
+      e.stopPropagation();
+      e.preventDefault();
+      enterEdit();
+    }
+  });
+
+  renderPreview();
+
+  return {
+    dom,
+    update: (newNode: any) => {
+      if (newNode.type !== currentNode.type) return false;
+      currentNode = newNode;
+      if (!editing) renderPreview();
+      return true;
+    },
+    // While editing, let the textarea handle all events (ProseMirror ignores them).
+    stopEvent: () => editing,
+    // ProseMirror must not react to our DOM changes inside the node view.
+    ignoreMutation: () => true,
+    destroy: () => { editing = false; },
+  };
+}
+
 export function Editor() {
   const currentFilePath = useStore(s => s.currentFilePath);
   const sourceMode = useStore(s => s.sourceMode);
@@ -80,6 +166,8 @@ export function Editor() {
   const setEditorRef = useStore(s => s.setEditorRef);
   const tabSize = useStore(s => s.tabSize);
   const editorPadding = useStore(s => s.editorPadding);
+  const typewriterMode = useStore(s => s.typewriterMode);
+  const focusMode = useStore(s => s.focusMode);
   const resolvedMode = useStore(s => s.resolvedMode);
   const fontFamily = useStore(s => s.fontFamily);
   const [error, setError] = useState<string | null>(null);
@@ -92,6 +180,8 @@ export function Editor() {
   // Copy context menu state (right-click with text selected)
   const [copyMenuVisible, setCopyMenuVisible] = useState(false);
   const [copyMenuPos, setCopyMenuPos] = useState({ x: 0, y: 0 });
+  // Image alignment toolbar state (click an image to align it)
+  const [imgAlignMenu, setImgAlignMenu] = useState<{ visible: boolean; x: number; y: number; pos: number; align: string }>({ visible: false, x: 0, y: 0, pos: -1, align: "center" });
 
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -101,6 +191,8 @@ export function Editor() {
   const scrollSaveTimer = useRef<number>(0);
   const focusCleanupRef = useRef<(() => void) | null>(null);
   const editorReadyRef = useRef(false);
+  // ProseMirror view ref (set after editor init) so effects can dispatch transactions.
+  const pmViewRef = useRef<any>(null);
 
   // Registry of rendered mermaid blocks: applyPreview callback -> mermaid source.
   // applyPreview updates Milkdown's internal preview ref (the source of truth),
@@ -208,6 +300,15 @@ export function Editor() {
                 return undefined;
               },
             },
+            [CrepeFeature.ImageBlock]: {
+              // Persist pasted/dropped/uploaded images to the note's assets folder
+              // and embed them by relative path (survives restarts, portable).
+              onUpload: async (file: File) => saveImage(file, useStore.getState().currentFilePath),
+              inlineOnUpload: async (file: File) => saveImage(file, useStore.getState().currentFilePath),
+              blockOnUpload: async (file: File) => saveImage(file, useStore.getState().currentFilePath),
+              // Resolve stored (relative/absolute) paths to webview-loadable asset URLs.
+              proxyDomURL: (url: string) => resolveImageUrl(url, useStore.getState().currentFilePath),
+            },
           },
         });
 
@@ -226,7 +327,9 @@ export function Editor() {
         if (tokenRef.current !== token) return;
 
         // Override the commonmark "html" node to RENDER raw HTML (Typora-like)
-        // instead of showing escaped tag text. Must be done before create().
+        // instead of showing escaped tag text, and register a node view that lets
+        // the user click the rendered block to edit its raw source. Must be done
+        // before create().
         try {
           const { htmlSchema } = await import("@milkdown/kit/preset/commonmark");
           (crepe as any).editor.config((ctx: any) => {
@@ -239,22 +342,72 @@ export function Editor() {
                   const el = document.createElement("span");
                   el.setAttribute("data-type", "html");
                   el.setAttribute("data-value", value);
-                  const isBlock = /\n/.test(value) || /^<(div|p|h[1-6]|ul|ol|dl|table|blockquote|pre|section|article|cite|figure|details|header|footer|nav|aside|hr|form|fieldset|address|center)/i.test(value.trim());
-                  el.className = isBlock ? "zn-html-render zn-html-block" : "zn-html-render";
-                  // If the block is a single tag pair whose inner content is pure
-                  // markdown (no nested HTML), render the inner markdown too.
-                  const m = isBlock ? value.trim().match(/^<(\w+)([^>]*)>([\s\S]*)<\/\1>\s*$/) : null;
-                  if (m && !m[3].includes("<")) {
-                    el.innerHTML = sanitizeHtml("<" + m[1] + m[2] + ">" + renderInnerMarkdown(m[3]) + "</" + m[1] + ">");
-                  } else {
-                    el.innerHTML = sanitizeHtml(value);
-                  }
+                  el.className = isBlockHtml(value) ? "zn-html-render zn-html-block" : "zn-html-render";
+                  el.innerHTML = renderHtmlValue(value);
                   return el;
                 },
               };
             });
           });
+          // Node view: click rendered html to edit its source (Typora-like).
+          // Register directly via nodeViewCtx with the literal "html" type name
+          // ($view relies on slice.id which is only set once its plugin runs and
+          // can be a different module instance under bundling, so it may register
+          // under an undefined key and silently not apply).
+          const { nodeViewCtx, SchemaReady } = await import("@milkdown/kit/core");
+          (crepe as any).editor.use((ctx: any) => async () => {
+            await ctx.wait(SchemaReady);
+            ctx.update(nodeViewCtx, (ps: any) => [
+              ...ps.filter((p: any) => p[0] !== "html"),
+              ["html", (node: any, view: any, getPos: any) => createHtmlNodeView(node, view, getPos)],
+            ]);
+          });
         } catch { /* html override is best-effort */ }
+
+        // Extend the "image-block" node with an `align` attribute (left/center/right).
+        // Alignment is persisted by encoding it into the markdown image alt text
+        // alongside the existing resize ratio: !["1.00|center"](src "caption").
+        // (Milkdown already stores the resize ratio in the alt text the same way.)
+        try {
+          const { imageBlockSchema } = await import("@milkdown/kit/component/image-block");
+          (crepe as any).editor.config((ctx: any) => {
+            ctx.update((imageBlockSchema as any).key, (prev: any) => (ctx2: any) => {
+              const spec = prev(ctx2);
+              return {
+                ...spec,
+                attrs: {
+                  ...spec.attrs,
+                  align: { default: "center", validate: "string" },
+                },
+                parseMarkdown: {
+                  ...spec.parseMarkdown,
+                  runner: (state: any, node: any, type: any) => {
+                    const src = node.url;
+                    const caption = node.title;
+                    // alt may be "ratio" (legacy) or "ratio|align"
+                    const parts = String(node.alt || "1").split("|");
+                    let ratio = Number(parts[0]);
+                    if (Number.isNaN(ratio) || ratio === 0) ratio = 1;
+                    const align = parts[1] || "center";
+                    state.addNode(type, { src, caption, ratio, align });
+                  },
+                },
+                toMarkdown: {
+                  ...spec.toMarkdown,
+                  runner: (state: any, node: any) => {
+                    state.openNode("paragraph");
+                    state.addNode("image", void 0, void 0, {
+                      title: node.attrs.caption,
+                      url: node.attrs.src,
+                      alt: Number.parseFloat(node.attrs.ratio).toFixed(2) + "|" + (node.attrs.align || "center"),
+                    });
+                    state.closeNode();
+                  },
+                },
+              };
+            });
+          });
+        } catch { /* image-block override is best-effort */ }
 
         await crepe.create();
         if (tokenRef.current !== token) return;
@@ -274,29 +427,47 @@ export function Editor() {
         // start of the doc, but we don't want the heading to show its "#" source yet.
         let hasInteracted = false;
         const computeFocusDecos = (state: any) => {
-          if (!hasInteracted) return DecorationSet.empty;
+          const focusModeOn = useStore.getState().focusMode;
+          const decos: any[] = [];
           const sel = state.selection;
           if (!sel || !sel.empty) return DecorationSet.empty;
           const $head = sel.$head;
-          // Tables always stay fully rendered
+          // Tables always stay fully rendered (neither source-reveal nor dimming).
+          let inTable = false;
           for (let d = $head.depth; d >= 1; d--) {
             const tn = $head.node(d).type.name;
-            if (tn === "table_cell" || tn === "table_header") return DecorationSet.empty;
+            if (tn === "table_cell" || tn === "table_header") { inTable = true; break; }
           }
-          let from = -1, nodeSize = 0;
-          // Prefer the enclosing list_item / blockquote so the whole item/quote is highlighted
-          for (let d = $head.depth; d >= 1 && from < 0; d--) {
-            const name = $head.node(d).type.name;
-            if (name === "list_item" || name === "blockquote") { from = $head.before(d); nodeSize = $head.node(d).nodeSize; }
-          }
-          if (from < 0) {
+          if (inTable) return DecorationSet.empty;
+
+          // (A) Source-reveal highlight on the focused block (gated by interaction).
+          if (hasInteracted) {
+            let from = -1, nodeSize = 0;
+            // Prefer the enclosing list_item / blockquote so the whole item/quote is highlighted
             for (let d = $head.depth; d >= 1 && from < 0; d--) {
               const name = $head.node(d).type.name;
-              if (FOCUS_TYPES.has(name)) { from = $head.before(d); nodeSize = $head.node(d).nodeSize; }
+              if (name === "list_item" || name === "blockquote") { from = $head.before(d); nodeSize = $head.node(d).nodeSize; }
             }
+            if (from < 0) {
+              for (let d = $head.depth; d >= 1 && from < 0; d--) {
+                const name = $head.node(d).type.name;
+                if (FOCUS_TYPES.has(name)) { from = $head.before(d); nodeSize = $head.node(d).nodeSize; }
+              }
+            }
+            if (from >= 0) decos.push(Decoration.node(from, from + nodeSize, { class: "zn-block-focused" }));
           }
-          if (from < 0) return DecorationSet.empty;
-          return DecorationSet.create(state.doc, [Decoration.node(from, from + nodeSize, { class: "zn-block-focused" })]);
+
+          // (B) Focus mode: dim every top-level block except the one with the cursor.
+          if (focusModeOn && $head.depth >= 1) {
+            const topFrom = $head.before(1);
+            state.doc.forEach((node: any, offset: number) => {
+              if (offset !== topFrom) {
+                decos.push(Decoration.node(offset, offset + node.nodeSize, { class: "zn-dimmed" }));
+              }
+            });
+          }
+
+          return decos.length ? DecorationSet.create(state.doc, decos) : DecorationSet.empty;
         };
         const focusDecoPlugin = new Plugin({
           key: new PluginKey("znFocusBlockDeco"),
@@ -308,13 +479,57 @@ export function Editor() {
             decorations(state: any) { return (this as any).getState(state); },
           },
         });
-        // Inject the plugin by reconfiguring the state. Safe to do right after create():
+        // Typewriter mode: keep the line under the cursor vertically centered.
+        const typewriterPlugin = new Plugin({
+          key: new PluginKey("znTypewriter"),
+          view: () => ({
+            update: (view: any, prevState: any) => {
+              if (!useStore.getState().typewriterMode) return;
+              // Only scroll when the cursor actually moved (selectionSet/docChanged
+              // are Transaction props, not on EditorState — compare selections).
+              if (view.state.selection.eq(prevState.selection)) return;
+              try {
+                const $head = view.state.selection.$head;
+                if ($head.depth < 1) return;
+                const blockDom = view.nodeDOM($head.before(1));
+                if (blockDom && typeof blockDom.scrollIntoView === "function") {
+                  // Defer to the browser's native centering (robust across layouts).
+                  blockDom.scrollIntoView({ block: "center", behavior: "auto" });
+                }
+              } catch { /* ignore */ }
+            },
+          }),
+        });
+        // Image alignment: decorate each image-block node with a class reflecting
+        // its `align` attribute so CSS can position it (left/center/right).
+        const computeImageAlignDecos = (state: any) => {
+          const decos: any[] = [];
+          state.doc.descendants((node: any, pos: number) => {
+            if (node.type.name === "image-block") {
+              const align = node.attrs.align || "center";
+              decos.push(Decoration.node(pos, pos + node.nodeSize, { class: "zn-img-align-" + align }));
+            }
+          });
+          return decos.length ? DecorationSet.create(state.doc, decos) : DecorationSet.empty;
+        };
+        const imageAlignPlugin = new Plugin({
+          key: new PluginKey("znImageAlignDeco"),
+          state: {
+            init: (_: any, state: any) => computeImageAlignDecos(state),
+            apply: (_: any, _prev: any, _old: any, newState: any) => computeImageAlignDecos(newState),
+          },
+          props: {
+            decorations(state: any) { return (this as any).getState(state); },
+          },
+        });
+        // Inject the plugins by reconfiguring the state. Safe to do right after create():
         // the undo history and all plugin states are still empty.
         pmView.updateState(EditorState.create({
           doc: pmView.state.doc,
           selection: pmView.state.selection,
-          plugins: [...pmView.state.plugins, focusDecoPlugin],
+          plugins: [...pmView.state.plugins, focusDecoPlugin, typewriterPlugin, imageAlignPlugin],
         }));
+        pmViewRef.current = pmView;
 
         // Mark interaction in the CAPTURE phase so the flag is set before
         // ProseMirror's own handlers dispatch the selection transaction.
@@ -670,11 +885,74 @@ export function Editor() {
     };
   }, [sourceMode, editorReady]);
 
+  // Click an image to open the alignment toolbar (left/center/right).
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || sourceMode || !editorReady) return;
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const img = target.closest('img[data-type="image-block"]') as HTMLElement | null;
+      if (!img) { setImgAlignMenu(m => (m.visible ? { ...m, visible: false } : m)); return; }
+      const pm = pmViewRef.current;
+      if (!pm) return;
+      try {
+        const pos = pm.posAtDOM(img, 0);
+        const $pos = pm.state.doc.resolve(pos);
+        // Find the enclosing image-block node and its start position.
+        let nodePos = -1, align = "center";
+        for (let d = $pos.depth; d >= 0; d--) {
+          const n = $pos.node(d);
+          if (n.type.name === "image-block") { nodePos = $pos.before(d); align = n.attrs.align || "center"; break; }
+        }
+        if (nodePos < 0) { nodePos = pos; }
+        const rect = img.getBoundingClientRect();
+        setImgAlignMenu({ visible: true, x: rect.left + rect.width / 2, y: rect.top - 8, pos: nodePos, align });
+      } catch { /* ignore */ }
+    };
+    container.addEventListener("click", onClick);
+    return () => container.removeEventListener("click", onClick);
+  }, [sourceMode, editorReady]);
+
+  // Apply an alignment to the image-block node at the given position.
+  const applyImageAlign = useCallback((align: string) => {
+    const pm = pmViewRef.current;
+    const pos = imgAlignMenu.pos;
+    if (!pm || pos < 0) return;
+    try {
+      const node = pm.state.doc.nodeAt(pos);
+      if (node && node.type.name === "image-block") {
+        pm.dispatch(pm.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, align }));
+      }
+    } catch { /* ignore */ }
+    setImgAlignMenu(m => ({ ...m, visible: false }));
+  }, [imgAlignMenu.pos]);
+
   // Re-render already-drawn mermaid diagrams when the theme or font changes.
   // Milkdown only re-runs renderPreview on text/language edits, so a theme/font
   // switch would otherwise leave the old-colored SVGs in place. The .preview
   // container is opaque to ProseMirror (Milkdown itself fills it via innerHTML),
   // so replacing the SVG there is safe.
+  // When focus/typewriter mode is toggled, force the decoration plugin to
+  // recompute (it only runs on transactions) and center the cursor immediately
+  // for typewriter mode.
+  useEffect(() => {
+    if (!editorReady || sourceMode) return;
+    const pm = pmViewRef.current;
+    if (!pm) return;
+    try {
+      pm.dispatch(pm.state.tr.setMeta("znModeToggle", true));
+      if (typewriterMode) {
+        const $head = pm.state.selection.$head;
+        if ($head.depth >= 1) {
+          const blockDom = pm.nodeDOM($head.before(1));
+          if (blockDom && typeof blockDom.scrollIntoView === "function") {
+            blockDom.scrollIntoView({ block: "center", behavior: "auto" });
+          }
+        }
+      }
+    } catch { /* ignore */ }
+  }, [focusMode, typewriterMode, editorReady, sourceMode]);
+
   const mermaidThemeFontFirstRun = useRef(true);
   useEffect(() => {
     // Debug logger (writes to export-debug.log so we can diagnose in release builds)
@@ -898,6 +1176,27 @@ export function Editor() {
           <CopyMenuItem label={t().editor.copyMarkdown} onClick={copyMarkdown} />
         </div>
       )}
+      {/* Image alignment toolbar (click an image) */}
+      {imgAlignMenu.visible && (
+        <div style={{
+          position: "fixed", left: imgAlignMenu.x, top: imgAlignMenu.y, zIndex: 1100,
+          transform: "translate(-50%, -100%)", display: "flex", gap: 2,
+          background: "var(--bg-toolbar)", border: "1px solid var(--border)",
+          borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.18)", padding: 4,
+        }} onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+          {(["left", "center", "right"] as const).map(a => (
+            <button key={a} onClick={() => applyImageAlign(a)} title={t().editor["align_" + a as "align_left"]}
+              style={{
+                width: 30, height: 26, display: "flex", alignItems: "center", justifyContent: "center",
+                border: "none", borderRadius: 6, cursor: "pointer",
+                background: imgAlignMenu.align === a ? "var(--bg-sidebar-active)" : "transparent",
+                color: imgAlignMenu.align === a ? "var(--text-accent)" : "var(--text-secondary)",
+              }}>
+              <AlignIcon dir={a} />
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -910,5 +1209,17 @@ function CopyMenuItem({ label, onClick }: { label: string; onClick: () => void }
       onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
       {label}
     </div>
+  );
+}
+
+// Alignment icon for the image toolbar (a short bar positioned left/center/right).
+function AlignIcon({ dir }: { dir: "left" | "center" | "right" }) {
+  const x = dir === "left" ? 2 : dir === "center" ? 5 : 8;
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+      <line x1="2" y1="3.5" x2="14" y2="3.5" />
+      <line x1={x} y1="8" x2={x + 6} y2="8" />
+      <line x1="2" y1="12.5" x2="14" y2="12.5" />
+    </svg>
   );
 }

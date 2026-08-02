@@ -35,6 +35,10 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const setTabSize = useStore(s => s.setTabSize);
   const editorPadding = useStore(s => s.editorPadding);
   const setEditorPadding = useStore(s => s.setEditorPadding);
+  const typewriterMode = useStore(s => s.typewriterMode);
+  const setTypewriterMode = useStore(s => s.setTypewriterMode);
+  const focusMode = useStore(s => s.focusMode);
+  const setFocusMode = useStore(s => s.setFocusMode);
   const autoSaveDelay = useStore(s => s.autoSaveDelay);
   const setAutoSaveDelay = useStore(s => s.setAutoSaveDelay);
   const showHiddenFiles = useStore(s => s.showHiddenFiles);
@@ -218,6 +222,12 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             </Row>
             <Row label={t().settings.defaultSourceMode}>
               <Toggle checked={defaultSourceMode} onChange={setDefaultSourceMode} />
+            </Row>
+            <Row label={t().settings.typewriterMode}>
+              <Toggle checked={typewriterMode} onChange={setTypewriterMode} />
+            </Row>
+            <Row label={t().settings.focusMode}>
+              <Toggle checked={focusMode} onChange={setFocusMode} />
             </Row>
           </Section>
 

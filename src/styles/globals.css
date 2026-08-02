@@ -602,13 +602,16 @@
 .zn-mermaid-zoom-handle-se { bottom: -5px; right: -5px; width: 14px; height: 14px; cursor: se-resize; }
 .zn-mermaid-zoom-handle-sw { bottom: -5px; left: -5px;  width: 14px; height: 14px; cursor: sw-resize; }
 
-/* ===== Rendered raw HTML blocks (Typora-like) ===== */
-.milkdown .ProseMirror span.zn-html-render { color: inherit; }
-.milkdown .ProseMirror span.zn-html-render.zn-html-block {
+/* ===== Rendered raw HTML blocks (Typora-like) =====
+   Selectors avoid an element-type prefix (span vs div) so they match both the
+   editor (node view renders into a <span>) and the export (block html is
+   normalised to a <div>). */
+.milkdown .ProseMirror .zn-html-render { color: inherit; }
+.milkdown .ProseMirror .zn-html-render.zn-html-block {
   display: block;
   margin: 0.5em 0;
 }
-.milkdown .ProseMirror span.zn-html-render cite {
+.milkdown .ProseMirror .zn-html-render cite {
   display: block;
   font-style: normal;
   padding: 10px 16px;
@@ -618,7 +621,7 @@
   color: var(--text-secondary);
   font-size: 0.92em;
 }
-.milkdown .ProseMirror span.zn-html-render kbd {
+.milkdown .ProseMirror .zn-html-render kbd {
   padding: 2px 6px;
   border: 1px solid var(--border);
   border-bottom-width: 2px;
@@ -627,14 +630,36 @@
   font-family: var(--crepe-font-code);
   font-size: 0.85em;
 }
-.milkdown .ProseMirror span.zn-html-render mark {
+.milkdown .ProseMirror .zn-html-render mark {
   background: #FEF08A;
   padding: 0 2px;
   border-radius: 2px;
 }
-.dark .milkdown .ProseMirror span.zn-html-render mark {
+.dark .milkdown .ProseMirror .zn-html-render mark {
   background: #854D0E;
   color: #FEF9C3;
+}
+
+/* Node-view (click-to-edit-source) styles for raw HTML blocks. */
+.milkdown .ProseMirror span.zn-html-node { cursor: pointer; }
+.milkdown .ProseMirror span.zn-html-node.zn-html-source { cursor: text; }
+.milkdown .ProseMirror span.zn-html-node .zn-html-textarea {
+  display: block;
+  width: 100%;
+  min-height: 90px;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--text-accent);
+  border-radius: 6px;
+  background: var(--bg-code);
+  color: var(--text-primary);
+  font-family: var(--crepe-font-code);
+  font-size: 0.85em;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+  white-space: pre;
+  overflow: auto;
 }
 
 /* ===== Code block (CodeMirror) gutter / line-number contrast =====
@@ -725,6 +750,31 @@
   border-radius: 4px;
   outline: 1px solid color-mix(in srgb, var(--text-markdown-mark) 15%, transparent);
   outline-offset: 2px;
+}
+
+/* Focus mode: dim every block except the one with the cursor.
+   Applied via a ProseMirror decoration (zn-dimmed) so it survives re-renders. */
+.ProseMirror .zn-dimmed {
+  opacity: 0.25;
+  transition: opacity 150ms ease;
+}
+
+/* Image alignment (applied via a ProseMirror node decoration on the image-block
+   node view host). The wrapper is sized to the image so alignment is visible. */
+.ProseMirror .zn-img-align-left,
+.ProseMirror .zn-img-align-center,
+.ProseMirror .zn-img-align-right {
+  display: flex;
+  flex-direction: column;
+}
+.ProseMirror .zn-img-align-left { align-items: flex-start; }
+.ProseMirror .zn-img-align-center { align-items: center; }
+.ProseMirror .zn-img-align-right { align-items: flex-end; }
+.ProseMirror .zn-img-align-left .image-wrapper,
+.ProseMirror .zn-img-align-center .image-wrapper,
+.ProseMirror .zn-img-align-right .image-wrapper {
+  width: fit-content;
+  max-width: 100%;
 }
 
 /* Headings: show # marks before heading text */
