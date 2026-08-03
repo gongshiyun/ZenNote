@@ -7,6 +7,8 @@ import { writeFile } from "../../services";
 import { saveImage, resolveImageUrl } from "../../services";
 import { currentFontStack } from "../../lib/fontStack";
 import "@milkdown/crepe/theme/common/style.css";
+// KaTeX 字体/排版样式：Crepe 的 Latex feature 已启用，但公式渲染依赖此 CSS。
+import "katex/dist/katex.min.css";
 import { LanguageDescription, LanguageSupport, StreamLanguage, indentUnit } from "@codemirror/language";
 import { languages as codeMirrorLanguages } from "@codemirror/language-data";
 import { EditorState as CMEditorState } from "@codemirror/state";
@@ -150,6 +152,157 @@ function createHtmlNodeView(node: any, view: any, getPos: any) {
     // While editing, let the textarea handle all events (ProseMirror ignores them).
     stopEvent: () => editing,
     // ProseMirror must not react to our DOM changes inside the node view.
+    ignoreMutation: () => true,
+    destroy: () => { editing = false; },
+  };
+}
+
+// ── Typora-parity extras: [TOC] table of contents, YAML frontmatter, footnote nav ──
+
+// TextSelection class used by TOC click-to-jump (assigned once init loads prose/state).
+let pmTextSelection: any = null;
+
+// Registry of live TOC views in the current editor; refreshed together on doc changes.
+const tocRefreshers = new Set<() => void>();
+
+// Collect all heading nodes (position + level + text) for TOC rendering.
+function collectHeadingInfos(doc: any): Array<{ pos: number; level: number; text: string }> {
+  const out: Array<{ pos: number; level: number; text: string }> = [];
+  doc.descendants((node: any, pos: number) => {
+    if (node.type.name === "heading") {
+      out.push({ pos: pos + 1, level: node.attrs.level || 1, text: node.textContent || "" });
+    }
+  });
+  return out;
+}
+
+// Typora-style TOC node view: renders the clickable heading list. A ProseMirror
+// plugin (znTocRefresh) calls refresh() whenever the document changes.
+function createTocNodeView(node: any, view: any) {
+  const dom = document.createElement("div");
+  dom.setAttribute("data-type", "zn-toc");
+  dom.className = "zn-toc";
+
+  const refresh = () => {
+    try {
+      const headings = collectHeadingInfos(view.state.doc);
+      dom.innerHTML = "";
+      const title = document.createElement("div");
+      title.className = "zn-toc-title";
+      title.textContent = t().editor.tocTitle;
+      dom.appendChild(title);
+      const ul = document.createElement("ul");
+      ul.className = "zn-toc-list";
+      if (!headings.length) {
+        const li = document.createElement("li");
+        li.className = "zn-toc-empty";
+        li.textContent = t().outline.noHeadings;
+        ul.appendChild(li);
+      } else {
+        for (const h of headings) {
+          const li = document.createElement("li");
+          li.className = "zn-toc-item zn-toc-level-" + Math.min(Math.max(h.level, 1), 6);
+          li.dataset.pos = String(h.pos);
+          li.textContent = h.text || "\u2026";
+          ul.appendChild(li);
+        }
+      }
+      dom.appendChild(ul);
+    } catch { /* ignore */ }
+  };
+
+  dom.addEventListener("mousedown", (e) => {
+    const li = (e.target as HTMLElement).closest("li.zn-toc-item") as HTMLElement | null;
+    if (!li || !pmTextSelection) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const pos = Number(li.dataset.pos);
+    if (!Number.isFinite(pos) || pos < 0 || pos > view.state.doc.content.size) return;
+    try {
+      view.dispatch(view.state.tr.setSelection(pmTextSelection.create(view.state.doc, pos)).scrollIntoView());
+      view.focus();
+    } catch { /* ignore */ }
+  });
+
+  tocRefreshers.add(refresh);
+  refresh();
+
+  return {
+    dom,
+    // Content is derived from the doc (refresh-driven); only type identity matters.
+    update: (newNode: any) => newNode.type === node.type,
+    stopEvent: (e: Event) => !!((e.target as HTMLElement | null)?.closest?.("li")),
+    ignoreMutation: () => true,
+    destroy: () => { tocRefreshers.delete(refresh); },
+  };
+}
+
+// YAML frontmatter node view: rendered as a compact card by default; clicking
+// swaps in an editable <textarea> of the raw YAML; blurring saves it back into
+// attrs.value (the serializer emits proper `---` fences).
+function createFrontmatterNodeView(node: any, view: any, getPos: any) {
+  let currentNode = node;
+  let editing = false;
+  const dom = document.createElement("div");
+  dom.setAttribute("data-type", "frontmatter");
+
+  const renderPreview = () => {
+    editing = false;
+    dom.className = "zn-fm-node zn-fm-preview";
+    dom.innerHTML = "";
+    const label = document.createElement("div");
+    label.className = "zn-fm-label";
+    label.textContent = "YAML";
+    const pre = document.createElement("pre");
+    const code = document.createElement("code");
+    code.textContent = currentNode.attrs.value || "";
+    pre.appendChild(code);
+    dom.appendChild(label);
+    dom.appendChild(pre);
+  };
+
+  const enterEdit = () => {
+    editing = true;
+    dom.className = "zn-fm-node zn-fm-source";
+    dom.innerHTML = "";
+    const ta = document.createElement("textarea");
+    ta.className = "zn-fm-textarea";
+    ta.value = currentNode.attrs.value;
+    ta.spellcheck = false;
+    ta.addEventListener("blur", () => {
+      if (!editing) return;
+      editing = false;
+      const newValue = ta.value;
+      const pos = typeof getPos === "function" ? getPos() : null;
+      if (pos != null && newValue !== currentNode.attrs.value) {
+        view.dispatch(view.state.tr.setNodeMarkup(pos, undefined, { value: newValue }));
+      } else {
+        renderPreview();
+      }
+    });
+    dom.appendChild(ta);
+    ta.focus();
+  };
+
+  dom.addEventListener("mousedown", (e) => {
+    if (!editing) {
+      e.stopPropagation();
+      e.preventDefault();
+      enterEdit();
+    }
+  });
+
+  renderPreview();
+
+  return {
+    dom,
+    update: (newNode: any) => {
+      if (newNode.type !== currentNode.type) return false;
+      currentNode = newNode;
+      if (!editing) renderPreview();
+      return true;
+    },
+    stopEvent: () => editing,
     ignoreMutation: () => true,
     destroy: () => { editing = false; },
   };
@@ -358,8 +511,10 @@ export function Editor() {
           (crepe as any).editor.use((ctx: any) => async () => {
             await ctx.wait(SchemaReady);
             ctx.update(nodeViewCtx, (ps: any) => [
-              ...ps.filter((p: any) => p[0] !== "html"),
+              ...ps.filter((p: any) => p[0] !== "html" && p[0] !== "frontmatter" && p[0] !== "zn_toc"),
               ["html", (node: any, view: any, getPos: any) => createHtmlNodeView(node, view, getPos)],
+              ["frontmatter", (node: any, view: any, getPos: any) => createFrontmatterNodeView(node, view, getPos)],
+              ["zn_toc", (node: any, view: any) => createTocNodeView(node, view)],
             ]);
           });
         } catch { /* html override is best-effort */ }
@@ -409,6 +564,94 @@ export function Editor() {
           });
         } catch { /* image-block override is best-effort */ }
 
+        // ---- Typora-parity extras: YAML frontmatter + [TOC] auto table of contents ----
+        try {
+          const { $nodeSchema, $remark } = await import("@milkdown/kit/utils");
+          const remarkFrontmatter = (await import("remark-frontmatter")).default;
+
+          // YAML frontmatter node (remark-frontmatter parses the leading `---` fence
+          // into a `yaml` mdast node; serialization emits the fences back).
+          const frontmatterSchema = $nodeSchema("frontmatter", () => ({
+            group: "block",
+            atom: true,
+            attrs: { value: { default: "", validate: "string" } },
+            toDOM: () => ["div", { "data-type": "frontmatter" }],
+            parseMarkdown: {
+              match: (mdNode: any) => mdNode.type === "yaml",
+              runner: (state: any, mdNode: any, type: any) => {
+                state.addNode(type, { value: mdNode.value || "" });
+              },
+            },
+            toMarkdown: {
+              match: (pmNode: any) => pmNode.type.name === "frontmatter",
+              runner: (state: any, pmNode: any) => {
+                state.addNode("yaml", void 0, pmNode.attrs.value);
+              },
+            },
+          }));
+
+          // [TOC] node. A remark transformer converts a paragraph whose only text is
+          // "[TOC]" into a zn_toc mdast node when parsing (parsed nodes carry `position`).
+          // Serialization emits a zn_toc mdast node directly, and a custom to-markdown
+          // handler writes the literal "[TOC]" back — a plain text node would get its
+          // opening bracket escaped ("\[TOC]") by mdast-util-to-markdown's unsafe rules.
+          const tocSchema = $nodeSchema("zn_toc", () => ({
+            group: "block",
+            atom: true,
+            toDOM: () => ["div", { "data-type": "zn-toc" }],
+            parseMarkdown: {
+              match: (mdNode: any) => mdNode.type === "zn_toc",
+              runner: (state: any, _mdNode: any, type: any) => {
+                state.addNode(type);
+              },
+            },
+            toMarkdown: {
+              match: (pmNode: any) => pmNode.type.name === "zn_toc",
+              runner: (state: any) => {
+                state.addNode("zn_toc");
+              },
+            },
+          }));
+
+          const tocMdastTransformer = () => (tree: any) => {
+            const visit = (mdNode: any) => {
+              if (!mdNode || !mdNode.children) return;
+              for (let i = 0; i < mdNode.children.length; i++) {
+                const child = mdNode.children[i];
+                if (child.type === "paragraph" && child.position) {
+                  const c = child.children;
+                  if (c && c.length === 1 && c[0].type === "text" && /^\[\s*toc\s*\]$/i.test(String(c[0].value).trim())) {
+                    mdNode.children[i] = { type: "zn_toc" };
+                    continue;
+                  }
+                }
+                visit(child);
+              }
+            };
+            visit(tree);
+          };
+
+          // to-markdown handler for the zn_toc mdast node: emit the literal "[TOC]".
+          const tocToMarkdownHandler = function (this: any) {
+            const data = this.data();
+            const extensions = data.toMarkdownExtensions || (data.toMarkdownExtensions = []);
+            extensions.push({
+              handlers: { zn_toc: () => "[TOC]" },
+            });
+          };
+
+          // NOTE: the "[TOC]" input rule is installed after crepe.create() (see
+          // tocInputRulePlugin below) — plugins registered via $prose are dropped by
+          // Crepe's internal state reconfiguration, so direct injection is required.
+
+          (crepe as any).editor
+            .use(frontmatterSchema)
+            .use(tocSchema)
+            .use($remark("zn-frontmatter", () => remarkFrontmatter, { type: "yaml", marker: "-" }))
+            .use($remark("zn-toc-mdast", () => tocMdastTransformer))
+            .use($remark("zn-toc-stringify", () => tocToMarkdownHandler));
+        } catch { /* extras are best-effort */ }
+
         await crepe.create();
         if (tokenRef.current !== token) return;
 
@@ -417,7 +660,8 @@ export function Editor() {
         // element is detected as an external mutation and gets re-rendered away, whereas a
         // decoration is applied by ProseMirror itself on every render and thus persists.
         const { editorViewCtx } = await import("@milkdown/kit/core");
-        const { Plugin, PluginKey, EditorState } = await import("@milkdown/kit/prose/state");
+        const { Plugin, PluginKey, EditorState, TextSelection } = await import("@milkdown/kit/prose/state");
+        pmTextSelection = TextSelection;
         const { Decoration, DecorationSet } = await import("@milkdown/kit/prose/view");
         const pmView = (crepe as any).editor.action((ctx: any) => ctx.get(editorViewCtx));
 
@@ -522,12 +766,75 @@ export function Editor() {
             decorations(state: any) { return (this as any).getState(state); },
           },
         });
+        // TOC sync: refresh every TOC node view whenever the document changes.
+        const tocRefreshPlugin = new Plugin({
+          key: new PluginKey("znTocRefresh"),
+          view: () => ({
+            update: (view: any, prevState: any) => {
+              if (!tocRefreshers.size || view.state.doc === prevState.doc) return;
+              tocRefreshers.forEach((r) => { try { r(); } catch { /* ignore */ } });
+            },
+          }),
+        });
+        // Footnote jump flash: implemented as a node DECORATION, not a DOM class —
+        // adding a class directly to a ProseMirror-managed element is detected as an
+        // external mutation and triggers an endless re-render/replace loop.
+        const fnFlashKey = new PluginKey("znFootnoteFlash");
+        let fnFlashTimer: number | null = null;
+        const footnoteFlashPlugin = new Plugin({
+          key: fnFlashKey,
+          state: {
+            init: () => ({ label: "", target: "" }),
+            apply: (tr: any, prev: any) => tr.getMeta(fnFlashKey) ?? prev,
+          },
+          props: {
+            decorations(state: any) {
+              const cur = fnFlashKey.getState(state) as { label: string; target: string };
+              if (!cur.label || !cur.target) return DecorationSet.empty;
+              const want = cur.target === "def" ? "footnote_definition" : "footnote_reference";
+              const decos: any[] = [];
+              state.doc.descendants((node: any, pos: number) => {
+                if (node.type.name === want && node.attrs.label === cur.label) {
+                  decos.push(Decoration.node(pos, pos + node.nodeSize, { class: "zn-flash" }));
+                }
+              });
+              return DecorationSet.create(state.doc, decos);
+            },
+          },
+        });
+        const flashFootnote = (label: string, target: "def" | "ref") => {
+          pmView.dispatch(pmView.state.tr.setMeta(fnFlashKey, { label, target }));
+          if (fnFlashTimer !== null) window.clearTimeout(fnFlashTimer);
+          fnFlashTimer = window.setTimeout(() => {
+            fnFlashTimer = null;
+            pmView.dispatch(pmView.state.tr.setMeta(fnFlashKey, { label: "", target: "" }));
+          }, 1200);
+        };
+        // TOC input rule: typing "[TOC]" converts the paragraph into the TOC block.
+        // textblockTypeInputRule can't be used (zn_toc is an atom node, not a
+        // textblock) — replace the whole paragraph via a custom transaction instead.
+        let tocInputRulePlugin: any = null;
+        if (pmView.state.schema.nodes.zn_toc) {
+          const { inputRules, InputRule } = await import("@milkdown/kit/prose/inputrules");
+          const tocNodeType = pmView.state.schema.nodes.zn_toc;
+          tocInputRulePlugin = inputRules({
+            rules: [
+              new InputRule(/^\[\s*toc\s*\]$/i, (state: any, _match: any, start: number, end: number) => {
+                const $start = state.doc.resolve(start);
+                if ($start.parent.type.name !== "paragraph") return null;
+                const paraStart = $start.before();
+                const paraEnd = state.doc.resolve(end).after();
+                return state.tr.replaceRangeWith(paraStart, paraEnd, tocNodeType.create());
+              }),
+            ],
+          });
+        }
         // Inject the plugins by reconfiguring the state. Safe to do right after create():
         // the undo history and all plugin states are still empty.
         pmView.updateState(EditorState.create({
           doc: pmView.state.doc,
           selection: pmView.state.selection,
-          plugins: [...pmView.state.plugins, focusDecoPlugin, typewriterPlugin, imageAlignPlugin],
+          plugins: [...pmView.state.plugins, focusDecoPlugin, typewriterPlugin, imageAlignPlugin, tocRefreshPlugin, footnoteFlashPlugin, ...(tocInputRulePlugin ? [tocInputRulePlugin] : [])],
         }));
         pmViewRef.current = pmView;
 
@@ -634,6 +941,38 @@ export function Editor() {
 
         container.addEventListener("click", onPreviewClick);
         container.addEventListener("focusout", onCodeBlockBlur);
+
+        // ---- Footnote cross-reference jump: reference (sup) ⇄ definition (dl) ----
+        // The flash is a ProseMirror decoration (see footnoteFlashPlugin above).
+        const onFootnoteClick = (e: MouseEvent) => {
+          const target = e.target as HTMLElement;
+          const ref = target.closest('sup[data-type="footnote_reference"]') as HTMLElement | null;
+          if (ref) {
+            const label = ref.getAttribute("data-label") || "";
+            if (!label) return;
+            const sel = 'dl[data-type="footnote_definition"][data-label="' + CSS.escape(label) + '"]';
+            const def = container.querySelector(sel) as HTMLElement | null;
+            if (def) {
+              e.preventDefault();
+              def.scrollIntoView({ behavior: "smooth", block: "center" });
+              flashFootnote(label, "def");
+            }
+            return;
+          }
+          if (target.closest("dt")) {
+            const dl = target.closest('dl[data-type="footnote_definition"]') as HTMLElement | null;
+            const label = dl ? dl.getAttribute("data-label") || "" : "";
+            if (!dl || !label) return;
+            const sel = 'sup[data-type="footnote_reference"][data-label="' + CSS.escape(label) + '"]';
+            const refBack = container.querySelector(sel) as HTMLElement | null;
+            if (refBack) {
+              e.preventDefault();
+              refBack.scrollIntoView({ behavior: "smooth", block: "center" });
+              flashFootnote(label, "ref");
+            }
+          }
+        };
+        container.addEventListener("click", onFootnoteClick);
 
         // ---- Mermaid zoom: enlarged floating view with resizable frame ----
         let zoomOverlay: HTMLElement | null = null;
@@ -814,6 +1153,8 @@ export function Editor() {
           container.removeEventListener("focusin", onFocusInput);
           container.removeEventListener("click", onPreviewClick);
           container.removeEventListener("focusout", onCodeBlockBlur);
+          container.removeEventListener("click", onFootnoteClick);
+          if (fnFlashTimer !== null) window.clearTimeout(fnFlashTimer);
           container.removeEventListener("pointerdown", markInteracted, { capture: true });
           container.removeEventListener("keydown", markInteracted, { capture: true });
           document.removeEventListener("selectionchange", onSelChange);

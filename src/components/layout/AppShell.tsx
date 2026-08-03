@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect, lazy, Suspense } from "react";
 import { Titlebar } from "./Titlebar";
+import { TabBar } from "./TabBar";
 import { StatusBar } from "./StatusBar";
 import { FileTree } from "../filetree/FileTree";
 import { Editor } from "../editor/Editor";
@@ -88,6 +89,7 @@ function useWindowPersistence() {
         const data = {
           workspacePath: s.workspacePath,
           currentFilePath: s.currentFilePath,
+          openTabs: s.openTabs,
           mode: s.mode,
           themeId: s.themeId,
           fontFamily: s.fontFamily,
@@ -122,6 +124,7 @@ function useWindowPersistence() {
       if (typeof data.updateCheckInterval === "number") useStore.getState().setUpdateCheckInterval(data.updateCheckInterval);
       if (data.workspacePath) {
         useStore.getState().setWorkspace(data.workspacePath);
+        if (Array.isArray(data.openTabs)) useStore.getState().setOpenTabs(data.openTabs.filter((p: unknown) => typeof p === "string"));
         fs.openWorkspace(data.workspacePath).then(tree => {
           useStore.getState().setTree(tree);
           if (data.currentFilePath) {
@@ -253,6 +256,24 @@ export function AppShell() {
         e.preventDefault();
         setSettingsVisible(true);
       }
+      else if (key === "w" && !e.shiftKey && !e.altKey) {
+        // Close the current tab (asks for confirmation when dirty).
+        e.preventDefault();
+        const s = useStore.getState();
+        if (!s.currentFilePath) return;
+        if (s.isDirty && !confirm(t().tabs.unsavedClose)) return;
+        s.closeTab(s.currentFilePath);
+      }
+      else if (key === "tab") {
+        // Cycle through open tabs (Ctrl+Tab / Ctrl+Shift+Tab).
+        e.preventDefault();
+        const s = useStore.getState();
+        const tabs = s.openTabs;
+        if (tabs.length < 2 || !s.currentFilePath) return;
+        const idx = tabs.indexOf(s.currentFilePath);
+        const next = e.shiftKey ? tabs[(idx - 1 + tabs.length) % tabs.length] : tabs[(idx + 1) % tabs.length];
+        s.switchTab(next);
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -270,6 +291,7 @@ export function AppShell() {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <Titlebar />
+      <TabBar />
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         {/* Left sidebar: FileTree */}
         {sidebarVisible && (

@@ -275,7 +275,11 @@ export function FileTree() {
         <HeaderBtn title={t().filetree.openFile} onClick={handleOpenFileDialog}><OpenFileIcon /></HeaderBtn>
         <HeaderBtn title={t().filetree.openFolder} onClick={handleOpenFolderDialog}><OpenFolderIcon /></HeaderBtn>
         <div style={{ flex: 1 }} />
-        <HeaderBtn title={t().filetree.newNote + " (Ctrl+N)"} onClick={() => handleNewFile()}>+</HeaderBtn>
+        <HeaderBtn title={t().filetree.newNote + " (Ctrl+N)"} onClick={() => handleNewFile()}>
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+            <path d="M7.5 2.5v10M2.5 7.5h10" />
+          </svg>
+        </HeaderBtn>
       </div>
 
       {/* Workspace selector with recent-workspaces dropdown */}
@@ -355,11 +359,11 @@ const FileTreeNode = memo(function FileTreeNode({ node, depth, selectedFilePath,
 });
 
 // ---- Header action button ----
+// Hover background is driven by CSS (:hover) instead of JS mouse handlers:
+// when a click opens a native dialog (prompt), mouseleave never fires and a
+// JS-set inline background would stay stuck on the button.
 function HeaderBtn(p: { children: React.ReactNode; onClick: () => void; title?: string }) {
-  return <button onClick={p.onClick} title={p.title}
-    style={{ width: 28, height: 26, display: "flex", alignItems: "center", justifyContent: "center", border: "none", borderRadius: 6, background: "transparent", color: "var(--text-secondary)", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0, transition: "background-color 120ms ease" }}
-    onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>{p.children}</button>;
+  return <button className="zn-header-btn" onClick={p.onClick} title={p.title}>{p.children}</button>;
 }
 
 function OpenFileIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 2h4l2 2h5a1 1 0 011 1v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z"/></svg>); }

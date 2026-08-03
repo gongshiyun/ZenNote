@@ -912,3 +912,253 @@ html, body, #root {
 .resize-handle:hover, .resize-handle:active {
   width: 6px; background: var(--text-accent);
 }
+
+/* ========================================
+   Tab bar (Typora-style multi-tab)
+   ======================================== */
+
+/* FileTree header action buttons (open file / open folder / new note).
+   Transparent at rest — same surface as the workspace row below. */
+.zn-header-btn {
+  width: 28px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  transition: background-color 120ms ease;
+}
+.zn-header-btn:hover { background: var(--bg-hover); }
+
+.zn-tabbar {
+  display: flex;
+  align-items: stretch;
+  height: 34px;
+  flex-shrink: 0;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.zn-tabbar::-webkit-scrollbar { display: none; }
+.zn-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 0 14px;
+  max-width: 220px;
+  min-width: 90px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  background: transparent;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.zn-tab:hover { background: var(--bg-hover); }
+.zn-tab-active {
+  background: var(--bg-editor);
+  color: var(--text-primary);
+  box-shadow: inset 0 2px 0 var(--text-accent);
+}
+.zn-tab-active:hover { background: var(--bg-editor); }
+.zn-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+.zn-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+.zn-tab-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+/* × is always visible (subtle until hover); dirty tabs show the dot in its
+   place instead, switching to the × on hover. */
+.zn-tab-close .zn-tab-x { display: block; opacity: 0.55; }
+.zn-tab-close:hover .zn-tab-x { opacity: 1; }
+.zn-tab-dirty .zn-tab-x { display: none; }
+.zn-tab-dirty:hover .zn-tab-x { display: block; }
+.zn-tab-dot {
+  display: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-accent);
+}
+.zn-tab-dirty .zn-tab-dot { display: block; }
+.zn-tab-dirty:hover .zn-tab-dot { display: none; }
+
+/* ========================================
+   Footnotes (preset-gfm sup/dl rendering)
+   ======================================== */
+.milkdown .ProseMirror sup[data-type="footnote_reference"] {
+  display: inline-block;
+  min-width: 1.4em;
+  padding: 0 4px;
+  margin: 0 1px;
+  text-align: center;
+  font-size: 0.75em;
+  line-height: 1.6;
+  border-radius: 4px;
+  color: var(--text-accent);
+  background: color-mix(in srgb, var(--text-accent) 12%, transparent);
+  cursor: pointer;
+  vertical-align: super;
+}
+.milkdown .ProseMirror sup[data-type="footnote_reference"]:hover {
+  background: color-mix(in srgb, var(--text-accent) 24%, transparent);
+}
+.milkdown .ProseMirror dl[data-type="footnote_definition"] {
+  display: flex;
+  gap: 10px;
+  margin: 4px 0;
+  padding: 6px 10px;
+  font-size: 0.9em;
+  color: var(--text-secondary);
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+.milkdown .ProseMirror dl[data-type="footnote_definition"]:hover {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--bg-code) 50%, transparent);
+}
+.milkdown .ProseMirror dl[data-type="footnote_definition"] dt {
+  flex-shrink: 0;
+  color: var(--text-accent);
+  font-weight: 600;
+  cursor: pointer;
+}
+.milkdown .ProseMirror dl[data-type="footnote_definition"] dt::before { content: "["; }
+.milkdown .ProseMirror dl[data-type="footnote_definition"] dt::after { content: "]"; }
+.milkdown .ProseMirror dl[data-type="footnote_definition"] dd {
+  margin: 0;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Flash highlight (footnote jump feedback) */
+.zn-flash {
+  animation: zn-flash-pulse 1.2s ease;
+  border-radius: 6px;
+}
+@keyframes zn-flash-pulse {
+  0%, 60% { background: color-mix(in srgb, var(--text-accent) 22%, transparent); }
+  100% { background: transparent; }
+}
+
+/* ========================================
+   [TOC] auto table of contents
+   ======================================== */
+.milkdown .ProseMirror .zn-toc {
+  margin: 0.6em 0;
+  padding: 12px 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-code) 40%, transparent);
+  cursor: default;
+}
+.milkdown .ProseMirror .zn-toc-title {
+  font-weight: 600;
+  font-size: 0.95em;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+.milkdown .ProseMirror .zn-toc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.milkdown .ProseMirror .zn-toc-empty {
+  font-size: 0.88em;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+.milkdown .ProseMirror .zn-toc-item {
+  font-size: 0.9em;
+  line-height: 1.9;
+  color: var(--text-accent);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.milkdown .ProseMirror .zn-toc-item:hover { text-decoration: underline; }
+.milkdown .ProseMirror .zn-toc-level-1 { padding-left: 0; font-weight: 600; }
+.milkdown .ProseMirror .zn-toc-level-2 { padding-left: 1.2em; }
+.milkdown .ProseMirror .zn-toc-level-3 { padding-left: 2.4em; }
+.milkdown .ProseMirror .zn-toc-level-4 { padding-left: 3.6em; }
+.milkdown .ProseMirror .zn-toc-level-5 { padding-left: 4.8em; }
+.milkdown .ProseMirror .zn-toc-level-6 { padding-left: 6em; }
+
+/* ========================================
+   YAML frontmatter node view
+   ======================================== */
+.milkdown .ProseMirror .zn-fm-node {
+  margin: 0.5em 0;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-code) 40%, transparent);
+  overflow: hidden;
+}
+.milkdown .ProseMirror .zn-fm-node.zn-fm-preview { cursor: pointer; }
+.milkdown .ProseMirror .zn-fm-node .zn-fm-label {
+  padding: 4px 12px 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.milkdown .ProseMirror .zn-fm-node pre {
+  margin: 2px 0 0;
+  padding: 4px 12px 10px;
+  background: transparent;
+  border: none;
+  font-family: var(--crepe-font-code);
+  font-size: 0.85em;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+.milkdown .ProseMirror .zn-fm-node.zn-fm-source { border-style: solid; border-color: var(--text-accent); }
+.milkdown .ProseMirror .zn-fm-textarea {
+  display: block;
+  width: 100%;
+  min-height: 72px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: none;
+  outline: none;
+  resize: vertical;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--crepe-font-code);
+  font-size: 0.85em;
+  line-height: 1.6;
+}
+
+/* ========================================
+   KaTeX adjustments
+   ======================================== */
+.milkdown .ProseMirror .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 0;
+}
+.dark .milkdown .ProseMirror .katex { color: inherit; }

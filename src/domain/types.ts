@@ -36,6 +36,8 @@ export interface FileEditorState {
   scrollPos: number;
   cursorLine: number;
   cursorCol: number;
+  /** Unsaved-changes flag at the time the state was cached */
+  dirty?: boolean;
 }
 
 // ═══════════════════════════════════════════

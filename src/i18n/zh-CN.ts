@@ -64,7 +64,12 @@ const zhCN = {
     "copyMarkdown": "复制 Markdown 源码",
     "align_left": "左对齐",
     "align_center": "居中",
-    "align_right": "右对齐"
+    "align_right": "右对齐",
+    "tocTitle": "目录"
+  },
+  "tabs": {
+    "closeTab": "关闭标签页",
+    "unsavedClose": "此笔记尚未保存，确定要关闭吗？"
   },
   "outline": {
     "title": "大纲",

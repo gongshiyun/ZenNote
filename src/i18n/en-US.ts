@@ -64,7 +64,12 @@ const enUS = {
     "copyMarkdown": "Copy as Markdown",
     "align_left": "Align left",
     "align_center": "Align center",
-    "align_right": "Align right"
+    "align_right": "Align right",
+    "tocTitle": "Table of Contents"
+  },
+  "tabs": {
+    "closeTab": "Close tab",
+    "unsavedClose": "This note has unsaved changes. Close anyway?"
   },
   "outline": {
     "title": "Outline",

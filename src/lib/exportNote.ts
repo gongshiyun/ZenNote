@@ -8,7 +8,7 @@
 import { currentFontStack } from "./fontStack";
 
 // Selectors worth copying: theme variable blocks + anything that styles content.
-const KEEP_RE = /:root|\[data-theme|\[data-font|\.dark|\.milkdown|\.ProseMirror|(^|[\s,>+~(])(h[1-6]|p|blockquote|pre|code|table|thead|tbody|tr|th|td|ul|ol|li|a|strong|em|del|s|hr|img|mark|sub|sup|figure|figcaption|\.katex|\.cm-|\.zn-html-render)/;
+const KEEP_RE = /:root|\[data-theme|\[data-font|\.dark|\.milkdown|\.ProseMirror|(^|[\s,>+~(])(h[1-6]|p|blockquote|pre|code|table|thead|tbody|tr|th|td|ul|ol|li|dl|dt|dd|a|strong|em|del|s|hr|img|mark|sub|sup|figure|figcaption|\.katex|\.cm-|\.zn-html-render|\.zn-toc|\.zn-fm)/;
 
 function collectEditorCss(): string {
   const out: string[] = [];
@@ -107,7 +107,8 @@ async function serializeEditorContent(fallbackContent: string): Promise<string> 
   // Render mermaid diagrams that were not yet rendered in the editor (lazy init).
   await ensureMermaidRendered(clone);
 
-  // Normalise code blocks: keep mermaid SVGs, turn CodeMirror into plain <pre><code>.
+  // Normalise code blocks: keep mermaid SVGs and rendered LaTeX, turn other
+  // CodeMirror content into plain <pre><code>.
   clone.querySelectorAll(".milkdown-code-block").forEach(cb => {
     const svg = cb.querySelector(".preview svg");
     if (svg) {
@@ -118,14 +119,23 @@ async function serializeEditorContent(fallbackContent: string): Promise<string> 
       clonedSvg.setAttribute("style", "max-width:100%;height:auto;");
       wrap.appendChild(clonedSvg);
       cb.replaceWith(wrap);
-    } else {
-      const codeText = (cb.querySelector(".cm-content")?.textContent) || cb.textContent || "";
-      const pre = document.createElement("pre");
-      const code = document.createElement("code");
-      code.textContent = codeText.replace(/\n$/, "");
-      pre.appendChild(code);
-      cb.replaceWith(pre);
+      return;
     }
+    // LaTeX blocks: keep the rendered KaTeX output instead of the raw source.
+    const preview = cb.querySelector(".preview") as HTMLElement | null;
+    if (preview && preview.querySelector(".katex")) {
+      const wrap = document.createElement("div");
+      wrap.className = "zn-export-latex";
+      wrap.innerHTML = preview.innerHTML;
+      cb.replaceWith(wrap);
+      return;
+    }
+    const codeText = (cb.querySelector(".cm-content")?.textContent) || cb.textContent || "";
+    const pre = document.createElement("pre");
+    const code = document.createElement("code");
+    code.textContent = codeText.replace(/\n$/, "");
+    pre.appendChild(code);
+    cb.replaceWith(pre);
   });
 
   // Normalise raw-HTML blocks: the editor wraps them in a <span data-type="html">,
@@ -225,6 +235,7 @@ function buildExportHtml(bodyHtml: string, title: string): string {
     "html,body{margin:0;padding:0;background:var(--bg-editor,#fff);color:var(--text-primary,#1a1a1a);}\n" +
     "body{max-width:860px;margin:0 auto;padding:40px 24px;font-family:var(--zn-font-stack,'Microsoft YaHei',sans-serif);}\n" +
     ".zn-export-mermaid{margin:1em 0;text-align:center;}\n" +
+    ".zn-export-latex{margin:1em 0;overflow-x:auto;}\n" +
     "@media print{body{max-width:none;padding:12mm;}}\n" +
     "</style>\n" +
     "</head>\n" +
