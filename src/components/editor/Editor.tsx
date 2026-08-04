@@ -9,9 +9,28 @@ import { currentFontStack } from "../../lib/fontStack";
 import "@milkdown/crepe/theme/common/style.css";
 // KaTeX 字体/排版样式：Crepe 的 Latex feature 已启用，但公式渲染依赖此 CSS。
 import "katex/dist/katex.min.css";
-import { LanguageDescription, LanguageSupport, StreamLanguage, indentUnit } from "@codemirror/language";
+import { LanguageDescription, LanguageSupport, StreamLanguage, indentUnit, HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { languages as codeMirrorLanguages } from "@codemirror/language-data";
 import { EditorState as CMEditorState } from "@codemirror/state";
+import { tags as cmTags } from "@lezer/highlight";
+
+// Crepe's default code-block theme is One Dark — its bright token colors are made
+// for dark backgrounds and are nearly unreadable on the light #F5F5F5 fill. We
+// REPLACE the default theme (defaultsDeep lets featureConfigs win) with a
+// theme-aware highlight style: colors are CSS variables flipped by the .dark
+// class (GitHub Light in light mode, One Dark in dark mode).
+const znCodeHighlightStyle = HighlightStyle.define([
+  { tag: [cmTags.keyword, cmTags.controlKeyword, cmTags.operatorKeyword, cmTags.moduleKeyword, cmTags.modifier], color: "var(--zn-code-keyword)" },
+  { tag: [cmTags.string, cmTags.special(cmTags.string), cmTags.character, cmTags.url], color: "var(--zn-code-string)" },
+  { tag: [cmTags.comment, cmTags.lineComment, cmTags.blockComment, cmTags.docComment], color: "var(--zn-code-comment)", fontStyle: "italic" },
+  { tag: [cmTags.number, cmTags.integer, cmTags.float, cmTags.bool, cmTags.null, cmTags.atom], color: "var(--zn-code-constant)" },
+  { tag: [cmTags.function(cmTags.variableName), cmTags.function(cmTags.propertyName), cmTags.definition(cmTags.function(cmTags.variableName))], color: "var(--zn-code-function)" },
+  { tag: [cmTags.typeName, cmTags.className, cmTags.namespace, cmTags.tagName], color: "var(--zn-code-type)" },
+  { tag: [cmTags.variableName, cmTags.propertyName, cmTags.attributeName, cmTags.definition(cmTags.variableName)], color: "var(--zn-code-ident)" },
+  { tag: [cmTags.regexp], color: "var(--zn-code-string)" },
+  { tag: [cmTags.meta, cmTags.processingInstruction], color: "var(--zn-code-comment)" },
+  { tag: [cmTags.operator, cmTags.punctuation, cmTags.bracket, cmTags.separator], color: "var(--zn-code-punct)" },
+]);
 
 // Mermaid 无需语法高亮（内容会被渲染为图表），用纯文本占位语言。
 // 将其注入 @codemirror/language-data 的共享语言列表（Crepe 默认配置直接引用该列表），
@@ -165,6 +184,20 @@ let pmTextSelection: any = null;
 // Registry of live TOC views in the current editor; refreshed together on doc changes.
 const tocRefreshers = new Set<() => void>();
 
+// Find the editor's REAL scroll container. Crepe wraps .ProseMirror in
+// non-scrolling divs (.milkdown), so `.ProseMirror.parentElement` is NOT the
+// scroll element — reading/writing its scrollTop silently does nothing, which
+// broke scroll save/restore and made the page jump to the top whenever the
+// editor was re-created (observed as random auto-scrolling while idle).
+function editorScrollEl(root: ParentNode): HTMLElement | null {
+  let el = root.querySelector(".ProseMirror") as HTMLElement | null;
+  while (el && el !== document.body) {
+    if (el.scrollHeight > el.clientHeight && /(auto|scroll)/.test(getComputedStyle(el).overflowY)) return el;
+    el = el.parentElement;
+  }
+  return null;
+}
+
 // Collect all heading nodes (position + level + text) for TOC rendering.
 function collectHeadingInfos(doc: any): Array<{ pos: number; level: number; text: string }> {
   const out: Array<{ pos: number; level: number; text: string }> = [];
@@ -208,7 +241,7 @@ function createTocNodeView(node: any, view: any) {
         }
       }
       dom.appendChild(ul);
-    } catch { /* ignore */ }
+    } catch (err) { console.warn("toc-refresh-failed", err); }
   };
 
   dom.addEventListener("mousedown", (e) => {
@@ -219,9 +252,19 @@ function createTocNodeView(node: any, view: any) {
     const pos = Number(li.dataset.pos);
     if (!Number.isFinite(pos) || pos < 0 || pos > view.state.doc.content.size) return;
     try {
-      view.dispatch(view.state.tr.setSelection(pmTextSelection.create(view.state.doc, pos)).scrollIntoView());
+      // Move the caret into the heading WITHOUT scrollIntoView, then scroll the
+      // heading itself to the TOP of the viewport — same behavior as clicking an
+      // entry in the Outline panel (ProseMirror's default scroll may leave the
+      // heading at the bottom edge of the view).
+      view.dispatch(view.state.tr.setSelection(pmTextSelection.create(view.state.doc, pos)));
+      const headingDom = view.nodeDOM(pos - 1) as HTMLElement | null;
+      window.requestAnimationFrame(() => {
+        if (headingDom && typeof headingDom.scrollIntoView === "function") {
+          headingDom.scrollIntoView({ block: "start", behavior: "smooth" });
+        }
+      });
       view.focus();
-    } catch { /* ignore */ }
+    } catch (err) { console.warn("toc-jump-failed", err); }
   });
 
   tocRefreshers.add(refresh);
@@ -314,7 +357,10 @@ export function Editor() {
   const content = useStore(s => s.content);
   const setContent = useStore(s => s.setContent);
   const setCursorPosition = useStore(s => s.setCursorPosition);
-  const scrollPosition = useStore(s => s.scrollPosition);
+  // NOTE: scrollPosition is intentionally NOT subscribed here — reading it via
+  // useStore would re-run the editor init effect every time the periodic scroll
+  // saver updates the store, which re-creates the editor and force-scrolls the
+  // page (observed as random auto-scrolling while idle).
   const setScrollPosition = useStore(s => s.setScrollPosition);
   const setEditorRef = useStore(s => s.setEditorRef);
   const tabSize = useStore(s => s.tabSize);
@@ -363,7 +409,7 @@ export function Editor() {
       if (crepeRef.current) {
         const oldCrepe = crepeRef.current;
         crepeRef.current = null;
-        oldCrepe.destroy().catch(() => {});
+        oldCrepe.destroy().catch((err: any) => { console.warn("editor-destroy-failed", err); });
       }
       tokenRef.current = null;
       safeRef.current = false;
@@ -385,7 +431,7 @@ export function Editor() {
 
     const init = async () => {
       if (crepeRef.current) {
-        try { await crepeRef.current.destroy(); } catch { /* */ }
+        try { await crepeRef.current.destroy(); } catch (err) { console.warn("editor-destroy-failed", err); }
         crepeRef.current = null;
       }
       if (tokenRef.current !== token) return;
@@ -418,6 +464,8 @@ export function Editor() {
             [CrepeFeature.CodeMirror]: {
               // Show the rendered diagram by default; toggle button reveals source
               previewOnlyByDefault: true,
+              // Replace Crepe's oneDark default theme (see znCodeHighlightStyle).
+              theme: syntaxHighlighting(znCodeHighlightStyle),
               // Honor the user's indent setting inside code blocks
               extensions: [
                 CMEditorState.tabSize.of(useStore.getState().tabSize),
@@ -445,7 +493,8 @@ export function Editor() {
                     const { svg } = await mermaidMod.default.render(id, content.trim());
                     if (tokenRef.current !== token) return;
                     applyPreview(svg);
-                  } catch {
+                  } catch (err) {
+                    console.warn("mermaid-render-failed", err);
                     if (tokenRef.current === token) applyPreview(null);
                   }
                 })();
@@ -517,7 +566,7 @@ export function Editor() {
               ["zn_toc", (node: any, view: any) => createTocNodeView(node, view)],
             ]);
           });
-        } catch { /* html override is best-effort */ }
+        } catch (err) { console.warn("html-override-failed", err); }
 
         // Extend the "image-block" node with an `align` attribute (left/center/right).
         // Alignment is persisted by encoding it into the markdown image alt text
@@ -562,7 +611,7 @@ export function Editor() {
               };
             });
           });
-        } catch { /* image-block override is best-effort */ }
+        } catch (err) { console.warn("image-block-override-failed", err); }
 
         // ---- Typora-parity extras: YAML frontmatter + [TOC] auto table of contents ----
         try {
@@ -620,7 +669,7 @@ export function Editor() {
                 const child = mdNode.children[i];
                 if (child.type === "paragraph" && child.position) {
                   const c = child.children;
-                  if (c && c.length === 1 && c[0].type === "text" && /^\[\s*toc\s*\]$/i.test(String(c[0].value).trim())) {
+                  if (c && c.length === 1 && c[0].type === "text" && /^[\[【［]\s*toc\s*[\]】］]$/i.test(String(c[0].value).trim())) {
                     mdNode.children[i] = { type: "zn_toc" };
                     continue;
                   }
@@ -650,7 +699,7 @@ export function Editor() {
             .use($remark("zn-frontmatter", () => remarkFrontmatter, { type: "yaml", marker: "-" }))
             .use($remark("zn-toc-mdast", () => tocMdastTransformer))
             .use($remark("zn-toc-stringify", () => tocToMarkdownHandler));
-        } catch { /* extras are best-effort */ }
+        } catch (err) { console.warn("frontmatter-toc-extras-failed", err); }
 
         await crepe.create();
         if (tokenRef.current !== token) return;
@@ -740,7 +789,7 @@ export function Editor() {
                   // Defer to the browser's native centering (robust across layouts).
                   blockDom.scrollIntoView({ block: "center", behavior: "auto" });
                 }
-              } catch { /* ignore */ }
+              } catch (err) { console.warn("typewriter-scroll-failed", err); }
             },
           }),
         });
@@ -772,7 +821,7 @@ export function Editor() {
           view: () => ({
             update: (view: any, prevState: any) => {
               if (!tocRefreshers.size || view.state.doc === prevState.doc) return;
-              tocRefreshers.forEach((r) => { try { r(); } catch { /* ignore */ } });
+              tocRefreshers.forEach((r) => { try { r(); } catch (err) { console.warn("toc-refresh-callback-failed", err); } });
             },
           }),
         });
@@ -819,7 +868,9 @@ export function Editor() {
           const tocNodeType = pmView.state.schema.nodes.zn_toc;
           tocInputRulePlugin = inputRules({
             rules: [
-              new InputRule(/^\[\s*toc\s*\]$/i, (state: any, _match: any, start: number, end: number) => {
+              // Fullwidth brackets (【［】］) are accepted too — they are easy to
+              // type by accident under a Chinese IME.
+              new InputRule(/^[\[【［]\s*toc\s*[\]】］]$/i, (state: any, _match: any, start: number, end: number) => {
                 const $start = state.doc.resolve(start);
                 if ($start.parent.type.name !== "paragraph") return null;
                 const paraStart = $start.before();
@@ -829,12 +880,43 @@ export function Editor() {
             ],
           });
         }
+        // Robust [TOC] conversion: input rules may not fire under every IME /
+        // paste scenario, so a doc watcher converts any remaining top-level
+        // "[TOC]" paragraph into the TOC block right after the change. (This is
+        // also why re-opening the tab used to "fix" it — the parse path always
+        // converts; now the live editor does too.)
+        let tocAutoConvertPlugin: any = null;
+        if (pmView.state.schema.nodes.zn_toc) {
+          const tocType = pmView.state.schema.nodes.zn_toc;
+          const TOC_PARA_RE = /^[\[【［]\s*toc\s*[\]】］]$/i;
+          tocAutoConvertPlugin = new Plugin({
+            key: new PluginKey("znTocAutoConvert"),
+            view: () => ({
+              update: (view: any, prevState: any) => {
+                if (view.state.doc === prevState.doc) return;
+                const matches: Array<{ from: number; to: number }> = [];
+                view.state.doc.forEach((child: any, offset: number) => {
+                  if (child.type.name === "paragraph" && TOC_PARA_RE.test(child.textContent.trim())) {
+                    matches.push({ from: offset, to: offset + child.nodeSize });
+                  }
+                });
+                if (!matches.length) return;
+                let tr = view.state.tr;
+                // Replace back-to-front so earlier positions stay valid.
+                for (let i = matches.length - 1; i >= 0; i--) {
+                  tr = tr.replaceRangeWith(matches[i].from, matches[i].to, tocType.create());
+                }
+                view.dispatch(tr);
+              },
+            }),
+          });
+        }
         // Inject the plugins by reconfiguring the state. Safe to do right after create():
         // the undo history and all plugin states are still empty.
         pmView.updateState(EditorState.create({
           doc: pmView.state.doc,
           selection: pmView.state.selection,
-          plugins: [...pmView.state.plugins, focusDecoPlugin, typewriterPlugin, imageAlignPlugin, tocRefreshPlugin, footnoteFlashPlugin, ...(tocInputRulePlugin ? [tocInputRulePlugin] : [])],
+          plugins: [...pmView.state.plugins, focusDecoPlugin, typewriterPlugin, imageAlignPlugin, tocRefreshPlugin, footnoteFlashPlugin, ...(tocInputRulePlugin ? [tocInputRulePlugin] : []), ...(tocAutoConvertPlugin ? [tocAutoConvertPlugin] : [])],
         }));
         pmViewRef.current = pmView;
 
@@ -1163,11 +1245,14 @@ export function Editor() {
           closeMermaidZoom();
         };
 
-        if (scrollPosition > 0) {
+        // Restore the saved scroll position once (read fresh from the store;
+        // see the subscription note above).
+        const savedScroll = useStore.getState().scrollPosition;
+        if (savedScroll > 0) {
           setTimeout(() => {
             if (tokenRef.current !== token) return;
-            const scrollEl = container.querySelector(".ProseMirror")?.parentElement;
-            if (scrollEl) scrollEl.scrollTop = scrollPosition;
+            const scrollEl = editorScrollEl(container);
+            if (scrollEl) scrollEl.scrollTop = savedScroll;
           }, 500);
         }
       } catch (err: any) {
@@ -1186,7 +1271,7 @@ export function Editor() {
       editorReadyRef.current = false;
       focusCleanupRef.current?.();
       if (crepeRef.current) {
-        try { crepeRef.current.destroy(); } catch { /* */ }
+        try { crepeRef.current.destroy(); } catch (err) { console.warn("editor-destroy-failed", err); }
         crepeRef.current = null;
       }
     };
@@ -1248,7 +1333,7 @@ export function Editor() {
         if (nodePos < 0) { nodePos = pos; }
         const rect = img.getBoundingClientRect();
         setImgAlignMenu({ visible: true, x: rect.left + rect.width / 2, y: rect.top - 8, pos: nodePos, align });
-      } catch { /* ignore */ }
+      } catch (err) { console.warn("image-align-open-failed", err); }
     };
     container.addEventListener("click", onClick);
     return () => container.removeEventListener("click", onClick);
@@ -1264,7 +1349,7 @@ export function Editor() {
       if (node && node.type.name === "image-block") {
         pm.dispatch(pm.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, align }));
       }
-    } catch { /* ignore */ }
+    } catch (err) { console.warn("image-align-apply-failed", err); }
     setImgAlignMenu(m => ({ ...m, visible: false }));
   }, [imgAlignMenu.pos]);
 
@@ -1291,14 +1376,14 @@ export function Editor() {
           }
         }
       }
-    } catch { /* ignore */ }
+    } catch (err) { console.warn("focus-mode-scroll-failed", err); }
   }, [focusMode, typewriterMode, editorReady, sourceMode]);
 
   const mermaidThemeFontFirstRun = useRef(true);
   useEffect(() => {
     // Debug logger (writes to export-debug.log so we can diagnose in release builds)
     const log = (msg: string) => {
-      import("@tauri-apps/api/core").then(({ invoke }) => invoke("export_debug_log", { msg: "[mermaid-re] " + msg })).catch(() => {});
+      import("@tauri-apps/api/core").then(({ invoke }) => invoke("export_debug_log", { msg: "[mermaid-re] " + msg })).catch((err) => { console.warn("export-debug-log-failed", err); });
     };
     if (mermaidThemeFontFirstRun.current) { mermaidThemeFontFirstRun.current = false; log("skip first run"); return; }
     log("effect fired: resolvedMode=" + resolvedMode + " font=" + fontFamily + " sourceMode=" + sourceMode + " editorReady=" + editorReady + " registered=" + mermaidApplyPreviews.current.size);
@@ -1346,7 +1431,7 @@ export function Editor() {
   const copyPlainText = useCallback(() => {
     const sel = window.getSelection();
     if (sel && !sel.isCollapsed) {
-      navigator.clipboard.writeText(sel.toString()).catch(() => {});
+      navigator.clipboard.writeText(sel.toString()).catch((err) => { console.warn("clipboard-write-failed", err); });
     }
     setCopyMenuVisible(false);
   }, []);
@@ -1360,7 +1445,7 @@ export function Editor() {
   useEffect(() => {
     return () => {
       if (scrollSaveTimer.current) clearInterval(scrollSaveTimer.current);
-      const scrollEl = containerRef.current?.querySelector(".ProseMirror")?.parentElement;
+      const scrollEl = containerRef.current ? editorScrollEl(containerRef.current) : null;
       if (scrollEl && currentFilePath) {
         setScrollPosition(scrollEl.scrollTop);
         useStore.getState().cacheCurrentFileState();
@@ -1370,7 +1455,7 @@ export function Editor() {
 
   useEffect(() => {
     scrollSaveTimer.current = window.setInterval(() => {
-      const scrollEl = containerRef.current?.querySelector(".ProseMirror")?.parentElement;
+      const scrollEl = containerRef.current ? editorScrollEl(containerRef.current) : null;
       if (scrollEl && currentFilePath && !sourceMode) {
         setScrollPosition(scrollEl.scrollTop);
       }
@@ -1389,7 +1474,7 @@ export function Editor() {
       if (s.content !== undefined && s.currentFilePath) {
         writeFile(s.currentFilePath, s.content)
           .then(() => useStore.getState().setDirty(false))
-          .catch(() => {});
+          .catch((err) => { console.error("file-write-failed", err); });
       }
     }
   }, [currentFilePath]);
@@ -1437,7 +1522,7 @@ export function Editor() {
       editorReadyRef.current = false;
       if (scrollSaveTimer.current) clearInterval(scrollSaveTimer.current);
       if (crepeRef.current) {
-        try { crepeRef.current.destroy(); } catch { /* */ }
+        try { crepeRef.current.destroy(); } catch (err) { console.warn("editor-destroy-failed", err); }
         crepeRef.current = null;
       }
     };

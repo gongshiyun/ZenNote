@@ -64,7 +64,11 @@ export const createEditorSlice: StateCreator<EditorSlice, [], [], EditorSlice> =
     const s = get();
     if (s.cursorLine !== line || s.cursorCol !== col) set({ cursorLine: line, cursorCol: col });
   },
-  setScrollPosition: (pos) => set({ scrollPosition: pos }),
+  setScrollPosition: (pos) => {
+    // Guard: the editor saves scroll position on a 3s interval; skip no-op
+    // updates so subscribers aren't re-notified while the user is idle.
+    if (get().scrollPosition !== pos) set({ scrollPosition: pos });
+  },
   cacheCurrentFileState: () => {
     const { currentFilePath, content, scrollPosition, cursorLine, cursorCol, fileStates, isDirty } = get();
     if (currentFilePath) {

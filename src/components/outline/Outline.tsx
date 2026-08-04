@@ -24,7 +24,14 @@ export function Outline() {
 
     const pm = document.querySelector(".ProseMirror");
     if (!pm) return;
-    const scrollEl = pm.parentElement;
+    // Find the REAL scroll container: Crepe wraps .ProseMirror in non-scrolling
+    // divs (.milkdown), so parentElement is not scrollable and scroll events
+    // never fire on it. Walk up to the first scrollable ancestor.
+    let scrollEl: HTMLElement | null = pm as HTMLElement;
+    while (scrollEl && scrollEl !== document.body &&
+      !(scrollEl.scrollHeight > scrollEl.clientHeight && /(auto|scroll)/.test(getComputedStyle(scrollEl).overflowY))) {
+      scrollEl = scrollEl.parentElement;
+    }
     if (!scrollEl) return;
 
     const handleScroll = () => {

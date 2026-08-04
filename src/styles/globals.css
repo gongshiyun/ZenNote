@@ -19,8 +19,20 @@
   --bg-hover: #F0F0F0;
   --bg-sidebar-hover: #F0F0F0;
   --bg-sidebar-active: #E8E8E8;
-  --bg-code: #F6F8FA;
+  --bg-code: #F5F5F5;
   --bg-drop-overlay: rgba(59, 130, 246, 0.08);
+
+  /* Code syntax highlighting — GitHub Light palette (high contrast on #F5F5F5).
+     Consumed by the CodeMirror highlight style injected in Editor.tsx. */
+  --zn-code-plain: #24292E;
+  --zn-code-keyword: #D73A49;
+  --zn-code-string: #032F62;
+  --zn-code-comment: #6A737D;
+  --zn-code-constant: #005CC5;
+  --zn-code-function: #6F42C1;
+  --zn-code-type: #22863A;
+  --zn-code-ident: #24292E;
+  --zn-code-punct: #586069;
 
   --text-primary: #1A1A1A;
   --text-secondary: #888888;
@@ -49,6 +61,17 @@
   --bg-sidebar-active: #37373D;
   --bg-code: #2D2D2D;
   --bg-drop-overlay: rgba(96, 165, 250, 0.12);
+
+  /* Code syntax highlighting — One Dark palette (matches the dark fill). */
+  --zn-code-plain: #ABB2BF;
+  --zn-code-keyword: #C678DD;
+  --zn-code-string: #98C379;
+  --zn-code-comment: #7F848E;
+  --zn-code-constant: #D19A66;
+  --zn-code-function: #61AFEF;
+  --zn-code-type: #E5C07B;
+  --zn-code-ident: #E06C75;
+  --zn-code-punct: #ABB2BF;
 
   --text-primary: #E0E0E0;
   --text-secondary: #999999;
@@ -81,7 +104,7 @@
   --bg-hover: #EFF1F3;
   --bg-sidebar-hover: #EAECEF;
   --bg-sidebar-active: #DDDFE2;
-  --bg-code: #EFF1F3;
+  --bg-code: #F0F2F4;
   --bg-drop-overlay: rgba(9, 105, 218, 0.08);
   --text-primary: #1F2328;
   --text-secondary: #656D76;
@@ -127,7 +150,7 @@
   --bg-hover: #EFEFEF;
   --bg-sidebar-hover: #E9E9E7;
   --bg-sidebar-active: #DFDFDD;
-  --bg-code: #F4F4F2;
+  --bg-code: #F1F1EF;
   --bg-drop-overlay: rgba(55, 53, 47, 0.06);
   --text-primary: #37352F;
   --text-secondary: #787774;
@@ -173,7 +196,7 @@
   --bg-hover: #EDE7DC;
   --bg-sidebar-hover: #EAE3D7;
   --bg-sidebar-active: #E0D8CA;
-  --bg-code: #F0EAE0;
+  --bg-code: #F2EBDF;
   --bg-drop-overlay: rgba(180, 130, 60, 0.08);
   --text-primary: #3D3830;
   --text-secondary: #8A8278;
@@ -662,6 +685,47 @@
   overflow: auto;
 }
 
+/* ===== Code block styling (Typora-like: plain light-gray fill, no border) =====
+   Crepe paints code blocks with --crepe-color-surface (= the toolbar surface,
+   pure white in light themes) so blocks were invisible against the editor bg.
+   Typora reference (github theme): #F5F5F5 fill, small radius, no border. */
+.milkdown .milkdown-code-block {
+  background: var(--bg-code) !important;
+  border: none !important;
+  border-radius: 6px;
+}
+.milkdown .milkdown-code-block .cm-editor {
+  background: var(--bg-code) !important;
+  border-radius: 6px;
+}
+.milkdown .milkdown-code-block .cm-gutters {
+  background: var(--bg-code) !important;
+}
+/* Default (unhighlighted) code text: Crepe ships One Dark whose #ABB2BF
+   foreground is invisible on light fills — drive it from the theme palette. */
+.milkdown .milkdown-code-block .cm-content {
+  color: var(--zn-code-plain) !important;
+  caret-color: var(--zn-code-plain) !important;
+}
+/* The unfocused "placeholder" <pre> keeps Crepe's white surface bg otherwise. */
+.milkdown .milkdown-code-block pre,
+.milkdown .milkdown-code-block .milkdown-code-block-placeholder {
+  background: transparent !important;
+}
+/* Mermaid (and any rendered preview) blocks: keep the diagram on a fully
+   transparent canvas, Typora-style — no fill, no border. */
+.milkdown .milkdown-code-block:has(.preview-panel svg),
+.milkdown .milkdown-code-block:has(.preview-panel svg) .cm-editor,
+.milkdown .milkdown-code-block:has(.preview-panel svg) .cm-gutters {
+  background: transparent !important;
+}
+.milkdown .milkdown-code-block:has(.preview-panel svg) {
+  border-color: transparent !important;
+}
+.milkdown .milkdown-code-block:has(.preview-panel svg) .language-button {
+  background: transparent !important;
+}
+
 /* ===== Code block (CodeMirror) gutter / line-number contrast =====
    The default active-line gutter number is near-black in light mode (too harsh).
    Soften both normal and active line numbers using theme variables. */
@@ -670,10 +734,10 @@
 }
 .milkdown .milkdown-code-block .cm-activeLineGutter {
   color: var(--text-secondary) !important;
-  background: var(--crepe-color-surface-low) !important;
+  background: color-mix(in srgb, var(--text-primary) 5%, var(--bg-code)) !important;
 }
 .milkdown .milkdown-code-block .cm-activeLine {
-  background: var(--crepe-color-surface-low) !important;
+  background: color-mix(in srgb, var(--text-primary) 5%, var(--bg-code)) !important;
 }
 
 .dark .milkdown .ProseMirror {
@@ -761,6 +825,15 @@
 
 /* Image alignment (applied via a ProseMirror node decoration on the image-block
    node view host). The wrapper is sized to the image so alignment is visible. */
+
+/* Typora-style image interaction: clicking an image only selects it and shows
+   the floating align toolbar. Hide Crepe's caption button/input overlay — it
+   popped up at the image's top edge on click and looked like leaked source UI.
+   (Captions stay preserved in node attrs and HTML export.) */
+.milkdown .milkdown-image-block .operation,
+.milkdown .milkdown-image-block .caption-input {
+  display: none !important;
+}
 .ProseMirror .zn-img-align-left,
 .ProseMirror .zn-img-align-center,
 .ProseMirror .zn-img-align-right {
