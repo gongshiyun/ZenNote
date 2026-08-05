@@ -45,6 +45,9 @@ export function TableContextMenu({ visible, position, onClose, crepeRef }: Props
         "deleteColumn": tableMod.deleteColumn,
         "mergeCells": tableMod.mergeCells,
         "splitCell": tableMod.splitCell,
+        "toggleHeaderRow": tableMod.toggleHeaderRow,
+        "toggleHeaderColumn": tableMod.toggleHeaderColumn,
+        "deleteTable": tableMod.deleteTable,
       };
       const cmd = map[cmdName];
       if (cmd && crepeRef.current?.editor?.action) {
@@ -69,10 +72,15 @@ export function TableContextMenu({ visible, position, onClose, crepeRef }: Props
     { type: "divider" as const },
     { label: t().table.mergeCells, cmd: "mergeCells" },
     { label: t().table.splitCell, cmd: "splitCell" },
+    { type: "divider" as const },
+    { label: t().table.toggleHeaderRow, cmd: "toggleHeaderRow" },
+    { label: t().table.toggleHeaderColumn, cmd: "toggleHeaderColumn" },
+    { type: "divider" as const },
+    { label: t().table.deleteTable, cmd: "deleteTable", danger: true },
   ];
 
   const adjustedX = Math.min(position.x, window.innerWidth - 180);
-  const adjustedY = Math.min(position.y, window.innerHeight - 360);
+  const adjustedY = Math.min(position.y, window.innerHeight - 480);
 
   return (
     <div ref={menuRef} style={{

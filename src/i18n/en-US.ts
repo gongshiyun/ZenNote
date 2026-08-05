@@ -24,7 +24,9 @@ const enUS = {
     "restore": "Restore",
     "close": "Close",
     "openFile": "Open File (Ctrl+O)",
-    "openFolder": "Open Folder (Ctrl+Shift+O)"
+    "openFolder": "Open Folder (Ctrl+Shift+O)",
+    "typewriterMode": "Typewriter mode (keep caret line centered, blur the rest)",
+    "focusMode": "Focus mode (dim other blocks)"
   },
   "statusbar": {
     "saved": "Saved",
@@ -32,6 +34,8 @@ const enUS = {
     "words": "words",
     "chars": "chars",
     "lines": "lines",
+    "readTime": "min",
+    "readTimeAbout": "~",
     "source": "Source",
     "preview": "Preview",
     "theme": "Theme",
@@ -62,14 +66,24 @@ const enUS = {
     "zoomClose": "Close",
     "copyPlainText": "Copy as plain text",
     "copyMarkdown": "Copy as Markdown",
+    "copyCode": "Copy code",
     "align_left": "Align left",
     "align_center": "Align center",
     "align_right": "Align right",
-    "tocTitle": "Table of Contents"
+    "tocTitle": "Table of Contents",
+    "bigFileHint": "This document is large. Source mode is recommended for smoother editing",
+    "switchToSource": "Switch to source mode",
+    "dismiss": "Dismiss"
   },
   "tabs": {
     "closeTab": "Close tab",
-    "unsavedClose": "This note has unsaved changes. Close anyway?"
+    "closeOthers": "Close other tabs",
+    "closeToLeft": "Close tabs to the left",
+    "closeToRight": "Close tabs to the right",
+    "closeAll": "Close all tabs",
+    "copyPath": "Copy file path",
+    "unsavedClose": "This note has unsaved changes. Close anyway?",
+    "unsavedCloseMultiple": "Some tabs being closed have unsaved changes. Close anyway?"
   },
   "outline": {
     "title": "Outline",
@@ -122,7 +136,8 @@ const enUS = {
     "searching": "Searching...",
     "noResults": "No results found",
     "results": "results",
-    "escToClose": "Esc to close"
+    "escToClose": "Esc to close",
+    "fileNameMatch": "file name match"
   },
   "table": {
     "insertRowAbove": "Insert row above",
@@ -132,7 +147,10 @@ const enUS = {
     "insertColRight": "Insert column right",
     "deleteCol": "Delete column",
     "mergeCells": "Merge cells",
-    "splitCell": "Split cell"
+    "splitCell": "Split cell",
+    "toggleHeaderRow": "Toggle header row",
+    "toggleHeaderColumn": "Toggle header column",
+    "deleteTable": "Delete table"
   },
   "find": {
     "find": "Find...",
@@ -141,7 +159,37 @@ const enUS = {
     "replaceOne": "Replace",
     "replaceAll": "All",
     "previous": "Previous",
-    "next": "Next"
+    "next": "Next",
+    "caseSensitive": "Match case",
+    "wholeWord": "Whole word",
+    "regex": "Regex",
+    "invalidRegex": "Invalid regular expression"
+  },
+  "shortcuts": {
+    "title": "Keyboard Shortcuts",
+    "closeHint": "Press Esc to close",
+    "groupFile": "File",
+    "groupEdit": "Edit",
+    "groupView": "View",
+    "groupFormat": "Format & Export",
+    "newNote": "New note",
+    "openFile": "Open file",
+    "openFolder": "Open folder",
+    "save": "Save",
+    "closeTab": "Close tab",
+    "switchTab": "Switch tab",
+    "find": "Find & replace",
+    "globalSearch": "Global search",
+    "undo": "Undo",
+    "redo": "Redo",
+    "sourceMode": "Source/preview mode",
+    "sidebar": "File tree",
+    "outline": "Outline panel",
+    "darkMode": "Dark mode",
+    "help": "Shortcuts panel",
+    "exportHtml": "Export HTML",
+    "exportPdf": "Export PDF",
+    "settings": "Settings"
   },
   "welcome": {
     "subtitle": "Minimal · Local · Markdown",

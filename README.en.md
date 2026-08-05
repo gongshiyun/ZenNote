@@ -74,8 +74,11 @@ Run the installer to set up.
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) ≥ 20
-- [Rust](https://www.rust-lang.org/) toolchain
-- Tauri 2 [system dependencies](https://tauri.app/start/prerequisites/) (on Windows: WebView2 and Visual Studio C++ Build Tools)
+- [Rust](https://www.rust-lang.org/) ≥ 1.77.2 (`rust-version = "1.77.2"` in `src-tauri/Cargo.toml`; install via [rustup](https://rustup.rs/))
+- Tauri 2 [system dependencies](https://tauri.app/start/prerequisites/):
+  - **Windows**: WebView2 Runtime (usually built into Windows 11 / new Edge), Visual Studio C++ Build Tools (MSVC compiler + Windows SDK)
+
+> **Frontend-only development (`npm run dev`) does not require the Rust toolchain** — Node.js alone is enough. Rust and the system dependencies above are only needed for developing or building the Tauri desktop app.
 
 ### Development
 
@@ -83,18 +86,31 @@ Run the installer to set up.
 # Install dependencies
 npm install
 
-# Start the dev server (frontend HMR + Tauri window)
+# Frontend-only development: runs in the browser with HMR, no Rust toolchain needed
+npm run dev
+
+# Tauri desktop development: frontend HMR + native window (requires Rust toolchain)
 npm run tauri dev
 ```
 
-### Production Build
+### Building
 
 ```bash
-# Build frontend + Rust and bundle the installer
+# Frontend-only build: compile TypeScript + Vite output to dist/, no Rust toolchain needed
+npm run build
+
+# Full Tauri build: frontend + Rust, and bundle the installer (requires Rust toolchain)
 npm run tauri build
+
+# Rust backend only: run inside src-tauri/ (requires Rust toolchain)
+cd src-tauri
+cargo build             # Debug build → src-tauri/target/debug/zennote.exe
+cargo build --release   # Release build → src-tauri/target/release/zennote.exe
 ```
 
-Output locations:
+> Run `npm run build` first to generate `dist/` before `cargo build` inside `src-tauri/` (tauri-build validates the `frontendDist` path).
+
+Full Tauri build outputs:
 
 - Installer: `src-tauri/target/release/bundle/nsis/ZenNote_x.x.x_x64-setup.exe`
 - Executable: `src-tauri/target/release/zennote.exe`

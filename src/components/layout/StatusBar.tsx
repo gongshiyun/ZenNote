@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useStore } from "../../store";
 import { t } from "../../i18n";
-import { computeWordCount } from "../../domain";
+import { computeWordCount, estimateReadingTime } from "../../domain";
 
 export function StatusBar() {
   const cursorLine = useStore(s => s.cursorLine);
@@ -11,8 +11,15 @@ export function StatusBar() {
   const sourceMode = useStore(s => s.sourceMode);
   const setSourceMode = useStore(s => s.setSourceMode);
   const currentFilePath = useStore(s => s.currentFilePath);
+  const lastSavedAt = useStore(s => s.lastSavedAt);
 
   const { totalWords, totalChars, lineCount } = useMemo(() => computeWordCount(content), [content]);
+  const readMin = useMemo(() => estimateReadingTime(content), [content]);
+  const savedTimeLabel = useMemo(() => {
+    if (!lastSavedAt) return "";
+    const d = new Date(lastSavedAt);
+    return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  }, [lastSavedAt]);
 
   return (
     <div style={{
@@ -45,7 +52,9 @@ export function StatusBar() {
       {currentFilePath && (
         <>
           <span style={{ color: isDirty ? "#F59E0B" : "var(--text-tertiary)", fontWeight: isDirty ? 600 : 400 }}>
-            {isDirty ? "● " + t().statusbar.unsaved : "✓ " + t().statusbar.saved}
+            {isDirty
+              ? "● " + t().statusbar.unsaved
+              : "✓ " + t().statusbar.saved + (savedTimeLabel ? " " + savedTimeLabel : "")}
           </span>
           <span style={{ color: "var(--border)" }}>|</span>
         </>
@@ -55,6 +64,7 @@ export function StatusBar() {
         {totalWords > 0 && <span>{totalWords.toLocaleString()} {t().statusbar.words}</span>}
         {totalChars > 0 && <span> · {totalChars.toLocaleString()} {t().statusbar.chars}</span>}
         {lineCount > 1 && <span> · {lineCount} {t().statusbar.lines}</span>}
+        {readMin > 0 && <span> · {t().statusbar.readTimeAbout} {readMin} {t().statusbar.readTime}</span>}
       </span>
     </div>
   );

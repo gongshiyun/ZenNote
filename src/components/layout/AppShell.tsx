@@ -9,6 +9,7 @@ import { Outline } from "../outline/Outline";
 // Lazy-load heavy, rarely-visible panels
 const SearchPanel = lazy(() => import("../search/SearchPanel").then(m => ({ default: m.SearchPanel })));
 const SettingsDialog = lazy(() => import("../dialogs/SettingsDialog").then(m => ({ default: m.SettingsDialog })));
+const ShortcutsPanel = lazy(() => import("../dialogs/ShortcutsPanel").then(m => ({ default: m.ShortcutsPanel })));
 import { useMermaid } from "../../hooks/useMermaid";
 import { useUpdater } from "../../hooks/useUpdater";
 import { useStore } from "../../store";
@@ -16,7 +17,6 @@ import { t } from "../../i18n";
 import { exportToHtml, exportToPdf } from "../../lib/exportNote";
 import { parentDir, isWithinWorkspace } from "../../domain";
 import * as fs from "../../services";
-import { saveImage } from "../../services";
 
 // ---- Auto-save ----
 function useAutoSave() {
@@ -33,51 +33,11 @@ function useAutoSave() {
       try {
         await fs.writeFile(s.currentFilePath, s.content);
         useStore.getState().setDirty(false);
+        useStore.getState().setLastSavedAt(Date.now());
       } catch { /* */ }
     }, autoSaveDelay);
     return () => clearTimeout(timer);
   }, [content, isDirty, currentFilePath, autoSaveDelay]);
-}
-
-// ---- Image paste (source mode only) ----
-// In PREVIEW mode, Crepe's ImageBlock feature natively handles image paste and
-// calls the blockOnUpload/onUpload callbacks (configured in Editor.tsx) which
-// persist the image and insert an image-block node. So here we only cover the
-// SOURCE-mode textarea (where Crepe is not active), persisting the image too.
-function useImagePaste() {
-  const currentFilePath = useStore(s => s.currentFilePath);
-  useEffect(() => {
-    const handler = async (e: ClipboardEvent) => {
-      if (!currentFilePath) return;
-      const ta = document.querySelector("textarea") as HTMLTextAreaElement | null;
-      // Only act in source mode (textarea focused); in preview mode Crepe handles it.
-      if (!ta || document.activeElement !== ta) return;
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      for (const item of items) {
-        if (item.type.startsWith("image/")) {
-          e.preventDefault();
-          const file = item.getAsFile();
-          if (!file) continue;
-          try {
-            const rel = await saveImage(file, currentFilePath);
-            const mdImg = "![image](" + rel + ")";
-            const s = ta.selectionStart;
-            const val = ta.value;
-            const newVal = val.substring(0, s) + "\n" + mdImg + "\n" + val.substring(s);
-            const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
-            if (setter) {
-              setter.call(ta, newVal);
-              ta.dispatchEvent(new Event("input", { bubbles: true }));
-            }
-          } catch { /* ignore */ }
-          return;
-        }
-      }
-    };
-    document.addEventListener("paste", handler);
-    return () => document.removeEventListener("paste", handler);
-  }, [currentFilePath]);
 }
 
 // ---- Window state persistence ----
@@ -150,6 +110,7 @@ export function AppShell() {
   const toggleOutline = useStore(s => s.toggleOutline);
   const setSearchVisible = useStore(s => s.setSearchVisible);
   const setSettingsVisible = useStore(s => s.setSettingsVisible);
+  const [shortcutsVisible, setShortcutsVisible] = useState(false);
   // Subscribe to locale so the WHOLE tree re-renders on language switch
   // (t() reads a module variable; components only see new text after re-render).
   const locale = useStore(s => s.locale);
@@ -160,7 +121,6 @@ export function AppShell() {
 
   useAutoSave();
   useMermaid();
-  useImagePaste();
   useWindowPersistence();
   useUpdater();
 
@@ -194,6 +154,8 @@ export function AppShell() {
   // Global keyboard shortcuts
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      // F1 opens the shortcuts reference panel (no modifier needed).
+      if (e.key === "F1") { e.preventDefault(); setShortcutsVisible(v => !v); return; }
       const mod = e.ctrlKey || e.metaKey;
       if (!mod) return;
       // e.key is UPPERCASE when Shift is held (e.g. "O" for Ctrl+Shift+O),
@@ -320,6 +282,7 @@ export function AppShell() {
       <Suspense fallback={null}>
         {searchVisible && <SearchPanel onClose={() => setSearchVisible(false)} />}
         {settingsVisible && <SettingsDialog onClose={() => setSettingsVisible(false)} />}
+        {shortcutsVisible && <ShortcutsPanel onClose={() => setShortcutsVisible(false)} />}
       </Suspense>
     </div>
   );

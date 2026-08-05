@@ -2,6 +2,11 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useStore } from "../../store";
 import { FindReplaceBar } from "./FindReplaceBar";
 import { TableContextMenu } from "./TableContextMenu";
+import { SourceEditor } from "./SourceEditor";
+import { znFindKey, emptyFindState, type ZnFindState, type ZnFindMeta } from "./findState";
+import { isHttpUrl, collectMatchesFromDoc } from "../../lib/findQuery";
+import { caretCenterScrollTop } from "../../lib/typewriter";
+import { znCodeHighlightStyle } from "./codeHighlight";
 import { t } from "../../i18n";
 import { writeFile } from "../../services";
 import { saveImage, resolveImageUrl } from "../../services";
@@ -9,28 +14,11 @@ import { currentFontStack } from "../../lib/fontStack";
 import "@milkdown/crepe/theme/common/style.css";
 // KaTeX 字体/排版样式：Crepe 的 Latex feature 已启用，但公式渲染依赖此 CSS。
 import "katex/dist/katex.min.css";
-import { LanguageDescription, LanguageSupport, StreamLanguage, indentUnit, HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { LanguageDescription, LanguageSupport, StreamLanguage, indentUnit, syntaxHighlighting } from "@codemirror/language";
 import { languages as codeMirrorLanguages } from "@codemirror/language-data";
 import { EditorState as CMEditorState } from "@codemirror/state";
-import { tags as cmTags } from "@lezer/highlight";
 
-// Crepe's default code-block theme is One Dark — its bright token colors are made
-// for dark backgrounds and are nearly unreadable on the light #F5F5F5 fill. We
-// REPLACE the default theme (defaultsDeep lets featureConfigs win) with a
-// theme-aware highlight style: colors are CSS variables flipped by the .dark
-// class (GitHub Light in light mode, One Dark in dark mode).
-const znCodeHighlightStyle = HighlightStyle.define([
-  { tag: [cmTags.keyword, cmTags.controlKeyword, cmTags.operatorKeyword, cmTags.moduleKeyword, cmTags.modifier], color: "var(--zn-code-keyword)" },
-  { tag: [cmTags.string, cmTags.special(cmTags.string), cmTags.character, cmTags.url], color: "var(--zn-code-string)" },
-  { tag: [cmTags.comment, cmTags.lineComment, cmTags.blockComment, cmTags.docComment], color: "var(--zn-code-comment)", fontStyle: "italic" },
-  { tag: [cmTags.number, cmTags.integer, cmTags.float, cmTags.bool, cmTags.null, cmTags.atom], color: "var(--zn-code-constant)" },
-  { tag: [cmTags.function(cmTags.variableName), cmTags.function(cmTags.propertyName), cmTags.definition(cmTags.function(cmTags.variableName))], color: "var(--zn-code-function)" },
-  { tag: [cmTags.typeName, cmTags.className, cmTags.namespace, cmTags.tagName], color: "var(--zn-code-type)" },
-  { tag: [cmTags.variableName, cmTags.propertyName, cmTags.attributeName, cmTags.definition(cmTags.variableName)], color: "var(--zn-code-ident)" },
-  { tag: [cmTags.regexp], color: "var(--zn-code-string)" },
-  { tag: [cmTags.meta, cmTags.processingInstruction], color: "var(--zn-code-comment)" },
-  { tag: [cmTags.operator, cmTags.punctuation, cmTags.bracket, cmTags.separator], color: "var(--zn-code-punct)" },
-]);
+// 代码块高亮样式已迁移至 ./codeHighlight（与源码模式编辑器共用）。
 
 // Mermaid 无需语法高亮（内容会被渲染为图表），用纯文本占位语言。
 // 将其注入 @codemirror/language-data 的共享语言列表（Crepe 默认配置直接引用该列表），
@@ -351,11 +339,13 @@ function createFrontmatterNodeView(node: any, view: any, getPos: any) {
   };
 }
 
+// ---- Document find matching (znFind plugin) ----
+// Match collection lives in lib/findQuery (collectMatchesFromDoc) so it is
+// unit-testable without ProseMirror.
+
 export function Editor() {
   const currentFilePath = useStore(s => s.currentFilePath);
   const sourceMode = useStore(s => s.sourceMode);
-  const content = useStore(s => s.content);
-  const setContent = useStore(s => s.setContent);
   const setCursorPosition = useStore(s => s.setCursorPosition);
   // NOTE: scrollPosition is intentionally NOT subscribed here — reading it via
   // useStore would re-run the editor init effect every time the periodic scroll
@@ -363,12 +353,12 @@ export function Editor() {
   // page (observed as random auto-scrolling while idle).
   const setScrollPosition = useStore(s => s.setScrollPosition);
   const setEditorRef = useStore(s => s.setEditorRef);
-  const tabSize = useStore(s => s.tabSize);
   const editorPadding = useStore(s => s.editorPadding);
   const typewriterMode = useStore(s => s.typewriterMode);
   const focusMode = useStore(s => s.focusMode);
   const resolvedMode = useStore(s => s.resolvedMode);
   const fontFamily = useStore(s => s.fontFamily);
+  const setSourceMode = useStore(s => s.setSourceMode);
   const [error, setError] = useState<string | null>(null);
   const [findVisible, setFindVisible] = useState(false);
   const [editorReady, setEditorReady] = useState(false);
@@ -383,8 +373,9 @@ export function Editor() {
   const [imgAlignMenu, setImgAlignMenu] = useState<{ visible: boolean; x: number; y: number; pos: number; align: string }>({ visible: false, x: 0, y: 0, pos: -1, align: "center" });
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const crepeRef = useRef<any>(null);
+  // CodeMirror source editor instance (exposed to FindReplaceBar).
+  const cmViewRef = useRef<any>(null);
   const safeRef = useRef<boolean>(true);
   const tokenRef = useRef<object | null>(null);
   const scrollSaveTimer = useRef<number>(0);
@@ -392,6 +383,22 @@ export function Editor() {
   const editorReadyRef = useRef(false);
   // ProseMirror view ref (set after editor init) so effects can dispatch transactions.
   const pmViewRef = useRef<any>(null);
+  // Preset query for the find bar (set when jumping in from global search).
+  const [findPreset, setFindPreset] = useState<{ query: string; ts: number } | null>(null);
+  // Large-document hint: suggest source mode for very long notes.
+  const [bigFileHint, setBigFileHint] = useState(false);
+  // Bumped when instance-reuse fails so the init effect re-runs a full create.
+  const [reuseFailTick, setReuseFailTick] = useState(0);
+  // Zoom overlay opener (assigned inside the init closure; used by image click).
+  const openZoomRef = useRef<(el: SVGElement | HTMLImageElement) => void>(() => {});
+  // Detached mermaid SVGs while offscreen (code block element -> svg node).
+  const mermaidLazySvgs = useRef(new Map<HTMLElement, SVGElement>());
+  // True while tryReuse() is swapping the document: replaceAll fires
+  // markdownUpdated with the RE-SERIALIZED markdown, which can differ from the
+  // raw file (formatting normalization). Without this guard the new file would
+  // be marked dirty and autosaved with the normalized content — silently
+  // rewriting the user's file just because they switched tabs.
+  const reuseInProgressRef = useRef(false);
 
   // Registry of rendered mermaid blocks: applyPreview callback -> mermaid source.
   // applyPreview updates Milkdown's internal preview ref (the source of truth),
@@ -420,6 +427,67 @@ export function Editor() {
       return;
     }
 
+    // Shared teardown for both the reuse path and the full-init path.
+    const destroyEditor = () => {
+      tokenRef.current = null;
+      safeRef.current = false;
+      editorReadyRef.current = false;
+      focusCleanupRef.current?.();
+      if (crepeRef.current) {
+        try { crepeRef.current.destroy(); } catch (err) { console.warn("editor-destroy-failed", err); }
+        crepeRef.current = null;
+      }
+    };
+
+    // ---- Instance reuse (performance) ----
+    // Switching files in WYSIWYG mode swaps the document in place instead of
+    // destroying/re-creating Crepe — avoids rebuilding the ProseMirror view,
+    // node views and all plugins. The undo history is reset so the new file
+    // never inherits the previous file's history. On any failure we tear down
+    // and bump reuseFailTick so the effect re-runs the full init path.
+    const tryReuse = async () => {
+      const prevCrepe = crepeRef.current;
+      try {
+        const docContent = useStore.getState().content || "";
+        mermaidApplyPreviews.current.clear();
+        const { replaceAll } = await import("@milkdown/kit/utils");
+        reuseInProgressRef.current = true;
+        try {
+          prevCrepe.editor.action(replaceAll(docContent));
+        } finally {
+          reuseInProgressRef.current = false;
+        }
+        // Rebuild the EditorState with the SAME plugins: plugin states (history,
+        // decorations) are re-initialized, selection moves to the doc start.
+        const { EditorState: PMState, Selection } = await import("@milkdown/kit/prose/state");
+        const pmView = pmViewRef.current;
+        if (!pmView) throw new Error("pm-view-lost");
+        pmView.updateState(PMState.create({
+          doc: pmView.state.doc,
+          selection: Selection.atStart(pmView.state.doc),
+          plugins: pmView.state.plugins,
+        }));
+        // Restore this file's saved scroll position (per-file cache first).
+        const st = useStore.getState();
+        const saved = st.fileStates.get(path)?.scrollPos ?? st.scrollPosition;
+        if (saved > 0) {
+          setTimeout(() => {
+            const scrollEl = editorScrollEl(container);
+            if (scrollEl) scrollEl.scrollTop = saved;
+          }, 120);
+        }
+        setBigFileHint(docContent.split("\n").length > 5000);
+      } catch (err) {
+        console.warn("editor-reuse-failed", err);
+        try { prevCrepe.destroy(); } catch { /* already dead */ }
+        crepeRef.current = null;
+        pmViewRef.current = null;
+        editorReadyRef.current = false;
+        setEditorReady(false);
+        setReuseFailTick(v => v + 1);
+      }
+    };
+
     const token = {};
     tokenRef.current = token;
     safeRef.current = false;
@@ -428,6 +496,7 @@ export function Editor() {
     setError(null);
     // Fresh editor: drop any stale mermaid applyPreview registrations.
     mermaidApplyPreviews.current.clear();
+    setBigFileHint(false);
 
     const init = async () => {
       if (crepeRef.current) {
@@ -518,6 +587,7 @@ export function Editor() {
         crepe.on((api: any) => {
           api.markdownUpdated((_ctx: any, markdown: string) => {
             if (tokenRef.current !== token) return;
+            if (reuseInProgressRef.current) return; // doc swap, not a user edit
             const state = useStore.getState();
             if (markdown !== state.content && editorReadyRef.current) {
               state.setContent(markdown);
@@ -720,7 +790,9 @@ export function Editor() {
         // start of the doc, but we don't want the heading to show its "#" source yet.
         let hasInteracted = false;
         const computeFocusDecos = (state: any) => {
-          const focusModeOn = useStore.getState().focusMode;
+          // Dimming applies to focus mode OR typewriter mode (Typora-style
+          // typewriter: centered caret line + everything else blurred/dimmed).
+          const dimOn = useStore.getState().focusMode || useStore.getState().typewriterMode;
           const decos: any[] = [];
           const sel = state.selection;
           if (!sel || !sel.empty) return DecorationSet.empty;
@@ -750,8 +822,8 @@ export function Editor() {
             if (from >= 0) decos.push(Decoration.node(from, from + nodeSize, { class: "zn-block-focused" }));
           }
 
-          // (B) Focus mode: dim every top-level block except the one with the cursor.
-          if (focusModeOn && $head.depth >= 1) {
+          // (B) Focus/typewriter: dim every top-level block except the one with the cursor.
+          if (dimOn && $head.depth >= 1) {
             const topFrom = $head.before(1);
             state.doc.forEach((node: any, offset: number) => {
               if (offset !== topFrom) {
@@ -772,7 +844,9 @@ export function Editor() {
             decorations(state: any) { return (this as any).getState(state); },
           },
         });
-        // Typewriter mode: keep the line under the cursor vertically centered.
+        // Typewriter mode (Typora-parity): keep the CARET LINE — not merely the
+        // enclosing block — vertically centered, so long paragraphs still keep
+        // the line being typed in the middle of the viewport.
         const typewriterPlugin = new Plugin({
           key: new PluginKey("znTypewriter"),
           view: () => ({
@@ -781,15 +855,7 @@ export function Editor() {
               // Only scroll when the cursor actually moved (selectionSet/docChanged
               // are Transaction props, not on EditorState — compare selections).
               if (view.state.selection.eq(prevState.selection)) return;
-              try {
-                const $head = view.state.selection.$head;
-                if ($head.depth < 1) return;
-                const blockDom = view.nodeDOM($head.before(1));
-                if (blockDom && typeof blockDom.scrollIntoView === "function") {
-                  // Defer to the browser's native centering (robust across layouts).
-                  blockDom.scrollIntoView({ block: "center", behavior: "auto" });
-                }
-              } catch (err) { console.warn("typewriter-scroll-failed", err); }
+              centerCaretLine(view);
             },
           }),
         });
@@ -848,6 +914,61 @@ export function Editor() {
                 }
               });
               return DecorationSet.create(state.doc, decos);
+            },
+          },
+        });
+        // ---- Document find plugin (FindReplaceBar drives it via metas) ----
+        // Matches are rendered as ProseMirror inline decorations — never raw
+        // DOM mutation — so highlights survive re-renders and serialization.
+        const findPlugin = new Plugin({
+          key: znFindKey,
+          state: {
+            init: () => emptyFindState(),
+            apply: (tr: any, prev: ZnFindState, _old: any, newState: any) => {
+              const meta = tr.getMeta(znFindKey) as ZnFindMeta | undefined;
+              if (meta?.type === "clear") return emptyFindState();
+              let query = prev.query, opts = prev.opts, current = prev.current;
+              if (meta?.type === "query") { query = meta.query; opts = meta.opts; current = 0; }
+              else if (meta?.type === "goto") current = meta.index;
+              if (!query) return { ...prev, query, opts, matches: [], current: -1, deco: null };
+              if (!meta && !tr.docChanged) return prev;
+              // Navigation without doc changes keeps the existing match list
+              // (only decorations are rebuilt) — avoids re-scanning big docs.
+              const matches = (meta?.type === "goto" && !tr.docChanged)
+                ? prev.matches
+                : collectMatchesFromDoc(newState.doc, query, opts);
+              if (matches.length === 0) current = -1;
+              else if (current < 0 || current >= matches.length) current = 0;
+              let deco: any = null;
+              try {
+                deco = DecorationSet.create(newState.doc, matches.map((m, i) =>
+                  Decoration.inline(m.from, m.to, { class: i === current ? "zn-find-hl zn-find-hl-current" : "zn-find-hl" })));
+              } catch { deco = null; }
+              return { query, opts, matches, current, deco };
+            },
+          },
+          props: {
+            decorations(state: any) { return (znFindKey.getState(state) as ZnFindState | undefined)?.deco ?? null; },
+          },
+        });
+        // ---- Paste a URL over a text selection -> wrap as markdown link ----
+        const urlPastePlugin = new Plugin({
+          key: new PluginKey("znUrlPaste"),
+          props: {
+            handlePaste: (view: any, event: ClipboardEvent) => {
+              const sel = view.state.selection;
+              if (sel.empty) return false;
+              const text = event.clipboardData?.getData("text/plain")?.trim();
+              if (!text || !isHttpUrl(text)) return false;
+              const linkMark = view.state.schema.marks.link;
+              if (!linkMark) return false;
+              const selected = view.state.doc.textBetween(sel.from, sel.to);
+              if (!selected) return false;
+              try {
+                const node = view.state.schema.text(selected, [linkMark.create({ href: text })]);
+                view.dispatch(view.state.tr.replaceSelectionWith(node, false));
+                return true;
+              } catch { return false; }
             },
           },
         });
@@ -916,7 +1037,7 @@ export function Editor() {
         pmView.updateState(EditorState.create({
           doc: pmView.state.doc,
           selection: pmView.state.selection,
-          plugins: [...pmView.state.plugins, focusDecoPlugin, typewriterPlugin, imageAlignPlugin, tocRefreshPlugin, footnoteFlashPlugin, ...(tocInputRulePlugin ? [tocInputRulePlugin] : []), ...(tocAutoConvertPlugin ? [tocAutoConvertPlugin] : [])],
+          plugins: [...pmView.state.plugins, focusDecoPlugin, typewriterPlugin, imageAlignPlugin, tocRefreshPlugin, footnoteFlashPlugin, findPlugin, urlPastePlugin, ...(tocInputRulePlugin ? [tocInputRulePlugin] : []), ...(tocAutoConvertPlugin ? [tocAutoConvertPlugin] : [])],
         }));
         pmViewRef.current = pmView;
 
@@ -926,10 +1047,34 @@ export function Editor() {
         container.addEventListener("pointerdown", markInteracted, { capture: true, passive: true });
         container.addEventListener("keydown", markInteracted, { capture: true, passive: true });
 
+        // ---- Fullwidth Chinese punctuation auto-pairing ----
+        // IME commits land as beforeinput/insertText; insert the matching
+        // closing bracket and keep the caret between the pair.
+        const CN_PAIRS: Record<string, string> = { "（": "）", "【": "】", "「": "」", "『": "』" };
+        const onBeforeInput = (e: Event) => {
+          const ie = e as InputEvent;
+          if (ie.inputType !== "insertText" || !ie.data) return;
+          const closing = CN_PAIRS[ie.data];
+          if (!closing) return;
+          const sel = pmView.state.selection;
+          if (!sel.empty) return;
+          try {
+            const next = pmView.state.doc.textBetween(sel.from, Math.min(sel.from + 1, pmView.state.doc.content.size), "");
+            if (next === closing) return; // already closed right after the caret
+            ie.preventDefault();
+            const tr = pmView.state.tr.insertText(ie.data + closing, sel.from);
+            tr.setSelection(TextSelection.create(tr.doc, sel.from + 1));
+            pmView.dispatch(tr);
+          } catch { /* never break typing on a pairing error */ }
+        };
+        container.addEventListener("beforeinput", onBeforeInput);
+
         safeRef.current = true;
         editorReadyRef.current = true;
         setEditorReady(true);
         setEditorRef(crepeRef);
+        // Large document: suggest source mode (ProseMirror full-DOM gets slow).
+        setBigFileHint((useStore.getState().content || "").split("\n").length > 5000);
 
 
 // ---- Cursor tracking ----
@@ -994,7 +1139,7 @@ export function Editor() {
           if (zoomBtn) {
             const panel = zoomBtn.closest(".preview-panel");
             const svg = panel ? panel.querySelector(".preview svg") : null;
-            if (svg) openMermaidZoom(svg as SVGElement);
+            if (svg) openZoom(svg as SVGElement);
             return;
           }
           const cb = target.closest(".milkdown-code-block") as HTMLElement | null;
@@ -1094,7 +1239,7 @@ export function Editor() {
           document.addEventListener("mouseup", onUp);
         };
 
-        function openMermaidZoom(svg: SVGElement) {
+        function openZoom(target: SVGElement | HTMLImageElement) {
           closeMermaidZoom();
           const overlay = document.createElement("div");
           overlay.className = "zn-mermaid-zoom-overlay";
@@ -1115,12 +1260,17 @@ export function Editor() {
 
           const body = document.createElement("div");
           body.className = "zn-mermaid-zoom-body";
-          const cloned = svg.cloneNode(true) as SVGElement;
+          const cloned = target.cloneNode(true) as SVGElement | HTMLImageElement;
           cloned.removeAttribute("width");
           cloned.removeAttribute("height");
           cloned.style.maxWidth = "none";
           cloned.style.maxHeight = "none";
           cloned.style.flexShrink = "0";
+          if (target instanceof HTMLImageElement) {
+            // Images keep their intrinsic ratio; zoom scales them relative to
+            // the box width like diagrams.
+            (cloned as HTMLImageElement).draggable = false;
+          }
 
           // Zoom (wheel) & pan (drag diagram) state. The SVG is sized as a percentage
           // of the body so it scales with the resizable box; panning translates it.
@@ -1135,7 +1285,8 @@ export function Editor() {
           applyZoom();
 
           // Drag on the diagram itself -> pan the diagram (box stays put).
-          cloned.addEventListener("mousedown", (e) => {
+          cloned.addEventListener("mousedown", (ev) => {
+            const e = ev as MouseEvent;
             e.preventDefault();
             e.stopPropagation();
             const startX = e.clientX, startY = e.clientY;
@@ -1204,29 +1355,90 @@ export function Editor() {
           zoomOverlay = overlay;
           document.addEventListener("keydown", onZoomKeydown);
         }
+        // Expose zoom to effects registered outside this init closure (image click).
+        openZoomRef.current = openZoom;
+
+        // ---- Offscreen mermaid diagrams: detach the SVG while far offscreen ----
+        // Re-attach the SAME node on re-entry (no re-render cost). Limits the
+        // live SVG node count for documents with many diagrams.
+        const lazyObserver = new IntersectionObserver((entries) => {
+          for (const entry of entries) {
+            const cb = entry.target as HTMLElement;
+            const preview = cb.querySelector(".preview-panel .preview") as HTMLElement | null;
+            if (!preview) continue;
+            if (!entry.isIntersecting) {
+              const svg = preview.querySelector("svg") as SVGElement | null;
+              if (svg && !mermaidLazySvgs.current.has(cb)) {
+                mermaidLazySvgs.current.set(cb, svg);
+                const ph = document.createElement("div");
+                ph.className = "zn-mermaid-lazy";
+                let hgt = 120;
+                try { hgt = Math.max(60, Math.min(Math.round(svg.getBoundingClientRect().height), 420)); } catch { /* */ }
+                ph.style.minHeight = hgt + "px";
+                svg.replaceWith(ph);
+              }
+            } else {
+              const svg = mermaidLazySvgs.current.get(cb);
+              if (svg) {
+                const ph = preview.querySelector(".zn-mermaid-lazy");
+                if (ph) ph.replaceWith(svg);
+                mermaidLazySvgs.current.delete(cb);
+              }
+            }
+          }
+        }, { rootMargin: "800px 0px" });
 
         // Ensure every mermaid preview panel has a zoom button (re-add after re-renders).
         const ZOOM_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35M11 8v6M8 11h6"/></svg>';
-        const ensureZoomButtons = () => {
+        const COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+        const lazyObserved = new WeakSet<HTMLElement>();
+        const ensureCodeBlockExtras = () => {
           if (tokenRef.current !== token) return;
           container.querySelectorAll(".milkdown-code-block .preview-panel").forEach((panel) => {
             if (!panel.querySelector(".preview svg")) return; // only mermaid previews have an svg
-            if (panel.querySelector(".zn-mermaid-zoom-btn")) return;
-            const btn = document.createElement("button");
-            btn.className = "zn-mermaid-zoom-btn";
-            btn.type = "button";
-            btn.title = t().editor.zoomOpen;
-            btn.innerHTML = ZOOM_ICON;
-            panel.appendChild(btn);
+            if (!panel.querySelector(".zn-mermaid-zoom-btn")) {
+              const btn = document.createElement("button");
+              btn.className = "zn-mermaid-zoom-btn";
+              btn.type = "button";
+              btn.title = t().editor.zoomOpen;
+              btn.innerHTML = ZOOM_ICON;
+              panel.appendChild(btn);
+            }
+          });
+          // Copy button + offscreen observation on every code block.
+          container.querySelectorAll(".milkdown-code-block").forEach((cbEl) => {
+            const cb = cbEl as HTMLElement;
+            if (!cb.querySelector(".zn-code-copy-btn")) {
+              const btn = document.createElement("button");
+              btn.className = "zn-code-copy-btn";
+              btn.type = "button";
+              btn.title = t().editor.copyCode;
+              btn.innerHTML = COPY_ICON;
+              btn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const code = cb.querySelector(".cm-content")?.textContent
+                  ?? cb.querySelector(".preview pre")?.textContent ?? "";
+                navigator.clipboard.writeText(code).then(() => {
+                  btn.classList.add("zn-copied");
+                  window.setTimeout(() => btn.classList.remove("zn-copied"), 1200);
+                }).catch((err) => { console.warn("code-copy-failed", err); });
+              });
+              cb.appendChild(btn);
+            }
+            if (cb.querySelector(".preview svg") && !lazyObserved.has(cb)) {
+              lazyObserved.add(cb);
+              lazyObserver.observe(cb);
+            }
           });
         };
         let zoomBtnTimer = 0;
         const zoomBtnObserver = new MutationObserver(() => {
           if (zoomBtnTimer) return;
-          zoomBtnTimer = window.setTimeout(() => { zoomBtnTimer = 0; ensureZoomButtons(); }, 300);
+          zoomBtnTimer = window.setTimeout(() => { zoomBtnTimer = 0; ensureCodeBlockExtras(); }, 300);
         });
         zoomBtnObserver.observe(container, { childList: true, subtree: true });
-        ensureZoomButtons();
+        ensureCodeBlockExtras();
 
         focusCleanupRef.current = () => {
           container.removeEventListener("keyup", onFocusInput);
@@ -1239,15 +1451,19 @@ export function Editor() {
           if (fnFlashTimer !== null) window.clearTimeout(fnFlashTimer);
           container.removeEventListener("pointerdown", markInteracted, { capture: true });
           container.removeEventListener("keydown", markInteracted, { capture: true });
+          container.removeEventListener("beforeinput", onBeforeInput);
           document.removeEventListener("selectionchange", onSelChange);
           zoomBtnObserver.disconnect();
+          lazyObserver.disconnect();
           if (zoomBtnTimer) clearTimeout(zoomBtnTimer);
           closeMermaidZoom();
         };
 
-        // Restore the saved scroll position once (read fresh from the store;
-        // see the subscription note above).
-        const savedScroll = useStore.getState().scrollPosition;
+        // Restore the saved scroll position once. The per-file cache is the
+        // authoritative source (store.scrollPosition may briefly hold another
+        // file's value right after a switch).
+        const savedScroll = useStore.getState().fileStates.get(path)?.scrollPos
+          ?? useStore.getState().scrollPosition;
         if (savedScroll > 0) {
           setTimeout(() => {
             if (tokenRef.current !== token) return;
@@ -1263,21 +1479,54 @@ export function Editor() {
       }
     };
 
-    init();
+    if (crepeRef.current && editorReadyRef.current && pmViewRef.current) {
+      void tryReuse();
+    } else {
+      init();
+    }
 
-    return () => {
-      tokenRef.current = null;
-      safeRef.current = false;
-      editorReadyRef.current = false;
-      focusCleanupRef.current?.();
-      if (crepeRef.current) {
-        try { crepeRef.current.destroy(); } catch (err) { console.warn("editor-destroy-failed", err); }
-        crepeRef.current = null;
+    return () => destroyEditor();
+  }, [currentFilePath, sourceMode, reuseFailTick]);
+
+  // Typewriter centering: scroll the editor so the CARET LINE sits at the
+  // vertical middle of the viewport (Typora-parity). Uses coordsAtPos so it
+  // targets the exact line inside long paragraphs, not the whole block.
+  const centerCaretLine = useCallback((view: any) => {
+    try {
+      const container = containerRef.current;
+      const scrollEl = container ? editorScrollEl(container) : null;
+      if (!scrollEl || !view || typeof view.coordsAtPos !== "function") return;
+      const coords = view.coordsAtPos(view.state.selection.head);
+      if (!coords) return;
+      const rect = scrollEl.getBoundingClientRect();
+      const top = caretCenterScrollTop({
+        scrollTop: scrollEl.scrollTop,
+        viewportTop: rect.top,
+        viewportHeight: rect.height,
+        caretTop: coords.top,
+        caretBottom: coords.bottom,
+      });
+      scrollEl.scrollTo({ top, behavior: "smooth" });
+    } catch (err) { console.warn("typewriter-center-failed", err); }
+  }, []);
+
+  // Locate the enclosing image-block node of an <img> (position + alignment).
+  const readImageBlockAt = useCallback((img: HTMLElement): { pos: number; align: string } => {
+    const pm = pmViewRef.current;
+    if (!pm) return { pos: -1, align: "center" };
+    try {
+      const pos = pm.posAtDOM(img, 0);
+      const $pos = pm.state.doc.resolve(pos);
+      for (let d = $pos.depth; d >= 0; d--) {
+        const n = $pos.node(d);
+        if (n.type.name === "image-block") return { pos: $pos.before(d), align: n.attrs.align || "center" };
       }
-    };
-  }, [currentFilePath, sourceMode]);
+      return { pos, align: "center" };
+    } catch { return { pos: -1, align: "center" }; }
+  }, []);
 
-  // Right-click context menu: table menu inside tables, copy menu on text selection
+  // Right-click context menu: table menu inside tables, image align menu on
+  // images, copy menu on plain text selection.
   useEffect(() => {
     const container = containerRef.current;
     if (!container || sourceMode) return;
@@ -1290,6 +1539,16 @@ export function Editor() {
         setCopyMenuVisible(false);
         setTableMenuPos({ x: e.clientX, y: e.clientY });
         setTableMenuVisible(true);
+        return;
+      }
+      // Image block: right-click opens the alignment toolbar.
+      const img = target.closest('img[data-type="image-block"]') as HTMLElement | null;
+      if (img) {
+        e.preventDefault();
+        const info = readImageBlockAt(img);
+        setCopyMenuVisible(false);
+        setTableMenuVisible(false);
+        setImgAlignMenu({ visible: true, x: e.clientX, y: e.clientY, pos: info.pos, align: info.align });
         return;
       }
       // Non-table area: offer copy menu when there is a text selection
@@ -1309,31 +1568,17 @@ export function Editor() {
       container.removeEventListener("contextmenu", handler);
       document.removeEventListener("mousedown", closeAll);
     };
-  }, [sourceMode, editorReady]);
+  }, [sourceMode, editorReady, readImageBlockAt]);
 
-  // Click an image to open the alignment toolbar (left/center/right).
+  // Click an image to open the zoom viewer (alignment moved to right-click).
   useEffect(() => {
     const container = containerRef.current;
     if (!container || sourceMode || !editorReady) return;
     const onClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      const img = target.closest('img[data-type="image-block"]') as HTMLElement | null;
+      const img = target.closest('img[data-type="image-block"]') as HTMLImageElement | null;
       if (!img) { setImgAlignMenu(m => (m.visible ? { ...m, visible: false } : m)); return; }
-      const pm = pmViewRef.current;
-      if (!pm) return;
-      try {
-        const pos = pm.posAtDOM(img, 0);
-        const $pos = pm.state.doc.resolve(pos);
-        // Find the enclosing image-block node and its start position.
-        let nodePos = -1, align = "center";
-        for (let d = $pos.depth; d >= 0; d--) {
-          const n = $pos.node(d);
-          if (n.type.name === "image-block") { nodePos = $pos.before(d); align = n.attrs.align || "center"; break; }
-        }
-        if (nodePos < 0) { nodePos = pos; }
-        const rect = img.getBoundingClientRect();
-        setImgAlignMenu({ visible: true, x: rect.left + rect.width / 2, y: rect.top - 8, pos: nodePos, align });
-      } catch (err) { console.warn("image-align-open-failed", err); }
+      openZoomRef.current(img);
     };
     container.addEventListener("click", onClick);
     return () => container.removeEventListener("click", onClick);
@@ -1367,17 +1612,9 @@ export function Editor() {
     if (!pm) return;
     try {
       pm.dispatch(pm.state.tr.setMeta("znModeToggle", true));
-      if (typewriterMode) {
-        const $head = pm.state.selection.$head;
-        if ($head.depth >= 1) {
-          const blockDom = pm.nodeDOM($head.before(1));
-          if (blockDom && typeof blockDom.scrollIntoView === "function") {
-            blockDom.scrollIntoView({ block: "center", behavior: "auto" });
-          }
-        }
-      }
+      if (typewriterMode) centerCaretLine(pm);
     } catch (err) { console.warn("focus-mode-scroll-failed", err); }
-  }, [focusMode, typewriterMode, editorReady, sourceMode]);
+  }, [focusMode, typewriterMode, editorReady, sourceMode, centerCaretLine]);
 
   const mermaidThemeFontFirstRun = useRef(true);
   useEffect(() => {
@@ -1400,6 +1637,8 @@ export function Editor() {
           fontFamily: currentFontStack(),
         });
         // Group registered blocks by source so identical diagrams render once.
+        // Offscreen placeholders are dropped — applyPreview re-inserts fresh SVGs.
+        mermaidLazySvgs.current.clear();
         const bySource = new Map<string, Array<(v: null | string | HTMLElement) => void>>();
         mermaidApplyPreviews.current.forEach((source, applyPreview) => {
           if (!source) return;
@@ -1441,17 +1680,32 @@ export function Editor() {
     setCopyMenuVisible(false);
   }, []);
 
-  // Save scroll position periodically and on unmount
+  // Save scroll position on file switch / unmount.
+  // NOTE: the store's currentFilePath may already point at the NEXT file when
+  // this cleanup runs, so the captured `path` (from the effect closure) is the
+  // only reliable key for the file actually being left.
   useEffect(() => {
+    const path = currentFilePath;
+    // Capture the stable container element at effect setup (the JSX node is
+    // persistent across renders) so cleanup doesn't read the ref late.
+    const container = containerRef.current;
     return () => {
       if (scrollSaveTimer.current) clearInterval(scrollSaveTimer.current);
-      const scrollEl = containerRef.current ? editorScrollEl(containerRef.current) : null;
-      if (scrollEl && currentFilePath) {
-        setScrollPosition(scrollEl.scrollTop);
-        useStore.getState().cacheCurrentFileState();
+      const scrollEl = container ? editorScrollEl(container) : null;
+      if (!scrollEl || !path) return;
+      // Write the final scroll into the PER-FILE cache only. Do NOT touch
+      // store.scrollPosition here: after a file switch it already holds the
+      // NEXT file's restored value and overwriting it would break the next
+      // editor's scroll restoration.
+      const s = useStore.getState();
+      const prev = s.fileStates.get(path);
+      if (prev) {
+        const states = new Map(s.fileStates);
+        states.set(path, { ...prev, scrollPos: scrollEl.scrollTop });
+        useStore.setState({ fileStates: states });
       }
     };
-  }, [currentFilePath, setScrollPosition]);
+  }, [currentFilePath]);
 
   useEffect(() => {
     scrollSaveTimer.current = window.setInterval(() => {
@@ -1473,7 +1727,10 @@ export function Editor() {
       const s = useStore.getState();
       if (s.content !== undefined && s.currentFilePath) {
         writeFile(s.currentFilePath, s.content)
-          .then(() => useStore.getState().setDirty(false))
+          .then(() => {
+            useStore.getState().setDirty(false);
+            useStore.getState().setLastSavedAt(Date.now());
+          })
           .catch((err) => { console.error("file-write-failed", err); });
       }
     }
@@ -1484,36 +1741,17 @@ export function Editor() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
 
-  // Textarea cursor tracking
-  const handleTextareaChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value;
-    setContent(val);
-    const pos = e.target.selectionStart;
-    const lines = val.substring(0, pos).split("\n");
-    setCursorPosition(lines.length, lines[lines.length - 1].length + 1);
-  }, [setContent, setCursorPosition]);
-
-  const handleTextareaClick = useCallback((e: React.MouseEvent<HTMLTextAreaElement>) => {
-    const ta = e.currentTarget;
-    setTimeout(() => {
-      const pos = ta.selectionStart;
-      const lines = ta.value.substring(0, pos).split("\n");
-      setCursorPosition(lines.length, lines[lines.length - 1].length + 1);
-    }, 0);
-  }, [setCursorPosition]);
-
-  // Tab key inserts `tabSize` spaces in source mode (honors the indent setting).
-  const handleTextareaKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key !== "Tab" || e.shiftKey) return;
-    e.preventDefault();
-    const ta = e.currentTarget;
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    const spaces = " ".repeat(tabSize);
-    const next = ta.value.slice(0, start) + spaces + ta.value.slice(end);
-    setContent(next);
-    requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = start + tabSize; });
-  }, [tabSize, setContent]);
+  // Global event: the workspace search panel jumps into the find bar with its
+  // query pre-filled (closes the "global search -> in-document locate" loop).
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const q = (e as CustomEvent).detail?.query;
+      if (typeof q === "string" && q) setFindPreset({ query: q, ts: Date.now() });
+      setFindVisible(true);
+    };
+    window.addEventListener("zn-find-open", handler);
+    return () => window.removeEventListener("zn-find-open", handler);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -1538,35 +1776,32 @@ export function Editor() {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
-      <FindReplaceBar visible={findVisible} onClose={() => setFindVisible(false)} />
+      <FindReplaceBar visible={findVisible} onClose={() => setFindVisible(false)}
+        preset={findPreset} getPmView={() => pmViewRef.current} getCmView={() => cmViewRef.current} />
       {error && (
         <div style={{ padding: "6px 12px", fontSize: 12, background: "#FEF3C7", color: "#92400E", borderBottom: "1px solid #FCD34D", flexShrink: 0 }}>
           Warning: {error}
         </div>
       )}
-      <textarea
-        ref={textareaRef}
-        value={content}
-        onChange={handleTextareaChange}
-        onClick={handleTextareaClick}
-        onKeyDown={handleTextareaKeyDown}
-        onKeyUp={() => {
-          const ta = textareaRef.current;
-          if (ta) {
-            const pos = ta.selectionStart;
-            const lines = ta.value.substring(0, pos).split("\n");
-            setCursorPosition(lines.length, lines[lines.length - 1].length + 1);
-          }
-        }}
-        style={{
-          display: sourceMode ? "block" : "none",
-          flex: sourceMode ? 1 : undefined,
-          width: "100%", border: "none", outline: "none", resize: "none",
-          padding: "40px " + editorPadding + "px", fontSize: 16, lineHeight: 1.85,
-          fontFamily: '"Cascadia Code","Fira Code",Consolas,"Microsoft YaHei",monospace',
-          background: "var(--bg-editor)", color: "var(--text-primary)",
-        }}
-      />
+      {/* Large-document hint: recommend source mode for very long notes */}
+      {!sourceMode && bigFileHint && (
+        <div style={{
+          padding: "6px 12px", fontSize: 12, display: "flex", alignItems: "center", gap: 10,
+          background: "var(--bg-toolbar)", borderBottom: "1px solid var(--border)", flexShrink: 0,
+          color: "var(--text-secondary)",
+        }}>
+          <span>{t().editor.bigFileHint}</span>
+          <button onClick={() => setSourceMode(true)} style={{
+            border: "1px solid var(--border)", background: "var(--bg-editor)", color: "var(--text-primary)",
+            borderRadius: 4, padding: "2px 10px", fontSize: 12, cursor: "pointer",
+          }}>{t().editor.switchToSource}</button>
+          <button onClick={() => setBigFileHint(false)} style={{
+            border: "none", background: "transparent", color: "var(--text-tertiary)",
+            fontSize: 12, cursor: "pointer",
+          }}>{t().editor.dismiss}</button>
+        </div>
+      )}
+      {sourceMode && <SourceEditor viewRef={cmViewRef} />}
       <div
         ref={containerRef}
         style={{
@@ -1602,11 +1837,11 @@ export function Editor() {
           <CopyMenuItem label={t().editor.copyMarkdown} onClick={copyMarkdown} />
         </div>
       )}
-      {/* Image alignment toolbar (click an image) */}
+      {/* Image alignment toolbar (right-click an image) */}
       {imgAlignMenu.visible && (
         <div style={{
           position: "fixed", left: imgAlignMenu.x, top: imgAlignMenu.y, zIndex: 1100,
-          transform: "translate(-50%, -100%)", display: "flex", gap: 2,
+          display: "flex", gap: 2,
           background: "var(--bg-toolbar)", border: "1px solid var(--border)",
           borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.18)", padding: 4,
         }} onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>

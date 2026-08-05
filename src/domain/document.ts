@@ -54,3 +54,16 @@ export function computeWordCount(content: string): WordCount {
     lineCount: content ? content.split(/\r?\n/).length : 0,
   };
 }
+
+/** Average reading speed used for the estimate (mixed CJK/latin content). */
+const WORDS_PER_MINUTE = 400;
+
+/**
+ * Estimate the reading time of a document in whole minutes.
+ * Returns 0 for empty documents; otherwise at least 1 minute.
+ */
+export function estimateReadingTime(content: string): number {
+  const { totalWords } = computeWordCount(content);
+  if (totalWords <= 0) return 0;
+  return Math.max(1, Math.ceil(totalWords / WORDS_PER_MINUTE));
+}

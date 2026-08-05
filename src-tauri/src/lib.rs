@@ -144,6 +144,119 @@ fn build_tree(root: &Path) -> Result<Vec<FileNode>, String> {
     Ok(nodes)
 }
 
+// ---- Workspace search (Rust-side, replaces the old per-file JS traversal) ----
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHit {
+    pub file_path: String,
+    pub file_name: String,
+    /// 1-based line number; 0 means the file NAME matched (no content line).
+    pub line: u32,
+    /// Matched line preview (truncated); empty for file-name hits.
+    pub content: String,
+}
+
+/// Case handling for a single line/needle pair (extracted for unit tests).
+fn line_matches(line: &str, needle: &str, case_sensitive: bool) -> bool {
+    if case_sensitive {
+        line.contains(needle)
+    } else {
+        // Per-char to_lowercase keeps this correct for CJK/Unicode too.
+        line.to_lowercase().contains(&needle.to_lowercase())
+    }
+}
+
+const MAX_SEARCH_HITS: usize = 500;
+const MAX_SEARCHED_FILE_SIZE: u64 = 5_000_000;
+
+#[tauri::command]
+fn search_workspace(
+    path: String,
+    query: String,
+    case_sensitive: Option<bool>,
+) -> Result<Vec<SearchHit>, String> {
+    let root = Path::new(&path);
+    if !root.exists() || !root.is_dir() {
+        return Err(format!("文件夹不存在: {}", path));
+    }
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let cs = case_sensitive.unwrap_or(false);
+    let mut hits: Vec<SearchHit> = Vec::new();
+
+    'outer: for entry in WalkDir::new(root)
+        .into_iter()
+        .filter_entry(|e| {
+            // Skip hidden directories/files (keeps .git, node_modules-ish noise out).
+            e.file_name()
+                .to_string_lossy()
+                .chars()
+                .next()
+                .map(|c| c != '.')
+                .unwrap_or(true)
+        })
+        .filter_map(|e| e.ok())
+    {
+        let p = entry.path();
+        if p.is_dir() {
+            continue;
+        }
+        if p.extension().map_or(true, |ext| ext != "md") {
+            continue;
+        }
+        let name = p
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let path_str = p.to_string_lossy().to_string();
+
+        // File-name hit.
+        if line_matches(&name, &query, cs) {
+            hits.push(SearchHit {
+                file_path: path_str.clone(),
+                file_name: name.clone(),
+                line: 0,
+                content: String::new(),
+            });
+            if hits.len() >= MAX_SEARCH_HITS {
+                break 'outer;
+            }
+        }
+
+        // Content hits (skip oversized files to stay fast).
+        let size_ok = p
+            .metadata()
+            .map(|m| m.len() <= MAX_SEARCHED_FILE_SIZE)
+            .unwrap_or(false);
+        if !size_ok {
+            continue;
+        }
+        let text = match fs::read_to_string(p) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        for (i, line) in text.lines().enumerate() {
+            if line_matches(line, &query, cs) {
+                let preview: String = line.trim().chars().take(120).collect();
+                hits.push(SearchHit {
+                    file_path: path_str.clone(),
+                    file_name: name.clone(),
+                    line: (i + 1) as u32,
+                    content: preview,
+                });
+                if hits.len() >= MAX_SEARCH_HITS {
+                    break 'outer;
+                }
+            }
+        }
+    }
+
+    Ok(hits)
+}
+
 // ---- PDF export (Windows: WebView2 PrintToPdf, no print dialog) ----
 
 /// Make a window fully transparent (alpha = 0) via Win32 layered-window
@@ -385,9 +498,94 @@ pub fn run() {
             delete_file,
             move_file,
             write_file_binary,
+            search_workspace,
             export_pdf,
             export_debug_log,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+// ---- Tests ----
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn line_matches_case_insensitive_by_default() {
+        assert!(line_matches("Hello World", "world", false));
+        assert!(!line_matches("Hello World", "world", true));
+        assert!(line_matches("Hello World", "World", true));
+    }
+
+    #[test]
+    fn line_matches_handles_cjk() {
+        assert!(line_matches("笔记标题", "标题", false));
+        assert!(!line_matches("笔记标题", "目录", false));
+    }
+
+    #[test]
+    fn search_workspace_rejects_missing_folder() {
+        let res = search_workspace(
+            "definitely-not-a-real-folder-xyz".into(),
+            "q".into(),
+            Some(false),
+        );
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn search_workspace_empty_query_returns_empty() {
+        // Temp dir exists on all test machines.
+        let dir = std::env::temp_dir();
+        let res = search_workspace(dir.to_string_lossy().to_string(), "".into(), None).unwrap();
+        assert!(res.is_empty());
+    }
+
+    #[test]
+    fn search_workspace_end_to_end_with_real_files() {
+        // Build a small workspace on disk: nested folders, a name-hit file and
+        // a non-markdown file that must be ignored.
+        let dir = std::env::temp_dir().join(format!("zennote-search-e2e-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("sub")).unwrap();
+        fs::write(dir.join("note.md"), "# Title\nhello world\n").unwrap();
+        fs::write(dir.join("sub").join("deep.md"), "nothing\nHELLO again\n").unwrap();
+        fs::write(dir.join("hello-file.md"), "unrelated body\n").unwrap();
+        fs::write(dir.join("skip.txt"), "hello\n").unwrap();
+        let root = dir.to_string_lossy().to_string();
+
+        // Case-insensitive: content hits (incl. nested) + file-name hit, .txt excluded.
+        let hits = search_workspace(root.clone(), "hello".into(), Some(false)).unwrap();
+        assert!(hits.iter().any(|h| h.file_name == "note.md" && h.line == 2));
+        assert!(hits.iter().any(|h| h.file_name == "deep.md" && h.line == 2));
+        assert!(hits.iter().any(|h| h.file_name == "hello-file.md" && h.line == 0));
+        assert!(!hits.iter().any(|h| h.file_name == "skip.txt"));
+        // Content preview is trimmed and truncated.
+        let note_hit = hits.iter().find(|h| h.file_name == "note.md").unwrap();
+        assert_eq!(note_hit.content, "hello world");
+
+        // Case-sensitive: the uppercase HELLO line in deep.md must not match.
+        let cs_hits = search_workspace(root.clone(), "hello".into(), Some(true)).unwrap();
+        assert!(!cs_hits.iter().any(|h| h.file_name == "deep.md" && h.line > 0));
+        assert!(cs_hits.iter().any(|h| h.file_name == "note.md" && h.line == 2));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_workspace_skips_hidden_directories() {
+        let dir = std::env::temp_dir().join(format!("zennote-search-hidden-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join(".git")).unwrap();
+        fs::write(dir.join(".git").join("note.md"), "hello\n").unwrap();
+        fs::write(dir.join("visible.md"), "hello\n").unwrap();
+
+        let hits = search_workspace(dir.to_string_lossy().to_string(), "hello".into(), None).unwrap();
+        assert!(hits.iter().any(|h| h.file_name == "visible.md"));
+        assert!(!hits.iter().any(|h| h.file_path.contains(".git")));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

@@ -1,183 +1,255 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { TextSelection } from "@milkdown/kit/prose/state";
 import { useStore } from "../../store";
 import { t } from "../../i18n";
+import { findAllMatches, wrapIndex, defaultFindOptions, type FindOptions } from "../../lib/findQuery";
+import { znFindKey, type ZnFindMeta } from "./findState";
+
+/**
+ * Document find & replace bar.
+ *
+ * WYSIWYG mode: driven by the ProseMirror `znFind` plugin (installed in
+ * Editor.tsx) — matches are ProseMirror decorations and replacements are real
+ * transactions, so the editor state always stays consistent.
+ *
+ * Source mode: the same matching logic (lib/findQuery) runs against the
+ * CodeMirror document string; navigation/replacement dispatch CodeMirror
+ * change specs. No DOM mutation in either mode.
+ */
 
 interface Props {
   visible: boolean;
   onClose: () => void;
+  /** Pre-filled query (set when jumping in from the global search panel). */
+  preset?: { query: string; ts: number } | null;
+  /** ProseMirror view getter (WYSIWYG mode). */
+  getPmView: () => any | null;
+  /** CodeMirror EditorView getter (source mode). */
+  getCmView: () => any | null;
 }
 
-export function FindReplaceBar({ visible, onClose }: Props) {
+export function FindReplaceBar({ visible, onClose, preset, getPmView, getCmView }: Props) {
+  const sourceMode = useStore(s => s.sourceMode);
   const [findText, setFindText] = useState("");
   const [replaceText, setReplaceText] = useState("");
   const [showReplace, setShowReplace] = useState(false);
   const [matchCount, setMatchCount] = useState(0);
   const [currentIdx, setCurrentIdx] = useState(0);
+  const [opts, setOpts] = useState<FindOptions>({ ...defaultFindOptions });
+  const [invalidRegex, setInvalidRegex] = useState(false);
   const findRef = useRef<HTMLInputElement>(null);
-  const matchRef = useRef<{ count: number; current: number }>({ count: 0, current: 0 });
 
+  // ---- ProseMirror backend helpers ----
+
+  const pmFindState = useCallback(() => {
+    const view = getPmView();
+    if (!view) return null;
+    return znFindKey.getState(view.state) ?? null;
+  }, [getPmView]);
+
+  const pmDispatchQuery = useCallback((query: string, options: FindOptions) => {
+    const view = getPmView();
+    if (!view) return;
+    const meta: ZnFindMeta = { type: "query", query, opts: options };
+    view.dispatch(view.state.tr.setMeta(znFindKey, meta));
+    const st = pmFindState();
+    setMatchCount(st?.matches.length ?? 0);
+    setCurrentIdx(st && st.matches.length ? 0 : -1);
+  }, [getPmView, pmFindState]);
+
+  const pmGoto = useCallback((index: number) => {
+    const view = getPmView();
+    const st = pmFindState();
+    if (!view || !st || st.matches.length === 0) return;
+    const idx = wrapIndex(index, st.matches.length);
+    const m = st.matches[idx];
+    const meta: ZnFindMeta = { type: "goto", index: idx };
+    // Move the caret to the match and scroll it into view in one transaction.
+    const tr = view.state.tr.setSelection(TextSelection.create(view.state.doc, m.to));
+    tr.setMeta(znFindKey, meta);
+    tr.scrollIntoView();
+    view.dispatch(tr);
+    setCurrentIdx(idx);
+  }, [getPmView, pmFindState]);
+
+  const pmReplaceOne = useCallback(() => {
+    const view = getPmView();
+    const st = pmFindState();
+    if (!view || !st || st.matches.length === 0) return;
+    const idx = wrapIndex(currentIdx, st.matches.length);
+    const m = st.matches[idx];
+    view.dispatch(view.state.tr.replaceWith(m.from, m.to, replaceText));
+    // Plugin recomputes matches on docChanged; refresh the counter.
+    const next = pmFindState();
+    setMatchCount(next?.matches.length ?? 0);
+    setCurrentIdx(next && next.matches.length ? Math.min(idx, next.matches.length - 1) : -1);
+  }, [getPmView, pmFindState, currentIdx, replaceText]);
+
+  const pmReplaceAll = useCallback(() => {
+    const view = getPmView();
+    const st = pmFindState();
+    if (!view || !st || st.matches.length === 0) return;
+    let tr = view.state.tr;
+    // Back-to-front so earlier ranges stay valid.
+    for (let i = st.matches.length - 1; i >= 0; i--) {
+      const m = st.matches[i];
+      tr = tr.replaceWith(m.from, m.to, replaceText);
+    }
+    view.dispatch(tr);
+    const next = pmFindState();
+    setMatchCount(next?.matches.length ?? 0);
+    setCurrentIdx(-1);
+  }, [getPmView, pmFindState, replaceText]);
+
+  // ---- CodeMirror backend helpers ----
+
+  const cmMatches = useCallback(() => {
+    const view = getCmView();
+    if (!view) return [];
+    return findAllMatches(view.state.doc.toString(), findText, opts);
+  }, [getCmView, findText, opts]);
+
+  const cmRefresh = useCallback(() => {
+    const matches = cmMatches();
+    setMatchCount(matches.length);
+    setCurrentIdx(matches.length ? 0 : -1);
+  }, [cmMatches]);
+
+  const cmGoto = useCallback((index: number) => {
+    const view = getCmView();
+    if (!view) return;
+    const matches = cmMatches();
+    if (matches.length === 0) return;
+    const idx = wrapIndex(index, matches.length);
+    const m = matches[idx];
+    view.dispatch({ selection: { anchor: m.from, head: m.to }, scrollIntoView: true });
+    view.focus();
+    setCurrentIdx(idx);
+  }, [getCmView, cmMatches]);
+
+  const cmReplaceOne = useCallback(() => {
+    const view = getCmView();
+    if (!view) return;
+    const matches = cmMatches();
+    if (matches.length === 0) return;
+    const idx = wrapIndex(currentIdx, matches.length);
+    const m = matches[idx];
+    view.dispatch({ changes: { from: m.from, to: m.to, insert: replaceText } });
+    setMatchCount(findAllMatches(view.state.doc.toString(), findText, opts).length);
+  }, [getCmView, cmMatches, currentIdx, replaceText, findText, opts]);
+
+  const cmReplaceAll = useCallback(() => {
+    const view = getCmView();
+    if (!view) return;
+    const matches = cmMatches();
+    if (matches.length === 0) return;
+    const changes = matches.map(m => ({ from: m.from, to: m.to, insert: replaceText }));
+    view.dispatch({ changes });
+    setMatchCount(0);
+    setCurrentIdx(-1);
+  }, [getCmView, cmMatches, replaceText]);
+
+  // ---- Shared actions (pick backend by mode) ----
+
+  const runFind = useCallback(() => {
+    if (!findText) {
+      setMatchCount(0); setCurrentIdx(-1); setInvalidRegex(false);
+      const view = getPmView();
+      if (view && !sourceMode) view.dispatch(view.state.tr.setMeta(znFindKey, { type: "clear" } as ZnFindMeta));
+      return;
+    }
+    const fails = opts.regex && buildFails(findText);
+    setInvalidRegex(fails);
+    if (fails) { setMatchCount(0); setCurrentIdx(-1); return; }
+    if (sourceMode) cmRefresh();
+    else pmDispatchQuery(findText, opts);
+  }, [findText, opts, sourceMode, getPmView, cmRefresh, pmDispatchQuery]);
+
+  const findNext = useCallback(() => {
+    if (sourceMode) cmGoto(currentIdx + 1);
+    else pmGoto(currentIdx + 1);
+  }, [sourceMode, currentIdx, cmGoto, pmGoto]);
+
+  const findPrev = useCallback(() => {
+    if (sourceMode) cmGoto(currentIdx - 1);
+    else pmGoto(currentIdx - 1);
+  }, [sourceMode, currentIdx, cmGoto, pmGoto]);
+
+  const replaceOne = useCallback(() => {
+    if (sourceMode) cmReplaceOne();
+    else pmReplaceOne();
+  }, [sourceMode, cmReplaceOne, pmReplaceOne]);
+
+  const replaceAll = useCallback(() => {
+    if (sourceMode) cmReplaceAll();
+    else pmReplaceAll();
+  }, [sourceMode, cmReplaceAll, pmReplaceAll]);
+
+  // Debounced re-run while typing / toggling options.
+  useEffect(() => {
+    if (!visible) return;
+    const timer = setTimeout(runFind, 200);
+    return () => clearTimeout(timer);
+  }, [runFind, visible]);
+
+  // Focus & preset handling.
   useEffect(() => {
     if (visible) {
       setTimeout(() => { findRef.current?.focus(); findRef.current?.select(); }, 50);
+      if (preset?.query) setFindText(preset.query);
     } else {
       setFindText(""); setReplaceText(""); setShowReplace(false);
-      setMatchCount(0); setCurrentIdx(0);
-      clearHighlights();
+      setMatchCount(0); setCurrentIdx(-1); setInvalidRegex(false);
+      // Clear decorations when closing in WYSIWYG mode.
+      const view = getPmView();
+      if (view) view.dispatch(view.state.tr.setMeta(znFindKey, { type: "clear" } as ZnFindMeta));
     }
-  }, [visible]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, preset?.ts]);
 
-  const clearHighlights = useCallback(() => {
-    document.querySelectorAll(".zn-find-highlight").forEach(el => {
-      const p = el.parentNode;
-      if (p) { p.replaceChild(document.createTextNode(el.textContent || ""), el); p.normalize(); }
-    });
-    matchRef.current = { count: 0, current: 0 };
-  }, []);
-
-  const doFind = useCallback(() => {
-    clearHighlights();
-    if (!findText) { setMatchCount(0); setCurrentIdx(0); return; }
-
-    const pm = document.querySelector(".ProseMirror") as HTMLElement;
-    if (!pm) return;
-
-    const walker = document.createTreeWalker(pm, NodeFilter.SHOW_TEXT);
-    const matches: { node: Text; offset: number }[] = [];
-    const flen = findText.length;
-    const q = findText.toLowerCase();
-    let node: Text | null;
-
-    while ((node = walker.nextNode() as Text | null)) {
-      const parent = node.parentElement;
-      if (parent?.closest("code, pre, .zn-find-highlight")) continue;
-
-      const txt = node.textContent || "";
-      const lower = txt.toLowerCase();
-      let idx = 0;
-      while ((idx = lower.indexOf(q, idx)) !== -1) {
-        matches.push({ node, offset: idx });
-        idx += q.length;
-      }
-    }
-
-    if (matches.length === 0) { setMatchCount(0); setCurrentIdx(0); return; }
-
-    matchRef.current = { count: matches.length, current: 0 };
-    setMatchCount(matches.length);
-    setCurrentIdx(0);
-
-    matches.forEach((m, mi) => {
-      const range = document.createRange();
-      try {
-        range.setStart(m.node, m.offset);
-        range.setEnd(m.node, m.offset + flen);
-        const span = document.createElement("span");
-        span.className = "zn-find-highlight";
-        span.style.cssText = "background:#FFD54F;color:#000;border-radius:2px;";
-        if (mi === 0) span.style.background = "#FF9800";
-        range.surroundContents(span);
-      } catch { /* */ }
-    });
-
-    scrollToMatch(0);
-  }, [findText, clearHighlights]);
-
+  // Re-sync the query when the mode flips while the bar is open.
   useEffect(() => {
-    if (!visible) return;
-    const timer = setTimeout(doFind, 250);
-    return () => clearTimeout(timer);
-  }, [findText, visible, doFind]);
+    if (visible && findText) runFind();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceMode]);
 
-  const scrollToMatch = useCallback((idx: number) => {
-    const all = document.querySelectorAll(".zn-find-highlight");
-    if (all.length === 0) return;
-    const safeIdx = ((idx % all.length) + all.length) % all.length;
-    const target = all[safeIdx] as HTMLElement;
-    if (!target) return;
-
-    all.forEach((el, i) => {
-      (el as HTMLElement).style.background = i === safeIdx ? "#FF9800" : "#FFD54F";
-    });
-
-    const scrollParent = target.closest("[style*=overflow]") || target.parentElement?.parentElement;
-    if (scrollParent) {
-      const top = target.getBoundingClientRect().top - scrollParent.getBoundingClientRect().top + scrollParent.scrollTop - 120;
-      scrollParent.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-    }
-  }, []);
-
-  const findNext = useCallback(() => {
-    const all = document.querySelectorAll(".zn-find-highlight");
-    const next = (currentIdx + 1) % Math.max(all.length, 1);
-    setCurrentIdx(next);
-    scrollToMatch(next);
-  }, [currentIdx, scrollToMatch]);
-
-  const findPrev = useCallback(() => {
-    const all = document.querySelectorAll(".zn-find-highlight");
-    const prev = ((currentIdx - 1) + all.length) % Math.max(all.length, 1);
-    setCurrentIdx(prev);
-    scrollToMatch(prev);
-  }, [currentIdx, scrollToMatch]);
-
-  const replaceOne = useCallback(() => {
-    const content = useStore.getState().content;
-    if (!findText || !content) return;
-    const q = findText.toLowerCase();
-    const positions: number[] = [];
-    let pos = content.toLowerCase().indexOf(q);
-    while (pos !== -1) { positions.push(pos); pos = content.toLowerCase().indexOf(q, pos + 1); }
-    if (positions.length === 0) return;
-    const targetPos = positions[currentIdx % positions.length];
-    const newContent = content.substring(0, targetPos) + replaceText + content.substring(targetPos + findText.length);
-    useStore.getState().setContent(newContent);
-    setTimeout(() => doFind(), 200);
-  }, [currentIdx, findText, replaceText, doFind]);
-
-  const replaceAll = useCallback(() => {
-    const content = useStore.getState().content;
-    if (!findText || !content) return;
-    const escaped = findText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const regex = new RegExp(escaped, "gi");
-    const newContent = content.replace(regex, replaceText);
-    useStore.getState().setContent(newContent);
-    clearHighlights();
-    setMatchCount(0);
-    setCurrentIdx(0);
-  }, [findText, replaceText, clearHighlights]);
-
+  // Keyboard handling.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!visible) return;
-      if (e.key === "Escape") { e.preventDefault(); clearHighlights(); onClose(); }
-      if (e.key === "Enter" && !e.shiftKey && findText) { e.preventDefault(); findNext(); }
-      if (e.key === "Enter" && e.shiftKey && findText) { e.preventDefault(); findPrev(); }
-      if ((e.ctrlKey || e.metaKey) && e.key === "r" && findText) {
+      if (e.key === "Escape") { e.preventDefault(); onClose(); }
+      else if (e.key === "Enter" && !e.shiftKey && findText) { e.preventDefault(); findNext(); }
+      else if (e.key === "Enter" && e.shiftKey && findText) { e.preventDefault(); findPrev(); }
+      else if ((e.ctrlKey || e.metaKey) && e.key === "r" && findText) {
         e.preventDefault(); setShowReplace(v => !v);
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [visible, onClose, findText, findNext, findPrev, clearHighlights]);
+  }, [visible, onClose, findText, findNext, findPrev]);
 
   if (!visible) return null;
 
+  const toggleOpt = (key: keyof FindOptions) => {
+    setOpts(o => ({ ...o, [key]: !o[key] }));
+  };
+
   return (
     <div style={{
-      height: 36, display: "flex", alignItems: "center", gap: 6,
-      padding: "0 12px", background: "var(--bg-statusbar)",
+      minHeight: 36, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
+      padding: "4px 12px", background: "var(--bg-statusbar)",
       borderBottom: "1px solid var(--border)", flexShrink: 0, fontSize: 13,
     }}>
       <input ref={findRef} value={findText} onChange={e => setFindText(e.target.value)}
         placeholder={t().find.find}
         style={{
-          width: 160, border: "1px solid var(--border)", borderRadius: 4,
+          width: 160, border: "1px solid " + (invalidRegex ? "#E81123" : "var(--border)"), borderRadius: 4,
           padding: "3px 8px", background: "var(--bg-editor)",
           color: "var(--text-primary)", fontSize: 13, outline: "none", fontFamily: "inherit",
         }}
       />
-      <span style={{ color: "var(--text-tertiary)", minWidth: 40, fontSize: 12, textAlign: "center" }}>
-        {matchCount > 0 ? (currentIdx + 1) + "/" + matchCount : findText ? "0" : ""}
+      <span style={{ color: invalidRegex ? "#E81123" : "var(--text-tertiary)", minWidth: 40, fontSize: 12, textAlign: "center" }}>
+        {invalidRegex ? t().find.invalidRegex : (matchCount > 0 ? (Math.max(currentIdx, 0) + 1) + "/" + matchCount : findText ? "0" : "")}
       </span>
       <button onClick={findPrev} title={t().find.previous + " (Shift+Enter)"} style={btnStyle}>
         <svg width="12" height="12" viewBox="0 0 12 12"><polyline points="3,8 1,6 3,4" fill="none" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="6" x2="11" y2="6" stroke="currentColor" strokeWidth="1.5"/></svg>
@@ -185,6 +257,10 @@ export function FindReplaceBar({ visible, onClose }: Props) {
       <button onClick={findNext} title={t().find.next + " (Enter)"} style={btnStyle}>
         <svg width="12" height="12" viewBox="0 0 12 12"><polyline points="9,4 11,6 9,8" fill="none" stroke="currentColor" strokeWidth="1.5"/><line x1="11" y1="6" x2="1" y2="6" stroke="currentColor" strokeWidth="1.5"/></svg>
       </button>
+      {/* Matching options */}
+      <OptButton label="Aa" active={opts.caseSensitive} title={t().find.caseSensitive} onClick={() => toggleOpt("caseSensitive")} />
+      <OptButton label="W" active={opts.wholeWord} title={t().find.wholeWord} onClick={() => toggleOpt("wholeWord")} />
+      <OptButton label=".*" active={opts.regex} title={t().find.regex} onClick={() => toggleOpt("regex")} />
       <button onClick={() => setShowReplace(v => !v)} title={t().find.replace + " (Ctrl+R)"}
         style={{ ...btnStyle, background: showReplace ? "var(--bg-sidebar-active)" : "transparent", width: "auto", padding: "0 8px", fontSize: 11 }}>
         {t().find.replace}
@@ -204,10 +280,28 @@ export function FindReplaceBar({ visible, onClose }: Props) {
         </>
       )}
       <div style={{ flex: 1 }} />
-      <button onClick={() => { clearHighlights(); onClose(); }} title={t().find.previous + " (Esc)"} style={btnStyle}>
+      <button onClick={onClose} title={t().find.previous + " (Esc)"} style={btnStyle}>
         <svg width="12" height="12" viewBox="0 0 12 12"><line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" strokeWidth="1.5"/><line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" strokeWidth="1.5"/></svg>
       </button>
     </div>
+  );
+}
+
+/** Quick regex-compile check for the "invalid regex" hint. */
+function buildFails(query: string): boolean {
+  try { new RegExp(query, "u"); return false; } catch { return true; }
+}
+
+function OptButton({ label, active, title, onClick }: { label: string; active: boolean; title: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} title={title}
+      style={{
+        ...btnStyle, width: 30, fontSize: 11, fontWeight: 700, fontFamily: "Consolas, monospace",
+        background: active ? "var(--bg-sidebar-active)" : "transparent",
+        color: active ? "var(--text-accent)" : "var(--text-secondary)",
+      }}>
+      {label}
+    </button>
   );
 }
 

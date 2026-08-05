@@ -12,7 +12,7 @@ export type {
   UpdateState,
 } from "./types";
 
-export { parseHeadings, displayableHeadings, computeWordCount } from "./document";
+export { parseHeadings, displayableHeadings, computeWordCount, estimateReadingTime } from "./document";
 export type { WordCount } from "./document";
 
 export { parentDir, fileName, isWithinWorkspace, noteName } from "./filesystem";

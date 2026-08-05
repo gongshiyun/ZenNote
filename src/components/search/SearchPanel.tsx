@@ -2,10 +2,12 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useStore } from "../../store";
 import { t } from "../../i18n";
 import * as fs from "../../services";
+import { searchWorkspace, type WsSearchResult } from "../../lib/workspaceSearch";
 
 interface SearchResult {
   filePath: string;
   fileName: string;
+  /** 1-based line number; 0 = file-name match */
   line: number;
   content: string;
 }
@@ -24,7 +26,8 @@ export function SearchPanel({ onClose }: { onClose: () => void }) {
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
-  // Search with debounce
+  // Search with debounce. Runs in the Rust backend (search_workspace) with a
+  // JS fallback; results are cached per workspace+query in workspaceSearch.
   useEffect(() => {
     if (!query || !workspacePath) { setResults([]); setFocusIdx(0); return; }
     abortRef.current = false;
@@ -32,32 +35,9 @@ export function SearchPanel({ onClose }: { onClose: () => void }) {
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
-        const tree = await fs.openWorkspace(workspacePath);
-        if (abortRef.current) return;
-        const found: SearchResult[] = [];
-        const q = query.toLowerCase();
-        async function searchNode(node: any) {
-          if (abortRef.current) return;
-          if (node.is_dir) {
-            if (node.children) for (const c of node.children) await searchNode(c);
-          } else if (node.name.endsWith(".md")) {
-            try {
-              const content = await fs.readFile(node.path);
-              const lines = content.split("\n");
-              lines.forEach((line, i) => {
-                if (line.toLowerCase().includes(q)) {
-                  found.push({
-                    filePath: node.path, fileName: node.name,
-                    line: i + 1, content: line.trim().substring(0, 120),
-                  });
-                }
-              });
-            } catch { /* */ }
-          }
-        }
-        for (const n of tree) await searchNode(n);
+        const found: WsSearchResult[] = await searchWorkspace(workspacePath, query);
         if (!abortRef.current) {
-          setResults(found.slice(0, 50));
+          setResults(found);
           setFocusIdx(0);
         }
       } catch { /* */ }
@@ -78,8 +58,11 @@ export function SearchPanel({ onClose }: { onClose: () => void }) {
       setSelectedFile(r.filePath);
       setCurrentFile(r.filePath, content);
       onClose();
+      // Hand the query over to the in-document find bar so the user lands
+      // directly on highlighted matches (global search -> locate loop).
+      window.dispatchEvent(new CustomEvent("zn-find-open", { detail: { query } }));
     } catch { /* */ }
-  }, [setSelectedFile, setCurrentFile, onClose]);
+  }, [setSelectedFile, setCurrentFile, onClose, query]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -129,7 +112,7 @@ export function SearchPanel({ onClose }: { onClose: () => void }) {
             ref={inputRef}
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder={t().search.placeholder + " (↑↓ to navigate, Enter to open, Esc to close)"}
+            placeholder={t().search.placeholder}
             style={{
               width: "100%", border: "none", outline: "none",
               fontSize: 15, background: "transparent",
@@ -142,12 +125,12 @@ export function SearchPanel({ onClose }: { onClose: () => void }) {
         <div ref={listRef} style={{ flex: 1, overflow: "auto", padding: "4px 0", fontSize: 13 }}>
           {searching && (
             <div style={{ padding: "24px", textAlign: "center", color: "var(--text-tertiary)" }}>
-              Searching...
+              {t().search.searching}
             </div>
           )}
           {!searching && query && results.length === 0 && (
             <div style={{ padding: "24px", textAlign: "center", color: "var(--text-tertiary)" }}>
-              No results found
+              {t().search.noResults}
             </div>
           )}
           {results.map((r, i) => (
@@ -169,16 +152,27 @@ export function SearchPanel({ onClose }: { onClose: () => void }) {
               }}>
               <div style={{ fontWeight: 600, marginBottom: 2, color: "var(--text-primary)" }}>
                 {r.fileName}
-                <span style={{ fontWeight: 400, color: "var(--text-tertiary)", marginLeft: 8 }}>
-                  :{r.line}
-                </span>
+                {r.line > 0 ? (
+                  <span style={{ fontWeight: 400, color: "var(--text-tertiary)", marginLeft: 8 }}>
+                    :{r.line}
+                  </span>
+                ) : (
+                  <span style={{
+                    fontWeight: 400, marginLeft: 8, fontSize: 11, color: "var(--text-accent)",
+                    border: "1px solid var(--border)", borderRadius: 4, padding: "0 5px",
+                  }}>
+                    {t().search.fileNameMatch}
+                  </span>
+                )}
               </div>
-              <div style={{
-                color: "var(--text-secondary)", whiteSpace: "nowrap",
-                overflow: "hidden", textOverflow: "ellipsis",
-              }}>
-                {r.content}
-              </div>
+              {r.content && (
+                <div style={{
+                  color: "var(--text-secondary)", whiteSpace: "nowrap",
+                  overflow: "hidden", textOverflow: "ellipsis",
+                }}>
+                  {r.content}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -188,7 +182,7 @@ export function SearchPanel({ onClose }: { onClose: () => void }) {
           padding: "6px 16px", fontSize: 11, color: "var(--text-tertiary)",
           borderTop: "1px solid var(--border)",
         }}>
-          {results.length} {t().search.results} · Esc to close · ↑↓ to navigate
+          {results.length} {t().search.results} · {t().search.escToClose}
         </div>
       </div>
     </div>

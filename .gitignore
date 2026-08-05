@@ -16,6 +16,10 @@ dist-ssr
 src-tauri/keys/*.key
 !src-tauri/keys/*.key.pub
 
+# Local debug/verification artifacts
+export-monitor/
+.qoder/better-harness/
+
 # Temp icon source
 src-tauri/icons/icon-source.png
 

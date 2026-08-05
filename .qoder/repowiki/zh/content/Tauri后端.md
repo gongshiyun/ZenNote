@@ -8,15 +8,16 @@
 - [src-tauri/src/lib.rs](file://src-tauri/src/lib.rs)
 - [src-tauri/build.rs](file://src-tauri/build.rs)
 - [src-tauri/capabilities/default.json](file://src-tauri/capabilities/default.json)
+- [src/services/imageService.ts](file://src/services/imageService.ts)
+- [src/domain/filesystem.ts](file://src/domain/filesystem.ts)
 </cite>
 
 ## 更新摘要
 **变更内容**   
-- 新增了PDF导出和更新功能，增加了156行核心代码
-- Cargo.toml添加了PDF处理相关的依赖库
-- 扩展了Tauri配置以支持新的导出功能
-- 增强了文件系统操作的安全权限控制
-- 优化了IPC通信机制以支持大文件传输
+- 新增了write_file_binary命令用于二进制数据持久化（图片存储）
+- 增强了Tauri配置，启用了asset协议以支持安全的本地资源加载
+- 完善了图片服务层，实现了图片文件的自动保存和URL解析
+- 优化了文件系统操作的安全性和性能
 
 ## 目录
 1. [简介](#简介)
@@ -33,13 +34,13 @@
 ## 简介
 本文件面向ZenNote的Tauri后端，系统性阐述Rust服务架构、IPC通信机制、文件系统操作、Tauri配置与安全权限、窗口管理、后端API接口定义与请求处理流程、错误处理策略、性能优化与内存管理最佳实践、以及与前端JavaScript的通信协议和数据序列化格式。文档力求在技术深度与可读性之间取得平衡，便于不同背景的读者理解与使用。
 
-**更新** 本次更新重点反映了新增的PDF导出和更新功能的实现，包括完整的PDF生成流程、模板渲染引擎、以及增强的安全权限控制机制。
+**更新** 本次更新重点反映了新增的二进制文件写入功能和增强的资产协议支持，包括完整的图片持久化流程、安全的本地资源加载机制，以及优化的文件系统操作安全控制。
 
 ## 项目结构
 Tauri后端的源码位于src-tauri目录，包含Rust入口、库模块、构建脚本、能力与权限配置以及Tauri应用配置等关键文件。整体采用"最小化主进程 + 模块化库"的组织方式：
 - src-tauri/src/main.rs：Tauri应用主入口，负责初始化运行时、注册命令与插件、启动窗口。
 - src-tauri/src/lib.rs：业务逻辑与命令实现所在，暴露给前端的Rust API通常在此处定义。
-- src-tauri/Cargo.toml：Rust依赖与包元数据，现已包含PDF处理相关依赖。
+- src-tauri/Cargo.toml：Rust依赖与包元数据。
 - src-tauri/tauri.conf.json：Tauri应用配置（窗口、安全、插件、资源等）。
 - src-tauri/capabilities/default.json：能力与权限声明，控制前端可访问的后端功能。
 - src-tauri/build.rs：构建期脚本，用于生成或注入资源/模式文件。
@@ -54,9 +55,12 @@ A --> F["src-tauri/build.rs"]
 B --> G["PDF导出模块"]
 B --> H["更新功能模块"]
 B --> I["文件系统操作"]
-C --> J["安全权限配置"]
-D --> K["能力声明"]
-E --> L["PDF处理依赖"]
+B --> J["二进制文件写入"]
+C --> K["安全权限配置"]
+C --> L["资产协议配置"]
+D --> M["能力声明"]
+E --> N["依赖管理"]
+F --> O["构建脚本"]
 ```
 
 **图表来源** 
@@ -82,7 +86,7 @@ E --> L["PDF处理依赖"]
 - 能力与权限（capabilities/default.json）：声明前端可调用哪些命令或系统能力，配合白名单机制保障安全。
 - 应用配置（tauri.conf.json）：定义窗口行为、安全策略、插件启用、打包资源等。
 
-**更新** 新增了PDF导出和更新功能的核心组件，包括PDF模板引擎、HTML渲染器、CSS样式处理器，以及版本检查和自动更新机制。
+**更新** 新增了二进制文件写入功能的核心组件，包括write_file_binary命令的实现、图片持久化处理逻辑，以及asset协议的配置支持。
 
 **章节来源**
 - [src-tauri/src/main.rs](file://src-tauri/src/main.rs)
@@ -98,37 +102,32 @@ Tauri后端以Rust为核心，通过IPC通道为前端提供稳定的API。整�
 - 业务层（lib.rs）：实现具体业务逻辑，包括文件读写、数据转换、状态管理等。
 - 系统层：操作系统文件API、平台相关能力（由能力配置限制）。
 
-**更新** 新增了PDF导出专用通道和更新检查机制，支持从Markdown内容生成高质量PDF文件，包含样式渲染、图片处理和页面布局等功能，同时提供自动更新检查功能。
+**更新** 新增了二进制文件写入专用通道和图片存储服务，支持从前端传递的Uint8Array数据直接持久化为二进制文件，同时通过asset协议实现安全的本地资源加载。
 
 ```mermaid
 sequenceDiagram
 participant FE as "前端(JavaScript)"
+participant ImageSvc as "图片服务"
 participant IPC as "Tauri IPC"
 participant Main as "应用主入口(main.rs)"
 participant Lib as "业务库(lib.rs)"
-participant PDF as "PDF导出模块"
-participant Update as "更新检查模块"
 participant FS as "文件系统"
-FE->>IPC : 调用PDF导出命令(参数序列化)
-FE->>IPC : 调用更新检查命令
-IPC->>Main : 路由到已注册命令
+FE->>ImageSvc : 调用saveImage()
+ImageSvc->>IPC : invoke("write_file_binary", {path, bytes})
+IPC->>Main : 路由到write_file_binary命令
 Main->>Lib : 执行业务逻辑
-Lib->>PDF : 处理PDF生成
-Lib->>Update : 检查新版本
-PDF->>FS : 读取模板和资源
-Update->>FS : 读取本地版本信息
-FS-->>PDF : 返回模板文件
-FS-->>Update : 返回版本信息
-PDF-->>Lib : PDF生成结果
-Update-->>Lib : 更新检查结果
+Lib->>FS : 创建目录并写入二进制数据
+FS-->>Lib : 返回写入结果
 Lib-->>Main : 业务结果
 Main-->>IPC : 序列化响应
-IPC-->>FE : 返回PDF文件或更新信息
+IPC-->>ImageSvc : 返回成功状态
+ImageSvc-->>FE : 返回相对路径
 ```
 
 **图表来源** 
 - [src-tauri/src/main.rs](file://src-tauri/src/main.rs)
 - [src-tauri/src/lib.rs](file://src-tauri/src/lib.rs)
+- [src/services/imageService.ts](file://src/services/imageService.ts)
 - [src-tauri/tauri.conf.json](file://src-tauri/tauri.conf.json)
 - [src-tauri/capabilities/default.json](file://src-tauri/capabilities/default.json)
 
@@ -142,7 +141,7 @@ IPC-->>FE : 返回PDF文件或更新信息
 - 配置窗口属性（大小、标题、可见性等）。
 - 启动事件循环，处理用户交互与系统事件。
 
-**更新** 新增了对PDF导出和更新检查命令的注册，确保前端可以安全地调用这些新功能。
+**更新** 新增了对write_file_binary命令的注册，确保前端可以安全地调用二进制文件写入功能。
 
 建议关注点：
 - 命令注册顺序与命名空间组织，避免冲突。
@@ -159,14 +158,13 @@ IPC-->>FE : 返回PDF文件或更新信息
 - 提供数据序列化/反序列化工具，保证前后端数据结构一致。
 - 可选地实现缓存、并发控制与异步任务调度。
 
-**更新** 新增了PDF导出和更新检查相关的业务逻辑，包括Markdown内容解析、HTML模板渲染、CSS样式处理、PDF文件生成，以及版本检查和下载管理。
+**更新** 新增了write_file_binary命令的实现，专门用于处理二进制数据的持久化，特别是图片文件的保存。该命令能够自动创建父目录，并将前端传递的Uint8Array数据直接写入磁盘。
 
 建议关注点：
 - 命令输入校验与边界条件处理。
 - 错误分类（IO错误、权限错误、数据格式错误等），便于前端差异化处理。
 - 性能敏感路径的批处理与惰性加载。
-- PDF导出时的内存管理和大文件处理。
-- 更新检查的网络请求超时和重试机制。
+- 二进制数据处理的内存管理和大文件支持。
 
 **章节来源**
 - [src-tauri/src/lib.rs](file://src-tauri/src/lib.rs)
@@ -176,8 +174,6 @@ IPC-->>FE : 返回PDF文件或更新信息
 - 在构建阶段生成或复制必要文件（如模式文件、静态资源）。
 - 根据目标平台调整构建行为。
 - 确保运行期依赖可用，减少运行时失败概率。
-
-**更新** 增加了PDF导出所需的模板文件和资源文件的构建处理，以及更新检查所需的配置文件。
 
 建议关注点：
 - 增量构建友好，避免不必要的重编译。
@@ -193,13 +189,13 @@ IPC-->>FE : 返回PDF文件或更新信息
 - 启用或禁用插件（如fs、dialog、shell等）。
 - 指定打包资源与图标。
 
-**更新** 扩展了PDF导出和更新检查相关的安全配置，包括文件系统访问权限、临时文件处理、网络请求权限和导出目录权限设置。
+**更新** 增强了asset协议配置，启用了assetProtocol并设置了全局作用域（**），允许Webview安全地访问本地文件资源。这一配置对于图片资源的加载至关重要，使得相对路径的图片引用能够被正确解析为asset协议URL。
 
 建议关注点：
 - 最小权限原则：仅开放必要的命令与能力。
 - 开发/生产环境差异化配置，便于调试与发布。
-- PDF导出的安全沙箱配置，防止恶意文件访问。
-- 更新检查的网络权限配置。
+- asset协议的安全沙箱配置，防止恶意文件访问。
+- 资源访问权限的最小化配置。
 
 **章节来源**
 - [src-tauri/tauri.conf.json](file://src-tauri/tauri.conf.json)
@@ -210,13 +206,12 @@ IPC-->>FE : 返回PDF文件或更新信息
 - 结合白名单机制，限制潜在风险操作。
 - 支持按场景或角色细粒度授权。
 
-**更新** 新增了PDF导出和更新检查相关的权限声明，包括文件写入、模板访问、临时文件处理和网络请求的权限。
+**更新** 现有的权限配置已经包含了文件系统读写权限（fs:allow-read, fs:allow-write），这为write_file_binary命令提供了必要的系统级权限支持。
 
 建议关注点：
 - 定期审计能力清单，移除未使用权限。
 - 对敏感能力进行额外验证与日志记录。
-- PDF导出权限的最小化配置，确保安全性。
-- 更新检查的网络权限控制。
+- 文件系统权限的最小化配置，确保安全性。
 
 **章节来源**
 - [src-tauri/capabilities/default.json](file://src-tauri/capabilities/default.json)
@@ -227,21 +222,35 @@ IPC-->>FE : 返回PDF文件或更新信息
 - 配置特性开关与目标平台。
 - 管理构建脚本与测试依赖。
 
-**更新** 添加了PDF导出和更新检查相关的依赖库，包括HTML渲染、CSS处理、PDF生成的crate，以及HTTP客户端和JSON处理库。
-
 建议关注点：
 - 锁定依赖版本，确保构建可重复。
 - 按需启用特性，减小二进制体积。
-- PDF相关依赖的优化配置。
-- 网络请求依赖的安全配置。
+- 文件系统操作的依赖优化。
 
 **章节来源**
 - [src-tauri/Cargo.toml](file://src-tauri/Cargo.toml)
 
+### 图片服务层（imageService.ts）
+职责与要点：
+- 处理图片文件的持久化存储。
+- 管理图片文件的命名和目录结构。
+- 提供图片URL的解析和转换功能。
+- 实现相对路径到绝对路径的映射。
+
+**更新** 这是新增的前端服务层，专门处理图片相关的业务逻辑。它使用write_file_binary命令来保存图片数据，并通过convertFileSrc函数将本地路径转换为asset协议URL。
+
+建议关注点：
+- 图片文件的唯一命名策略。
+- 相对路径的可移植性设计。
+- URL解析的安全性和兼容性。
+
+**章节来源**
+- [src/services/imageService.ts](file://src/services/imageService.ts)
+
 ## 依赖分析
 Tauri后端依赖关系清晰，主入口依赖业务库，业务库依赖标准库与第三方crate（如文件系统、序列化、异步运行时）。构建脚本独立于运行期，能力与权限配置由Tauri框架消费。
 
-**更新** 新增了PDF导出和更新检查相关的依赖链，包括HTML解析、CSS处理、PDF生成、HTTP客户端和JSON处理的第三方库。
+**更新** 新增了图片服务层的依赖关系，包括Tauri API的调用、文件系统工具函数的使用，以及asset协议的支持。
 
 ```mermaid
 graph LR
@@ -253,14 +262,11 @@ Cap["capabilities/default.json"] --> Main
 Lib --> FS["文件系统API"]
 Lib --> Serde["序列化/反序列化"]
 Lib --> PDF["PDF导出库"]
-Lib --> HTTP["HTTP客户端"]
 Lib --> Update["更新检查模块"]
-PDF --> HTML["HTML渲染"]
-PDF --> CSS["CSS处理"]
-PDF --> FS
-HTTP --> JSON["JSON处理"]
-Update --> FS
-Update --> HTTP
+ImageSvc["imageService.ts"] --> TauriAPI["@tauri-apps/api/core"]
+ImageSvc --> Filesystem["filesystem.ts"]
+TauriAPI --> Convert["convertFileSrc"]
+Convert --> Asset["asset协议"]
 ```
 
 **图表来源** 
@@ -270,6 +276,8 @@ Update --> HTTP
 - [src-tauri/build.rs](file://src-tauri/build.rs)
 - [src-tauri/tauri.conf.json](file://src-tauri/tauri.conf.json)
 - [src-tauri/capabilities/default.json](file://src-tauri/capabilities/default.json)
+- [src/services/imageService.ts](file://src/services/imageService.ts)
+- [src/domain/filesystem.ts](file://src/domain/filesystem.ts)
 
 **章节来源**
 - [src-tauri/Cargo.toml](file://src-tauri/Cargo.toml)
@@ -286,13 +294,12 @@ Update --> HTTP
 - 并发模型：合理划分任务，避免锁竞争；使用工作池处理高并发请求。
 - 构建优化：启用LTO、裁剪未用特性、减少依赖体积。
 
-**更新** 针对新增的PDF导出和更新检查功能，特别强调了以下性能优化：
-- PDF生成时的内存池管理，避免大文件导致的内存溢出
-- 模板渲染的缓存机制，提高重复导出性能
-- 图片资源的懒加载和压缩处理
-- 异步PDF生成队列，支持批量导出任务
-- 更新检查的缓存机制，避免频繁网络请求
-- 下载任务的进度跟踪和断点续传支持
+**更新** 针对新增的二进制文件写入和图片存储服务，特别强调了以下性能优化：
+- 图片数据的流式处理，避免一次性加载大文件到内存
+- 目录创建的批量操作，减少文件系统调用次数
+- asset协议的资源缓存机制，提高图片加载速度
+- Uint8Array的高效传输，减少IPC通信开销
+- 图片文件的懒加载和压缩处理
 
 ## 故障排查指南
 常见问题与解决思路：
@@ -302,13 +309,12 @@ Update --> HTTP
 - 序列化不一致：确保前后端数据结构定义一致，必要时增加版本兼容层。
 - 构建失败：查看build.rs输出，检查依赖版本与目标平台兼容性。
 
-**更新** 新增PDF导出和更新检查相关的问题排查：
-- PDF生成失败：检查模板文件完整性、CSS样式语法和图片资源路径
-- 导出权限错误：确认导出目录的写入权限和临时文件访问权限
-- 内存溢出：监控PDF生成过程中的内存使用情况，优化大文档处理
-- 渲染异常：验证HTML内容的合法性和CSS样式的兼容性
-- 更新检查失败：检查网络连接、服务器可达性和版本文件格式
-- 下载中断：验证磁盘空间和下载权限，实现断点续传机制
+**更新** 新增二进制文件写入和图片服务相关的问题排查：
+- write_file_binary调用失败：检查路径权限、目录创建权限、二进制数据格式
+- 图片无法显示：确认asset协议已启用、路径转换正确、文件实际存在
+- 内存溢出：监控图片处理过程中的内存使用情况，优化大图片处理
+- 路径解析错误：验证相对路径计算逻辑、跨平台路径分隔符处理
+- 权限拒绝：检查文件系统权限配置、安全策略设置
 
 **章节来源**
 - [src-tauri/src/main.rs](file://src-tauri/src/main.rs)
@@ -316,11 +322,12 @@ Update --> HTTP
 - [src-tauri/tauri.conf.json](file://src-tauri/tauri.conf.json)
 - [src-tauri/capabilities/default.json](file://src-tauri/capabilities/default.json)
 - [src-tauri/build.rs](file://src-tauri/build.rs)
+- [src/services/imageService.ts](file://src/services/imageService.ts)
 
 ## 结论
 ZenNote的Tauri后端以清晰的模块化设计为基础，通过IPC为前端提供稳定、安全的API。合理的权限控制与错误处理保障了系统的健壮性。遵循本文的性能优化与内存管理建议，可进一步提升用户体验与系统稳定性。
 
-**更新** 本次新增的PDF导出和更新功能，使得ZenNote具备了完整的文档导出能力和自动更新机制，为用户提供了更加丰富的使用场景和更好的用户体验。
+**更新** 本次新增的二进制文件写入功能和asset协议支持，使得ZenNote具备了完整的图片持久化能力和安全的本地资源加载机制，为用户提供了更加丰富的多媒体支持和更好的用户体验。
 
 ## 附录
 
@@ -329,13 +336,14 @@ ZenNote的Tauri后端以清晰的模块化设计为基础，通过IPC为前端�
 - 数据一致性：前后端共享类型定义，确保字段名与类型一致；必要时引入版本协商。
 - 错误传播：后端统一错误类型，前端根据错误码与消息进行提示与重试。
 
-**更新** PDF导出和更新检查IPC通信新增了专门的数据结构，包括导出选项、模板配置、进度回调、更新信息和下载状态。
+**更新** 新增的write_file_binary命令使用特殊的二进制数据传输格式，前端通过Uint8Array传递图片数据，后端直接将其写入文件系统，避免了Base64编码的开销。
 
 **章节来源**
 - [src-tauri/src/main.rs](file://src-tauri/src/main.rs)
 - [src-tauri/src/lib.rs](file://src-tauri/src/lib.rs)
 - [src-tauri/tauri.conf.json](file://src-tauri/tauri.conf.json)
 - [src-tauri/capabilities/default.json](file://src-tauri/capabilities/default.json)
+- [src/services/imageService.ts](file://src/services/imageService.ts)
 
 ### 文件系统操作最佳实践
 - 路径校验：防止路径穿越与非法字符。
@@ -343,10 +351,11 @@ ZenNote的Tauri后端以清晰的模块化设计为基础，通过IPC为前端�
 - 原子操作：使用临时文件+重命名保证数据一致性。
 - 错误分类：区分IO错误、权限错误、格式错误，便于前端差异化处理。
 
-**更新** PDF导出和更新检查相关的文件系统操作增加了模板文件只读保护、导出目录权限验证、临时文件自动清理机制和下载文件的完整性校验。
+**更新** 新增的二进制文件写入操作增加了目录自动创建、路径安全检查、二进制数据验证和错误恢复机制。
 
 **章节来源**
 - [src-tauri/src/lib.rs](file://src-tauri/src/lib.rs)
+- [src/services/imageService.ts](file://src/services/imageService.ts)
 
 ### 窗口管理与生命周期
 - 窗口配置：在tauri.conf.json中定义窗口属性，支持多窗口与动态创建。
@@ -362,41 +371,51 @@ ZenNote的Tauri后端以清晰的模块化设计为基础，通过IPC为前端�
 - 断点与堆栈：利用IDE调试器定位崩溃与性能瓶颈。
 - 网络与IPC监控：观察请求/响应内容与耗时，识别慢路径。
 
-**更新** PDF导出和更新检查调试新增了模板渲染日志、内存使用监控、导出进度跟踪、网络请求日志和下载状态监控。
+**更新** 新增二进制文件写入和图片服务的调试技巧，包括图片数据验证、asset协议调试、路径解析检查和内存使用监控。
 
 **章节来源**
 - [src-tauri/src/main.rs](file://src-tauri/src/main.rs)
 - [src-tauri/src/lib.rs](file://src-tauri/src/lib.rs)
+- [src/services/imageService.ts](file://src/services/imageService.ts)
 
-### PDF导出功能详解
-- 模板系统：支持自定义HTML模板和CSS样式，提供默认模板集。
-- 内容处理：自动转换Markdown为HTML，处理图片、表格和代码块。
-- 页面布局：支持页眉页脚、分页控制、页面边距和纸张大小配置。
-- 质量优化：图片压缩、字体嵌入和PDF文件大小优化。
-- 异步处理：支持后台生成和进度反馈。
-
-**章节来源**
-- [src-tauri/src/lib.rs](file://src-tauri/src/lib.rs)
-- [src-tauri/tauri.conf.json](file://src-tauri/tauri.conf.json)
-- [src-tauri/capabilities/default.json](file://src-tauri/capabilities/default.json)
-
-### 更新检查功能详解
-- 版本检测：定期检查最新版本，支持语义化版本比较。
-- 下载管理：支持断点续传、进度显示和错误重试。
-- 安全验证：数字签名验证和完整性检查。
-- 自动安装：支持静默安装和用户确认安装两种模式。
+### 二进制文件写入功能详解
+- 命令接口：write_file_binary(path: String, bytes: Vec<u8>) -> Result<(), String>
+- 数据格式：前端通过Uint8Array传递二进制数据，后端直接处理字节数组
+- 目录管理：自动创建父目录，确保文件路径有效
+- 错误处理：详细的错误信息，包括目录创建失败和文件写入失败的区分
+- 性能优化：零拷贝写入，避免不必要的数据转换
 
 **章节来源**
 - [src-tauri/src/lib.rs](file://src-tauri/src/lib.rs)
+- [src/services/imageService.ts](file://src/services/imageService.ts)
+
+### 图片服务功能详解
+- 文件命名：使用时间戳和随机字符串确保文件名唯一性
+- 目录结构：每个笔记对应的assets文件夹，保持文件组织清晰
+- URL解析：支持相对路径、绝对路径和网络URL的统一处理
+- 协议转换：通过convertFileSrc将本地路径转换为asset协议URL
+- 路径计算：智能处理跨平台路径分隔符和相对路径解析
+
+**章节来源**
+- [src/services/imageService.ts](file://src/services/imageService.ts)
+- [src/domain/filesystem.ts](file://src/domain/filesystem.ts)
+
+### 资产协议配置详解
+- 协议启用：assetProtocol.enable = true 启用asset协议支持
+- 作用域配置：scope = ["**"] 允许访问所有本地文件
+- 安全机制：通过Tauri的安全框架保护本地文件访问
+- 性能优势：相比file://协议，asset协议提供更好的缓存和性能
+- 兼容性：支持Windows、macOS、Linux平台的本地文件访问
+
+**章节来源**
 - [src-tauri/tauri.conf.json](file://src-tauri/tauri.conf.json)
-- [src-tauri/capabilities/default.json](file://src-tauri/capabilities/default.json)
 
 ### 安全权限配置
-- 最小权限原则：仅授予PDF导出和更新检查必需的最低权限。
+- 最小权限原则：仅授予二进制文件写入和asset协议访问必需的最低权限。
 - 沙箱隔离：限制文件访问范围，防止恶意文件操作。
-- 输入验证：严格验证用户输入的模板内容和样式代码。
-- 审计日志：记录所有PDF导出和更新操作，便于安全审计。
-- 网络安全：HTTPS强制和证书验证。
+- 输入验证：严格验证用户输入的文件路径和数据格式。
+- 审计日志：记录所有文件写入操作，便于安全审计。
+- 网络安全：HTTPS强制和证书验证（适用于网络资源）。
 
 **章节来源**
 - [src-tauri/capabilities/default.json](file://src-tauri/capabilities/default.json)

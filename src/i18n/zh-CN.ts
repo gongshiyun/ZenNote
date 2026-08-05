@@ -24,7 +24,9 @@ const zhCN = {
     "restore": "还原",
     "close": "关闭",
     "openFile": "打开文件 (Ctrl+O)",
-    "openFolder": "打开文件夹 (Ctrl+Shift+O)"
+    "openFolder": "打开文件夹 (Ctrl+Shift+O)",
+    "typewriterMode": "打字机模式（光标行居中，弱化其他内容）",
+    "focusMode": "专注模式（弱化其他段落）"
   },
   "statusbar": {
     "saved": "已保存",
@@ -32,6 +34,8 @@ const zhCN = {
     "words": "字",
     "chars": "字符",
     "lines": "行",
+    "readTime": "分钟",
+    "readTimeAbout": "约",
     "source": "源码",
     "preview": "预览",
     "theme": "主题",
@@ -62,14 +66,24 @@ const zhCN = {
     "zoomClose": "关闭",
     "copyPlainText": "复制纯文本",
     "copyMarkdown": "复制 Markdown 源码",
+    "copyCode": "复制代码",
     "align_left": "左对齐",
     "align_center": "居中",
     "align_right": "右对齐",
-    "tocTitle": "目录"
+    "tocTitle": "目录",
+    "bigFileHint": "文档较大，建议切换到源码模式以获得更流畅的编辑体验",
+    "switchToSource": "切换源码模式",
+    "dismiss": "忽略"
   },
   "tabs": {
     "closeTab": "关闭标签页",
-    "unsavedClose": "此笔记尚未保存，确定要关闭吗？"
+    "closeOthers": "关闭其他标签页",
+    "closeToLeft": "关闭左侧标签页",
+    "closeToRight": "关闭右侧标签页",
+    "closeAll": "关闭全部标签页",
+    "copyPath": "复制文件路径",
+    "unsavedClose": "此笔记尚未保存，确定要关闭吗？",
+    "unsavedCloseMultiple": "要关闭的标签页中有未保存的笔记，仍要关闭吗？"
   },
   "outline": {
     "title": "大纲",
@@ -122,7 +136,8 @@ const zhCN = {
     "searching": "搜索中...",
     "noResults": "没有找到结果",
     "results": "条结果",
-    "escToClose": "Esc 关闭"
+    "escToClose": "Esc 关闭",
+    "fileNameMatch": "文件名匹配"
   },
   "table": {
     "insertRowAbove": "在上方插入行",
@@ -132,7 +147,10 @@ const zhCN = {
     "insertColRight": "在右侧插入列",
     "deleteCol": "删除列",
     "mergeCells": "合并单元格",
-    "splitCell": "拆分单元格"
+    "splitCell": "拆分单元格",
+    "toggleHeaderRow": "切换表头行",
+    "toggleHeaderColumn": "切换表头列",
+    "deleteTable": "删除表格"
   },
   "find": {
     "find": "查找...",
@@ -141,7 +159,37 @@ const zhCN = {
     "replaceOne": "替换",
     "replaceAll": "全部替换",
     "previous": "上一个",
-    "next": "下一个"
+    "next": "下一个",
+    "caseSensitive": "区分大小写",
+    "wholeWord": "全词匹配",
+    "regex": "正则表达式",
+    "invalidRegex": "无效的正则表达式"
+  },
+  "shortcuts": {
+    "title": "快捷键",
+    "closeHint": "按 Esc 关闭",
+    "groupFile": "文件",
+    "groupEdit": "编辑",
+    "groupView": "视图",
+    "groupFormat": "格式与导出",
+    "newNote": "新建笔记",
+    "openFile": "打开文件",
+    "openFolder": "打开文件夹",
+    "save": "保存",
+    "closeTab": "关闭标签页",
+    "switchTab": "切换标签页",
+    "find": "查找替换",
+    "globalSearch": "全局搜索",
+    "undo": "撤销",
+    "redo": "重做",
+    "sourceMode": "源码/预览模式",
+    "sidebar": "文件树",
+    "outline": "大纲面板",
+    "darkMode": "暗色模式",
+    "help": "快捷键面板",
+    "exportHtml": "导出 HTML",
+    "exportPdf": "导出 PDF",
+    "settings": "设置"
   },
   "welcome": {
     "subtitle": "极简 · 本地 · Markdown",

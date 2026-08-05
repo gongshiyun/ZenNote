@@ -74,8 +74,11 @@ ZenNote 是一款纯本地的 Markdown 书写工具：**打开就用，写完就
 ### 环境要求
 
 - [Node.js](https://nodejs.org/) ≥ 20
-- [Rust](https://www.rust-lang.org/) 工具链
-- Tauri 2 的[系统依赖](https://tauri.app/start/prerequisites/)（Windows 需 WebView2、Visual Studio C++ 生成工具）
+- [Rust](https://www.rust-lang.org/) ≥ 1.77.2（`src-tauri/Cargo.toml` 中 `rust-version = "1.77.2"`，推荐通过 [rustup](https://rustup.rs/) 安装）
+- Tauri 2 的[系统依赖](https://tauri.app/start/prerequisites/)：
+  - **Windows**：WebView2 Runtime（Windows 11 / 新版 Edge 通常已内置）、Visual Studio C++ 生成工具（含 MSVC 编译器与 Windows SDK）
+
+> **纯前端开发（`npm run dev`）不需要 Rust 工具链**，只需安装 Node.js；只有开发或构建 Tauri 桌面应用时才需要 Rust 与上述系统依赖。
 
 ### 开发模式
 
@@ -83,18 +86,31 @@ ZenNote 是一款纯本地的 Markdown 书写工具：**打开就用，写完就
 # 安装依赖
 npm install
 
-# 启动开发服务器（前端热更新 + Tauri 窗口）
+# 纯前端开发：浏览器中运行 + 热更新，无需 Rust 工具链
+npm run dev
+
+# Tauri 桌面开发：前端热更新 + 原生窗口（需要 Rust 工具链）
 npm run tauri dev
 ```
 
-### 生产构建
+### 构建
 
 ```bash
-# 构建前端 + Rust，并打包安装程序
+# 纯前端构建：编译 TypeScript + Vite 产物到 dist/，无需 Rust 工具链
+npm run build
+
+# Tauri 全栈构建：构建前端 + Rust，并打包安装程序（需要 Rust 工具链）
 npm run tauri build
+
+# 仅编译 Rust 后端：在 src-tauri 目录下执行（需要 Rust 工具链）
+cd src-tauri
+cargo build             # Debug 构建，产物 src-tauri/target/debug/zennote.exe
+cargo build --release   # Release 构建，产物 src-tauri/target/release/zennote.exe
 ```
 
-产物位置：
+> 在 `src-tauri` 目录执行 `cargo build` 前，需先运行 `npm run build` 生成 `dist/`（tauri-build 会校验 `frontendDist` 路径存在）。
+
+Tauri 全栈构建产物位置：
 
 - 安装程序：`src-tauri/target/release/bundle/nsis/ZenNote_x.x.x_x64-setup.exe`
 - 可执行文件：`src-tauri/target/release/zennote.exe`
