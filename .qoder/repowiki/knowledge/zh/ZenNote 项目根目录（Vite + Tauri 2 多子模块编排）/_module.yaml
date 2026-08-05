@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: ""
-title: ZenNote 桌面应用根工程
+title: ZenNote 项目根目录（Vite + Tauri 2 多子模块编排）
 scope:
     - README.md
     - .gitignore

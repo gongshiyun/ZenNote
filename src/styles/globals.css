@@ -1253,39 +1253,6 @@ html, body, #root {
 }
 
 /* ========================================
-   Code block copy button (injected by Editor.tsx)
-   ======================================== */
-.milkdown .milkdown-code-block { position: relative; }
-.milkdown .milkdown-code-block .zn-code-copy-btn {
-  position: absolute;
-  top: 6px;
-  right: 40px;
-  z-index: 5;
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 120ms ease, background 120ms ease;
-}
-.milkdown .milkdown-code-block:hover .zn-code-copy-btn { opacity: 1; }
-.milkdown .milkdown-code-block .zn-code-copy-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-secondary);
-}
-.milkdown .milkdown-code-block .zn-code-copy-btn svg { width: 14px; height: 14px; }
-.milkdown .milkdown-code-block .zn-code-copy-btn.zn-copied {
-  opacity: 1;
-  color: #16A34A;
-}
-
-/* ========================================
    Offscreen mermaid placeholder (lazy SVG detach)
    ======================================== */
 .zn-mermaid-lazy {

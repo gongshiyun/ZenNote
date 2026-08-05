@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: master
 nodes_managed: true
-exported_at: "2026-08-04T16:17:09Z"
+exported_at: "2026-08-05T17:11:30Z"
 modules:
     "":
-        dir_name: ZenNote 桌面应用根工程
-        title: ZenNote 桌面应用根工程
+        dir_name: ZenNote 项目根目录（Vite + Tauri 2 多子模块编排）
+        title: ZenNote 项目根目录（Vite + Tauri 2 多子模块编排）
         scope:
             - README.md
             - .gitignore

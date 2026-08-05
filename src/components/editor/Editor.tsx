@@ -535,6 +535,9 @@ export function Editor() {
               previewOnlyByDefault: true,
               // Replace Crepe's oneDark default theme (see znCodeHighlightStyle).
               theme: syntaxHighlighting(znCodeHighlightStyle),
+              // Crepe ships a built-in code-block copy button — localize its label
+              // (do NOT inject a second custom copy button; they would overlap).
+              copyText: t().editor.copyCode,
               // Honor the user's indent setting inside code blocks
               extensions: [
                 CMEditorState.tabSize.of(useStore.getState().tabSize),
@@ -1390,7 +1393,6 @@ export function Editor() {
 
         // Ensure every mermaid preview panel has a zoom button (re-add after re-renders).
         const ZOOM_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35M11 8v6M8 11h6"/></svg>';
-        const COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
         const lazyObserved = new WeakSet<HTMLElement>();
         const ensureCodeBlockExtras = () => {
           if (tokenRef.current !== token) return;
@@ -1405,27 +1407,10 @@ export function Editor() {
               panel.appendChild(btn);
             }
           });
-          // Copy button + offscreen observation on every code block.
+          // Offscreen observation on mermaid code blocks. (Code copying is covered
+          // by Crepe's built-in copy button — no custom injection here.)
           container.querySelectorAll(".milkdown-code-block").forEach((cbEl) => {
             const cb = cbEl as HTMLElement;
-            if (!cb.querySelector(".zn-code-copy-btn")) {
-              const btn = document.createElement("button");
-              btn.className = "zn-code-copy-btn";
-              btn.type = "button";
-              btn.title = t().editor.copyCode;
-              btn.innerHTML = COPY_ICON;
-              btn.addEventListener("click", (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const code = cb.querySelector(".cm-content")?.textContent
-                  ?? cb.querySelector(".preview pre")?.textContent ?? "";
-                navigator.clipboard.writeText(code).then(() => {
-                  btn.classList.add("zn-copied");
-                  window.setTimeout(() => btn.classList.remove("zn-copied"), 1200);
-                }).catch((err) => { console.warn("code-copy-failed", err); });
-              });
-              cb.appendChild(btn);
-            }
             if (cb.querySelector(".preview svg") && !lazyObserved.has(cb)) {
               lazyObserved.add(cb);
               lazyObserver.observe(cb);
