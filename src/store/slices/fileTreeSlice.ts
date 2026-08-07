@@ -15,6 +15,8 @@ export interface FileTreeSlice {
   setRecentWorkspaces: (paths: string[]) => void;
   removeRecentWorkspace: (path: string) => void;
   setTree: (tree: FileNode[]) => void;
+  /** Merge lazily-loaded children into the folder at `path` (lazy tree). */
+  setFolderChildren: (path: string, children: FileNode[]) => void;
   toggleFolder: (path: string) => void;
   setExpandedFolders: (paths: string[]) => void;
   setLoading: (loading: boolean) => void;
@@ -26,6 +28,22 @@ export interface OutlineSlice {
   activeHeadingId: string | null;
   setHeadings: (headings: Heading[]) => void;
   setActiveHeading: (id: string | null) => void;
+}
+
+// Immutably attach `children` to the folder node whose path matches, at any
+// depth. Reference-stable: subtrees that don't contain the target path are
+// returned as-is (keeps memoized tree nodes from re-rendering needlessly).
+function mergeChildren(nodes: FileNode[], path: string, children: FileNode[]): FileNode[] {
+  let changed = false;
+  const out = nodes.map(n => {
+    if (n.path === path) { changed = true; return { ...n, children }; }
+    if (n.isDir && n.children) {
+      const merged = mergeChildren(n.children, path, children);
+      if (merged !== n.children) { changed = true; return { ...n, children: merged }; }
+    }
+    return n;
+  });
+  return changed ? out : nodes;
 }
 
 export const createFileTreeSlice: StateCreator<FileTreeSlice, [], [], FileTreeSlice> = (set, get) => ({
@@ -44,6 +62,7 @@ export const createFileTreeSlice: StateCreator<FileTreeSlice, [], [], FileTreeSl
   setRecentWorkspaces: (paths) => set({ recentWorkspaces: paths }),
   removeRecentWorkspace: (path) => set({ recentWorkspaces: get().recentWorkspaces.filter(p => p !== path) }),
   setTree: (tree) => set({ tree }),
+  setFolderChildren: (path, children) => set({ tree: mergeChildren(get().tree, path, children) }),
   toggleFolder: (path) => {
     const expanded = [...get().expandedFolders];
     const idx = expanded.indexOf(path);

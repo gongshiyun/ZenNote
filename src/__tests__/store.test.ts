@@ -263,6 +263,51 @@ describe('FileTree Slice', () => {
     expect(useStore.getState().isLoading).toBe(false);
   });
 
+  describe('setFolderChildren (lazy tree merge)', () => {
+    beforeEach(() => {
+      useStore.setState({
+        tree: [
+          { name: 'a.md', path: '/ws/a.md', isDir: false },
+          {
+            name: 'dir', path: '/ws/dir', isDir: true,
+            children: [
+              { name: 'sub', path: '/ws/dir/sub', isDir: true }, // not loaded yet (no children key)
+            ],
+          },
+          { name: 'lazy', path: '/ws/lazy', isDir: true }, // children: undefined = not loaded
+        ],
+      });
+    });
+
+    it('attaches children to a top-level folder', () => {
+      useStore.getState().setFolderChildren('/ws/lazy', [{ name: 'note.md', path: '/ws/lazy/note.md', isDir: false }]);
+      const node = useStore.getState().tree.find(n => n.path === '/ws/lazy');
+      expect(node?.children).toHaveLength(1);
+      expect(node?.children?.[0].name).toBe('note.md');
+    });
+
+    it('attaches children to a NESTED folder', () => {
+      useStore.getState().setFolderChildren('/ws/dir/sub', [{ name: 'deep.md', path: '/ws/dir/sub/deep.md', isDir: false }]);
+      const dir = useStore.getState().tree.find(n => n.path === '/ws/dir');
+      const sub = dir?.children?.find(n => n.path === '/ws/dir/sub');
+      expect(sub?.children?.[0].name).toBe('deep.md');
+    });
+
+    it('leaves unrelated nodes untouched (same reference)', () => {
+      const before = useStore.getState().tree;
+      useStore.getState().setFolderChildren('/ws/lazy', []);
+      const after = useStore.getState().tree;
+      expect(after.find(n => n.path === '/ws/a.md')).toBe(before.find(n => n.path === '/ws/a.md'));
+      expect(after.find(n => n.path === '/ws/dir')).toBe(before.find(n => n.path === '/ws/dir'));
+    });
+
+    it('marks an empty folder as loaded (children = [])', () => {
+      useStore.getState().setFolderChildren('/ws/lazy', []);
+      const node = useStore.getState().tree.find(n => n.path === '/ws/lazy');
+      expect(node?.children).toEqual([]); // NOT undefined — spinner must stop
+    });
+  });
+
   it('setSelectedFile should update selected file', () => {
     useStore.getState().setSelectedFile('/test/note.md');
     expect(useStore.getState().selectedFilePath).toBe('/test/note.md');

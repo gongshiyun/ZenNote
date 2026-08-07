@@ -90,7 +90,7 @@ export function TabBar() {
                 requestClose(path);
               }}>
               <span className="zn-tab-dot" />
-              <svg className="zn-tab-x" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+              <svg className="zn-tab-x" width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
                 <path d="M2 2l6 6M8 2l-6 6" />
               </svg>
             </span>

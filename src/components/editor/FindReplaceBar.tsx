@@ -252,10 +252,10 @@ export function FindReplaceBar({ visible, onClose, preset, getPmView, getCmView 
         {invalidRegex ? t().find.invalidRegex : (matchCount > 0 ? (Math.max(currentIdx, 0) + 1) + "/" + matchCount : findText ? "0" : "")}
       </span>
       <button onClick={findPrev} title={t().find.previous + " (Shift+Enter)"} style={btnStyle}>
-        <svg width="12" height="12" viewBox="0 0 12 12"><polyline points="3,8 1,6 3,4" fill="none" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="6" x2="11" y2="6" stroke="currentColor" strokeWidth="1.5"/></svg>
+        <svg width="14" height="14" viewBox="0 0 12 12"><polyline points="3,8 1,6 3,4" fill="none" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="6" x2="11" y2="6" stroke="currentColor" strokeWidth="1.5"/></svg>
       </button>
       <button onClick={findNext} title={t().find.next + " (Enter)"} style={btnStyle}>
-        <svg width="12" height="12" viewBox="0 0 12 12"><polyline points="9,4 11,6 9,8" fill="none" stroke="currentColor" strokeWidth="1.5"/><line x1="11" y1="6" x2="1" y2="6" stroke="currentColor" strokeWidth="1.5"/></svg>
+        <svg width="14" height="14" viewBox="0 0 12 12"><polyline points="9,4 11,6 9,8" fill="none" stroke="currentColor" strokeWidth="1.5"/><line x1="11" y1="6" x2="1" y2="6" stroke="currentColor" strokeWidth="1.5"/></svg>
       </button>
       {/* Matching options */}
       <OptButton label="Aa" active={opts.caseSensitive} title={t().find.caseSensitive} onClick={() => toggleOpt("caseSensitive")} />
@@ -281,7 +281,7 @@ export function FindReplaceBar({ visible, onClose, preset, getPmView, getCmView 
       )}
       <div style={{ flex: 1 }} />
       <button onClick={onClose} title={t().find.previous + " (Esc)"} style={btnStyle}>
-        <svg width="12" height="12" viewBox="0 0 12 12"><line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" strokeWidth="1.5"/><line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" strokeWidth="1.5"/></svg>
+        <svg width="14" height="14" viewBox="0 0 12 12"><line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" strokeWidth="1.5"/><line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" strokeWidth="1.5"/></svg>
       </button>
     </div>
   );

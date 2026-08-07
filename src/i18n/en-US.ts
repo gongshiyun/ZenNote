@@ -24,9 +24,7 @@ const enUS = {
     "restore": "Restore",
     "close": "Close",
     "openFile": "Open File (Ctrl+O)",
-    "openFolder": "Open Folder (Ctrl+Shift+O)",
-    "typewriterMode": "Typewriter mode (keep caret line centered, blur the rest)",
-    "focusMode": "Focus mode (dim other blocks)"
+    "openFolder": "Open Folder (Ctrl+Shift+O)"
   },
   "statusbar": {
     "saved": "Saved",
@@ -113,8 +111,6 @@ const enUS = {
     "editorPadding": "Page side margins",
     "autoSaveDelay": "Auto-save delay",
     "defaultSourceMode": "Default source mode",
-    "typewriterMode": "Typewriter mode",
-    "focusMode": "Focus mode",
     "fileTree": "File Tree",
     "showHiddenFiles": "Show hidden files",
     "showFileExtensions": "Show file extensions",
@@ -146,10 +142,9 @@ const enUS = {
     "insertColLeft": "Insert column left",
     "insertColRight": "Insert column right",
     "deleteCol": "Delete column",
-    "mergeCells": "Merge cells",
-    "splitCell": "Split cell",
-    "toggleHeaderRow": "Toggle header row",
-    "toggleHeaderColumn": "Toggle header column",
+    "selectRow": "Select row",
+    "selectCol": "Select column",
+    "selectTable": "Select whole table",
     "deleteTable": "Delete table"
   },
   "find": {

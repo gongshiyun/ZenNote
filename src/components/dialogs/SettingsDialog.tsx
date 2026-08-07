@@ -35,10 +35,6 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const setTabSize = useStore(s => s.setTabSize);
   const editorPadding = useStore(s => s.editorPadding);
   const setEditorPadding = useStore(s => s.setEditorPadding);
-  const typewriterMode = useStore(s => s.typewriterMode);
-  const setTypewriterMode = useStore(s => s.setTypewriterMode);
-  const focusMode = useStore(s => s.focusMode);
-  const setFocusMode = useStore(s => s.setFocusMode);
   const autoSaveDelay = useStore(s => s.autoSaveDelay);
   const setAutoSaveDelay = useStore(s => s.setAutoSaveDelay);
   const showHiddenFiles = useStore(s => s.showHiddenFiles);
@@ -112,7 +108,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           }}
             onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
             onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
-            <svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="1" x2="13" y2="13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="13" y1="1" x2="1" y2="13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+            <svg width="16" height="16" viewBox="0 0 14 14"><line x1="1" y1="1" x2="13" y2="13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="13" y1="1" x2="1" y2="13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
           </button>
         </div>
 
@@ -222,12 +218,6 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             </Row>
             <Row label={t().settings.defaultSourceMode}>
               <Toggle checked={defaultSourceMode} onChange={setDefaultSourceMode} />
-            </Row>
-            <Row label={t().settings.typewriterMode}>
-              <Toggle checked={typewriterMode} onChange={setTypewriterMode} />
-            </Row>
-            <Row label={t().settings.focusMode}>
-              <Toggle checked={focusMode} onChange={setFocusMode} />
             </Row>
           </Section>
 

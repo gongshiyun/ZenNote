@@ -30,10 +30,6 @@ export function Titlebar() {
   const storeSetLocale = useStore(s => s.setLocale);
   const updateState = useStore(s => s.updateState);
   const updateVersion = useStore(s => s.updateVersion);
-  const typewriterMode = useStore(s => s.typewriterMode);
-  const setTypewriterMode = useStore(s => s.setTypewriterMode);
-  const focusMode = useStore(s => s.focusMode);
-  const setFocusMode = useStore(s => s.setFocusMode);
   const [isMaximized, setIsMaximized] = useState(false);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const themeMenuRef = useRef<HTMLDivElement>(null);
@@ -107,10 +103,6 @@ export function Titlebar() {
           )}
         </div>
         <TB tn={t().titlebar.settings} onClick={() => setSettingsVisible(true)}><SettingsIcon /></TB>
-        <div style={{ width: 1, height: 20, background: "var(--border)", margin: "0 4px" }} />
-        {/* Writing modes: typewriter (keep caret line centered) & focus (dim other blocks) */}
-        <TB tn={t().titlebar.typewriterMode} onClick={() => setTypewriterMode(!typewriterMode)} active={typewriterMode}><TypewriterIcon /></TB>
-        <TB tn={t().titlebar.focusMode} onClick={() => setFocusMode(!focusMode)} active={focusMode}><FocusIcon /></TB>
       </div>
       <div style={{ flex: 1, textAlign: "center", fontSize: 13, color: "var(--text-secondary)", pointerEvents: "none" }}>{fileName}</div>
       <div className="titlebar-no-drag" style={{ display: "flex", alignItems: "center", gap: 0 }}>
@@ -171,20 +163,16 @@ function WB(p: { children: React.ReactNode; onClick: () => void; tn?: string; is
     onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-secondary)"; }}>{p.children}</button>;
 }
 
-function SidebarIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="1" y="2" width="5" height="12" rx="1"/><rect x="8" y="2" width="7" height="12" rx="1"/></svg>); }
-function OutlineIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="2" y1="4" x2="14" y2="4"/><line x1="2" y1="8" x2="12" y2="8"/><line x1="2" y1="12" x2="10" y2="12"/></svg>); }
-function SettingsIcon() { return (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>); }
-function MinIcon() { return (<svg width="10" height="10" viewBox="0 0 10 10"><rect x="1" y="4.5" width="8" height="1" rx="0.5" fill="currentColor"/></svg>); }
-function MaxIcon() { return (<svg width="10" height="10" viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8" rx="1" fill="none" stroke="currentColor" strokeWidth="1"/></svg>); }
-function RestoreIcon() { return (<svg width="10" height="10" viewBox="0 0 10 10"><rect x="1" y="3" width="6" height="6" rx="1" fill="none" stroke="currentColor" strokeWidth="1"/><rect x="3" y="1" width="6" height="6" rx="1" fill="var(--bg-toolbar)" stroke="currentColor" strokeWidth="1"/></svg>); }
-function CloseIcon() { return (<svg width="10" height="10" viewBox="0 0 10 10"><line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>); }
-function PaletteIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M8 1.5a6.5 6.5 0 100 13c1.1 0 1.6-.7 1.6-1.5 0-.5-.2-.8-.5-1.1-.3-.3-.5-.6-.5-1.1 0-.8.7-1.5 1.5-1.5h1.4A3 3 0 0014.5 8c0-3.6-2.9-6.5-6.5-6.5z"/><circle cx="5.5" cy="6" r="0.9" fill="currentColor" stroke="none"/><circle cx="8" cy="4.5" r="0.9" fill="currentColor" stroke="none"/><circle cx="10.5" cy="6" r="0.9" fill="currentColor" stroke="none"/><circle cx="5" cy="9" r="0.9" fill="currentColor" stroke="none"/></svg>); }
-function ExportIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 10V2"/><path d="M4.5 5.5L8 2l3.5 3.5"/><path d="M2.5 12.5v1a1 1 0 001 1h9a1 1 0 001-1v-1"/></svg>); }
-// Typewriter mode: three text lines with a caret marker on the centered one.
-function TypewriterIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><line x1="3" y1="4" x2="13" y2="4" opacity="0.45"/><line x1="3" y1="8" x2="13" y2="8"/><line x1="3" y1="12" x2="13" y2="12" opacity="0.45"/><path d="M1.5 6.5v3" /><path d="M14.5 6.5v3"/></svg>); }
-// Focus mode: an eye (dim everything except the current block).
-function FocusIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M1.5 8s2.4-4.2 6.5-4.2S14.5 8 14.5 8s-2.4 4.2-6.5 4.2S1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>); }
-function UpdateIcon() { return (<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M13.5 8a5.5 5.5 0 11-1.6-3.9"/><path d="M13.5 2.5v2.6h-2.6"/></svg>); }
+function SidebarIcon() { return (<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="1" y="2" width="5" height="12" rx="1"/><rect x="8" y="2" width="7" height="12" rx="1"/></svg>); }
+function OutlineIcon() { return (<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="2" y1="4" x2="14" y2="4"/><line x1="2" y1="8" x2="12" y2="8"/><line x1="2" y1="12" x2="10" y2="12"/></svg>); }
+function SettingsIcon() { return (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>); }
+function MinIcon() { return (<svg width="12" height="12" viewBox="0 0 10 10"><rect x="1" y="4.5" width="8" height="1" rx="0.5" fill="currentColor"/></svg>); }
+function MaxIcon() { return (<svg width="12" height="12" viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8" rx="1" fill="none" stroke="currentColor" strokeWidth="1"/></svg>); }
+function RestoreIcon() { return (<svg width="12" height="12" viewBox="0 0 10 10"><rect x="1" y="3" width="6" height="6" rx="1" fill="none" stroke="currentColor" strokeWidth="1"/><rect x="3" y="1" width="6" height="6" rx="1" fill="var(--bg-toolbar)" stroke="currentColor" strokeWidth="1"/></svg>); }
+function CloseIcon() { return (<svg width="12" height="12" viewBox="0 0 10 10"><line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>); }
+function PaletteIcon() { return (<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M8 1.5a6.5 6.5 0 100 13c1.1 0 1.6-.7 1.6-1.5 0-.5-.2-.8-.5-1.1-.3-.3-.5-.6-.5-1.1 0-.8.7-1.5 1.5-1.5h1.4A3 3 0 0014.5 8c0-3.6-2.9-6.5-6.5-6.5z"/><circle cx="5.5" cy="6" r="0.9" fill="currentColor" stroke="none"/><circle cx="8" cy="4.5" r="0.9" fill="currentColor" stroke="none"/><circle cx="10.5" cy="6" r="0.9" fill="currentColor" stroke="none"/><circle cx="5" cy="9" r="0.9" fill="currentColor" stroke="none"/></svg>); }
+function ExportIcon() { return (<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 10V2"/><path d="M4.5 5.5L8 2l3.5 3.5"/><path d="M2.5 12.5v1a1 1 0 001 1h9a1 1 0 001-1v-1"/></svg>); }
+function UpdateIcon() { return (<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M13.5 8a5.5 5.5 0 11-1.6-3.9"/><path d="M13.5 2.5v2.6h-2.6"/></svg>); }
 
 // ---- Export Dropdown ----
 function ExportDropdown({ onSelect }: { onSelect: (kind: "html" | "pdf") => void }) {

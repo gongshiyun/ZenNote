@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: tauri_backend
-title: ZenNote Tauri 2 桌面后端
+title: ZenNote Tauri 桌面后端
 scope:
     - src-tauri/
 source_files: []

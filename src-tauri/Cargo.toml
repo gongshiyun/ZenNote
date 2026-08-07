@@ -1,6 +1,6 @@
 [package]
 name = "zennote"
-version = "0.8.5"
+version = "0.8.10"
 description = "ZenNote - 极简本地 Markdown 笔记"
 authors = ["ZenNote"]
 license = "MIT"

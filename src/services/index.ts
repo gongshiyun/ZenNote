@@ -10,6 +10,7 @@ export {
   renameFile,
   deleteFile,
   openWorkspace,
+  readDir,
 } from "./fileService";
 
 export { saveImage, resolveImageUrl } from "./imageService";

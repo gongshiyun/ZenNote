@@ -2,10 +2,12 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useStore } from "../../store";
 import { FindReplaceBar } from "./FindReplaceBar";
 import { TableContextMenu } from "./TableContextMenu";
+import { startTableDragSelect } from "./tableDragSelect";
+import type { SavedCellSelection } from "./tableCommands";
 import { SourceEditor } from "./SourceEditor";
 import { znFindKey, emptyFindState, type ZnFindState, type ZnFindMeta } from "./findState";
 import { isHttpUrl, collectMatchesFromDoc } from "../../lib/findQuery";
-import { caretCenterScrollTop } from "../../lib/typewriter";
+import { fitContainScale } from "../../lib/imageZoom";
 import { znCodeHighlightStyle } from "./codeHighlight";
 import { t } from "../../i18n";
 import { writeFile } from "../../services";
@@ -354,8 +356,6 @@ export function Editor() {
   const setScrollPosition = useStore(s => s.setScrollPosition);
   const setEditorRef = useStore(s => s.setEditorRef);
   const editorPadding = useStore(s => s.editorPadding);
-  const typewriterMode = useStore(s => s.typewriterMode);
-  const focusMode = useStore(s => s.focusMode);
   const resolvedMode = useStore(s => s.resolvedMode);
   const fontFamily = useStore(s => s.fontFamily);
   const setSourceMode = useStore(s => s.setSourceMode);
@@ -366,6 +366,9 @@ export function Editor() {
   // Table context menu state
   const [tableMenuVisible, setTableMenuVisible] = useState(false);
   const [tableMenuPos, setTableMenuPos] = useState({ x: 0, y: 0 });
+  // The multi-cell selection active when the table menu opened (re-applied
+  // before each command so row/column actions target the chosen cells).
+  const [tableMenuSel, setTableMenuSel] = useState<SavedCellSelection | null>(null);
   // Copy context menu state (right-click with text selected)
   const [copyMenuVisible, setCopyMenuVisible] = useState(false);
   const [copyMenuPos, setCopyMenuPos] = useState({ x: 0, y: 0 });
@@ -793,14 +796,11 @@ export function Editor() {
         // start of the doc, but we don't want the heading to show its "#" source yet.
         let hasInteracted = false;
         const computeFocusDecos = (state: any) => {
-          // Dimming applies to focus mode OR typewriter mode (Typora-style
-          // typewriter: centered caret line + everything else blurred/dimmed).
-          const dimOn = useStore.getState().focusMode || useStore.getState().typewriterMode;
           const decos: any[] = [];
           const sel = state.selection;
           if (!sel || !sel.empty) return DecorationSet.empty;
           const $head = sel.$head;
-          // Tables always stay fully rendered (neither source-reveal nor dimming).
+          // Tables always stay fully rendered (no source-reveal).
           let inTable = false;
           for (let d = $head.depth; d >= 1; d--) {
             const tn = $head.node(d).type.name;
@@ -808,7 +808,7 @@ export function Editor() {
           }
           if (inTable) return DecorationSet.empty;
 
-          // (A) Source-reveal highlight on the focused block (gated by interaction).
+          // Source-reveal highlight on the focused block (gated by interaction).
           if (hasInteracted) {
             let from = -1, nodeSize = 0;
             // Prefer the enclosing list_item / blockquote so the whole item/quote is highlighted
@@ -825,16 +825,6 @@ export function Editor() {
             if (from >= 0) decos.push(Decoration.node(from, from + nodeSize, { class: "zn-block-focused" }));
           }
 
-          // (B) Focus/typewriter: dim every top-level block except the one with the cursor.
-          if (dimOn && $head.depth >= 1) {
-            const topFrom = $head.before(1);
-            state.doc.forEach((node: any, offset: number) => {
-              if (offset !== topFrom) {
-                decos.push(Decoration.node(offset, offset + node.nodeSize, { class: "zn-dimmed" }));
-              }
-            });
-          }
-
           return decos.length ? DecorationSet.create(state.doc, decos) : DecorationSet.empty;
         };
         const focusDecoPlugin = new Plugin({
@@ -846,21 +836,6 @@ export function Editor() {
           props: {
             decorations(state: any) { return (this as any).getState(state); },
           },
-        });
-        // Typewriter mode (Typora-parity): keep the CARET LINE — not merely the
-        // enclosing block — vertically centered, so long paragraphs still keep
-        // the line being typed in the middle of the viewport.
-        const typewriterPlugin = new Plugin({
-          key: new PluginKey("znTypewriter"),
-          view: () => ({
-            update: (view: any, prevState: any) => {
-              if (!useStore.getState().typewriterMode) return;
-              // Only scroll when the cursor actually moved (selectionSet/docChanged
-              // are Transaction props, not on EditorState — compare selections).
-              if (view.state.selection.eq(prevState.selection)) return;
-              centerCaretLine(view);
-            },
-          }),
         });
         // Image alignment: decorate each image-block node with a class reflecting
         // its `align` attribute so CSS can position it (left/center/right).
@@ -1040,7 +1015,7 @@ export function Editor() {
         pmView.updateState(EditorState.create({
           doc: pmView.state.doc,
           selection: pmView.state.selection,
-          plugins: [...pmView.state.plugins, focusDecoPlugin, typewriterPlugin, imageAlignPlugin, tocRefreshPlugin, footnoteFlashPlugin, findPlugin, urlPastePlugin, ...(tocInputRulePlugin ? [tocInputRulePlugin] : []), ...(tocAutoConvertPlugin ? [tocAutoConvertPlugin] : [])],
+          plugins: [...pmView.state.plugins, focusDecoPlugin, imageAlignPlugin, tocRefreshPlugin, footnoteFlashPlugin, findPlugin, urlPastePlugin, ...(tocInputRulePlugin ? [tocInputRulePlugin] : []), ...(tocAutoConvertPlugin ? [tocAutoConvertPlugin] : [])],
         }));
         pmViewRef.current = pmView;
 
@@ -1269,18 +1244,40 @@ export function Editor() {
           cloned.style.maxWidth = "none";
           cloned.style.maxHeight = "none";
           cloned.style.flexShrink = "0";
-          if (target instanceof HTMLImageElement) {
-            // Images keep their intrinsic ratio; zoom scales them relative to
-            // the box width like diagrams.
-            (cloned as HTMLImageElement).draggable = false;
-          }
+          const imgEl = target instanceof HTMLImageElement ? (cloned as HTMLImageElement) : null;
+          if (imgEl) imgEl.draggable = false;
 
-          // Zoom (wheel) & pan (drag diagram) state. The SVG is sized as a percentage
-          // of the body so it scales with the resizable box; panning translates it.
+          // Zoom (wheel) & pan (drag diagram) state. Diagrams (SVG) are sized as
+          // a percentage of the body (viewBox keeps them undistorted); IMAGES are
+          // sized in px derived from their NATURAL dimensions so the intrinsic
+          // aspect ratio is never stretched by the box's own ratio.
           let zoom = 1, panX = 0, panY = 0;
+          let imgBaseW = 0, imgBaseH = 0;
+          const fitImageToBox = () => {
+            if (!imgEl) return;
+            const bodyRect = body.getBoundingClientRect();
+            const natW = imgEl.naturalWidth, natH = imgEl.naturalHeight;
+            // Fit inside the box without cropping; small images stay at true size.
+            const scale = fitContainScale(bodyRect.width, bodyRect.height, natW, natH);
+            if (!scale) return;
+            imgBaseW = natW * scale;
+            imgBaseH = natH * scale;
+          };
           const applyZoom = () => {
-            cloned.style.width = (100 * zoom) + "%";
-            cloned.style.height = (100 * zoom) + "%";
+            if (imgEl) {
+              if (!imgBaseW) fitImageToBox();
+              if (imgBaseW) {
+                imgEl.style.width = (imgBaseW * zoom) + "px";
+                imgEl.style.height = (imgBaseH * zoom) + "px";
+              } else {
+                // Metadata not ready yet — keep intrinsic sizing, never distort.
+                imgEl.style.width = "auto";
+                imgEl.style.height = "auto";
+              }
+            } else {
+              cloned.style.width = (100 * zoom) + "%";
+              cloned.style.height = (100 * zoom) + "%";
+            }
           };
           const applyPan = () => {
             cloned.style.transform = "translate(" + panX + "px, " + panY + "px)";
@@ -1357,6 +1354,13 @@ export function Editor() {
           document.body.appendChild(overlay);
           zoomOverlay = overlay;
           document.addEventListener("keydown", onZoomKeydown);
+          // Initial fit for images: the box only has real dimensions once it is
+          // in the DOM. Re-fit if the clone's metadata arrives late.
+          if (imgEl) {
+            fitImageToBox();
+            applyZoom();
+            imgEl.addEventListener("load", () => { fitImageToBox(); applyZoom(); });
+          }
         }
         // Expose zoom to effects registered outside this init closure (image click).
         openZoomRef.current = openZoom;
@@ -1473,28 +1477,6 @@ export function Editor() {
     return () => destroyEditor();
   }, [currentFilePath, sourceMode, reuseFailTick]);
 
-  // Typewriter centering: scroll the editor so the CARET LINE sits at the
-  // vertical middle of the viewport (Typora-parity). Uses coordsAtPos so it
-  // targets the exact line inside long paragraphs, not the whole block.
-  const centerCaretLine = useCallback((view: any) => {
-    try {
-      const container = containerRef.current;
-      const scrollEl = container ? editorScrollEl(container) : null;
-      if (!scrollEl || !view || typeof view.coordsAtPos !== "function") return;
-      const coords = view.coordsAtPos(view.state.selection.head);
-      if (!coords) return;
-      const rect = scrollEl.getBoundingClientRect();
-      const top = caretCenterScrollTop({
-        scrollTop: scrollEl.scrollTop,
-        viewportTop: rect.top,
-        viewportHeight: rect.height,
-        caretTop: coords.top,
-        caretBottom: coords.bottom,
-      });
-      scrollEl.scrollTo({ top, behavior: "smooth" });
-    } catch (err) { console.warn("typewriter-center-failed", err); }
-  }, []);
-
   // Locate the enclosing image-block node of an <img> (position + alignment).
   const readImageBlockAt = useCallback((img: HTMLElement): { pos: number; align: string } => {
     const pm = pmViewRef.current;
@@ -1510,6 +1492,16 @@ export function Editor() {
     } catch { return { pos: -1, align: "center" }; }
   }, []);
 
+  // Table-cell drag selection: Crepe's tableBlock node view stops ProseMirror
+  // from receiving mousedown inside cells (it turns every press into a
+  // NodeSelection), which breaks prosemirror-tables' built-in drag-select. We
+  // bind our own capture-phase handlers on the container instead.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || sourceMode || !editorReady) return;
+    return startTableDragSelect(container, () => pmViewRef.current);
+  }, [editorReady, sourceMode]);
+
   // Right-click context menu: table menu inside tables, image align menu on
   // images, copy menu on plain text selection.
   useEffect(() => {
@@ -1521,6 +1513,28 @@ export function Editor() {
       const cell = target.closest("th, td") as HTMLElement | null;
       if (cell && target.closest(".milkdown-table-block")) {
         e.preventDefault();
+        // Move the selection into the right-clicked cell FIRST: prosemirror
+        // table commands operate on the current selection, and a right-click
+        // does NOT move the caret — without this every menu command would run
+        // against the previous selection (or do nothing when it was outside
+        // the table).
+        // EXCEPTION: keep an existing multi-cell selection (CellSelection —
+        // detected via the prosemirror-tables $anchorCell getter) so
+        // merge/split still see the cells the user had selected.
+        const pm = pmViewRef.current;
+        const sel = pm?.state?.selection;
+        const isCellSelection = !!(sel && sel.$anchorCell);
+        // Snapshot the multi-cell selection NOW (while it is still alive) so
+        // merge/split can re-apply it at command time even if something
+        // collapses it while the menu is open.
+        setTableMenuSel(isCellSelection ? { anchor: sel.$anchorCell.pos, head: sel.$headCell.pos } : null);
+        if (pm && !isCellSelection && pmTextSelection) {
+          try {
+            const pos = pm.posAtDOM(cell, 0);
+            const clamped = Math.min(Math.max(pos, 0), pm.state.doc.content.size);
+            pm.dispatch(pm.state.tr.setSelection(pmTextSelection.create(pm.state.doc, clamped)));
+          } catch (err) { console.warn("table-menu-select-failed", err); }
+        }
         setCopyMenuVisible(false);
         setTableMenuPos({ x: e.clientX, y: e.clientY });
         setTableMenuVisible(true);
@@ -1588,19 +1602,6 @@ export function Editor() {
   // switch would otherwise leave the old-colored SVGs in place. The .preview
   // container is opaque to ProseMirror (Milkdown itself fills it via innerHTML),
   // so replacing the SVG there is safe.
-  // When focus/typewriter mode is toggled, force the decoration plugin to
-  // recompute (it only runs on transactions) and center the cursor immediately
-  // for typewriter mode.
-  useEffect(() => {
-    if (!editorReady || sourceMode) return;
-    const pm = pmViewRef.current;
-    if (!pm) return;
-    try {
-      pm.dispatch(pm.state.tr.setMeta("znModeToggle", true));
-      if (typewriterMode) centerCaretLine(pm);
-    } catch (err) { console.warn("focus-mode-scroll-failed", err); }
-  }, [focusMode, typewriterMode, editorReady, sourceMode, centerCaretLine]);
-
   const mermaidThemeFontFirstRun = useRef(true);
   useEffect(() => {
     // Debug logger (writes to export-debug.log so we can diagnose in release builds)
@@ -1809,6 +1810,7 @@ export function Editor() {
         position={tableMenuPos}
         onClose={() => setTableMenuVisible(false)}
         crepeRef={crepeRef}
+        savedSelection={tableMenuSel}
       />
       {/* Copy context menu (right-click with selection) */}
       {copyMenuVisible && (
@@ -1862,7 +1864,7 @@ function CopyMenuItem({ label, onClick }: { label: string; onClick: () => void }
 function AlignIcon({ dir }: { dir: "left" | "center" | "right" }) {
   const x = dir === "left" ? 2 : dir === "center" ? 5 : 8;
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
       <line x1="2" y1="3.5" x2="14" y2="3.5" />
       <line x1={x} y1="8" x2={x + 6} y2="8" />
       <line x1="2" y1="12.5" x2="14" y2="12.5" />

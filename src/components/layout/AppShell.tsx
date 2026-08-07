@@ -54,8 +54,6 @@ function useWindowPersistence() {
           themeId: s.themeId,
           fontFamily: s.fontFamily,
           editorPadding: s.editorPadding,
-          typewriterMode: s.typewriterMode,
-          focusMode: s.focusMode,
           autoCheckUpdate: s.autoCheckUpdate,
           updateCheckInterval: s.updateCheckInterval,
           sidebarVisible: s.sidebarVisible,
@@ -78,22 +76,24 @@ function useWindowPersistence() {
       if (data.themeId) useStore.getState().setThemeId(data.themeId);
       if (data.fontFamily) useStore.getState().setFontFamily(data.fontFamily);
       if (typeof data.editorPadding === "number") useStore.getState().setEditorPadding(data.editorPadding);
-      if (typeof data.typewriterMode === "boolean") useStore.getState().setTypewriterMode(data.typewriterMode);
-      if (typeof data.focusMode === "boolean") useStore.getState().setFocusMode(data.focusMode);
       if (typeof data.autoCheckUpdate === "boolean") useStore.getState().setAutoCheckUpdate(data.autoCheckUpdate);
       if (typeof data.updateCheckInterval === "number") useStore.getState().setUpdateCheckInterval(data.updateCheckInterval);
       if (data.workspacePath) {
         useStore.getState().setWorkspace(data.workspacePath);
         if (Array.isArray(data.openTabs)) useStore.getState().setOpenTabs(data.openTabs.filter((p: unknown) => typeof p === "string"));
+        // Show the loading spinner while the restored workspace is listed.
+        useStore.getState().setTree([]);
+        useStore.getState().setLoading(true);
         fs.openWorkspace(data.workspacePath).then(tree => {
           useStore.getState().setTree(tree);
+          useStore.getState().setLoading(false);
           if (data.currentFilePath) {
             fs.readFile(data.currentFilePath).then(content => {
               useStore.getState().setSelectedFile(data.currentFilePath);
               useStore.getState().setCurrentFile(data.currentFilePath, content);
             }).catch(() => {});
           }
-        }).catch(() => {});
+        }).catch(() => { useStore.getState().setLoading(false); });
       }
     } catch { /* */ }
   }, []);
@@ -206,10 +206,14 @@ export function AppShell() {
             if (folder && typeof folder === "string") {
               const s = useStore.getState();
               s.setWorkspace(folder);
+              // Clear the previous workspace's tree immediately so the panel
+              // shows the loading spinner instead of stale content.
+              s.setTree([]);
               s.setLoading(true);
-              const t = await fs.openWorkspace(folder);
-              s.setTree(t);
-              s.setLoading(false);
+              try {
+                const t = await fs.openWorkspace(folder);
+                s.setTree(t);
+              } catch { s.setTree([]); } finally { s.setLoading(false); }
             }
           } catch {}
         })();
@@ -301,12 +305,16 @@ function WelcomeScreen() {
       const folder = await open({ directory: true, multiple: false, title: t().welcome.openFolder });
       if (folder && typeof folder === "string") {
         setWorkspace(folder);
+        useStore.getState().setTree([]);
         setLoading(true);
         setLoadingState(true);
-        const tree = await fs.openWorkspace(folder);
-        setTree(tree);
-        setLoading(false);
-        setLoadingState(false);
+        try {
+          const tree = await fs.openWorkspace(folder);
+          setTree(tree);
+        } catch { setTree([]); } finally {
+          setLoading(false);
+          setLoadingState(false);
+        }
       }
     } catch {
       const path = prompt("Workspace path:");

@@ -26,7 +26,11 @@ fn open_workspace(path: String) -> Result<Vec<FileNode>, String> {
     if !root.is_dir() {
         return Err("路径不是文件夹".into());
     }
-    build_tree(root)
+    // SHALLOW listing only: sub-folders come back with children = None
+    // ("not loaded yet") and are populated on demand via read_dir. This keeps
+    // opening a huge workspace (e.g. a whole drive) near-instant instead of
+    // walking millions of entries up front.
+    list_dir(root)
 }
 
 #[tauri::command]
@@ -101,7 +105,10 @@ fn write_file_binary(path: String, bytes: Vec<u8>) -> Result<(), String> {
 
 // ---- Tree builder ----
 
-fn build_tree(root: &Path) -> Result<Vec<FileNode>, String> {
+/// List ONE directory level. Sub-directories are returned with
+/// `children: None` meaning "not loaded yet" (lazy loading marker); the
+/// frontend requests them via `read_dir` when the user expands the folder.
+fn list_dir(root: &Path) -> Result<Vec<FileNode>, String> {
     let mut nodes: Vec<FileNode> = Vec::new();
 
     for entry in WalkDir::new(root)
@@ -124,12 +131,11 @@ fn build_tree(root: &Path) -> Result<Vec<FileNode>, String> {
         }
 
         if path.is_dir() {
-            let children = build_tree(path)?;
             nodes.push(FileNode {
                 name,
                 path: path.to_string_lossy().to_string(),
                 is_dir: true,
-                children: Some(children),
+                children: None, // lazy: load via read_dir on expand
             });
         } else if path.extension().map_or(false, |ext| ext == "md") {
             nodes.push(FileNode {
@@ -142,6 +148,16 @@ fn build_tree(root: &Path) -> Result<Vec<FileNode>, String> {
     }
 
     Ok(nodes)
+}
+
+/// Load the immediate children of a folder on demand (lazy tree loading).
+#[tauri::command]
+fn read_dir(path: String) -> Result<Vec<FileNode>, String> {
+    let dir = Path::new(&path);
+    if !dir.exists() || !dir.is_dir() {
+        return Err(format!("文件夹不存在: {}", path));
+    }
+    list_dir(dir)
 }
 
 // ---- Workspace search (Rust-side, replaces the old per-file JS traversal) ----
@@ -490,6 +506,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             open_workspace,
+            read_dir,
             read_file,
             write_file,
             create_file,
@@ -585,6 +602,39 @@ mod tests {
         let hits = search_workspace(dir.to_string_lossy().to_string(), "hello".into(), None).unwrap();
         assert!(hits.iter().any(|h| h.file_name == "visible.md"));
         assert!(!hits.iter().any(|h| h.file_path.contains(".git")));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn open_workspace_is_shallow_and_read_dir_lazy_loads() {
+        let dir = std::env::temp_dir().join(format!("zennote-lazy-tree-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("sub").join("deep")).unwrap();
+        fs::write(dir.join("top.md"), "x").unwrap();
+        fs::write(dir.join("sub").join("nested.md"), "x").unwrap();
+        fs::write(dir.join("sub").join("deep").join("deepest.md"), "x").unwrap();
+        fs::write(dir.join("ignored.txt"), "x").unwrap();
+        let root = dir.to_string_lossy().to_string();
+
+        // open_workspace lists only the FIRST level; folders are lazy markers.
+        let top = open_workspace(root.clone()).unwrap();
+        let sub = top.iter().find(|n| n.name == "sub").unwrap();
+        assert!(sub.is_dir);
+        assert!(sub.children.is_none()); // NOT pre-loaded
+        assert!(top.iter().any(|n| n.name == "top.md" && !n.is_dir));
+        assert!(!top.iter().any(|n| n.name == "ignored.txt"));
+
+        // read_dir loads one level on demand, again lazily below.
+        let lvl1 = read_dir(sub.path.clone()).unwrap();
+        let deep = lvl1.iter().find(|n| n.name == "deep").unwrap();
+        assert!(deep.children.is_none());
+        assert!(lvl1.iter().any(|n| n.name == "nested.md"));
+        let lvl2 = read_dir(deep.path.clone()).unwrap();
+        assert!(lvl2.iter().any(|n| n.name == "deepest.md"));
+
+        // read_dir rejects missing folders.
+        assert!(read_dir(format!("{}{}nope", root, std::path::MAIN_SEPARATOR)).is_err());
 
         let _ = fs::remove_dir_all(&dir);
     }

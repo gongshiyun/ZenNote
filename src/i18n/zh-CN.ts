@@ -24,9 +24,7 @@ const zhCN = {
     "restore": "还原",
     "close": "关闭",
     "openFile": "打开文件 (Ctrl+O)",
-    "openFolder": "打开文件夹 (Ctrl+Shift+O)",
-    "typewriterMode": "打字机模式（光标行居中，弱化其他内容）",
-    "focusMode": "专注模式（弱化其他段落）"
+    "openFolder": "打开文件夹 (Ctrl+Shift+O)"
   },
   "statusbar": {
     "saved": "已保存",
@@ -113,8 +111,6 @@ const zhCN = {
     "editorPadding": "页面左右边距",
     "autoSaveDelay": "自动保存延迟",
     "defaultSourceMode": "默认源码模式",
-    "typewriterMode": "打字机模式",
-    "focusMode": "专注模式",
     "fileTree": "文件树",
     "showHiddenFiles": "显示隐藏文件",
     "showFileExtensions": "显示文件扩展名",
@@ -146,10 +142,9 @@ const zhCN = {
     "insertColLeft": "在左侧插入列",
     "insertColRight": "在右侧插入列",
     "deleteCol": "删除列",
-    "mergeCells": "合并单元格",
-    "splitCell": "拆分单元格",
-    "toggleHeaderRow": "切换表头行",
-    "toggleHeaderColumn": "切换表头列",
+    "selectRow": "选择行",
+    "selectCol": "选择列",
+    "selectTable": "选择整个表格",
     "deleteTable": "删除表格"
   },
   "find": {

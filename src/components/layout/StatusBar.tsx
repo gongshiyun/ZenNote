@@ -41,7 +41,7 @@ export function StatusBar() {
         }}
         onMouseEnter={e => { if (!sourceMode) e.currentTarget.style.background = "var(--bg-hover)"; }}
         onMouseLeave={e => { if (!sourceMode) e.currentTarget.style.background = "transparent"; }}>
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="3,6 1,8 3,10"/><polyline points="13,6 15,8 13,10"/><line x1="6" y1="3" x2="10" y2="13"/></svg>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="3,6 1,8 3,10"/><polyline points="13,6 15,8 13,10"/><line x1="6" y1="3" x2="10" y2="13"/></svg>
         {sourceMode ? t().statusbar.source : t().statusbar.preview}
       </button>
       <span style={{ color: "var(--border)" }}>|</span>

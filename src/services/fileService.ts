@@ -40,3 +40,11 @@ export function deleteFile(path: string): Promise<void> {
 export function openWorkspace(path: string): Promise<FileNode[]> {
   return invoke<FileNode[]>("open_workspace", { path });
 }
+
+/**
+ * Load ONE folder level on demand (lazy tree loading). The workspace listing
+ * is shallow; sub-folder children arrive through this call when expanded.
+ */
+export function readDir(path: string): Promise<FileNode[]> {
+  return invoke<FileNode[]>("read_dir", { path });
+}

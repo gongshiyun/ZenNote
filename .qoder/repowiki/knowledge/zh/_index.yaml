@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: master
 nodes_managed: true
-exported_at: "2026-08-05T17:11:30Z"
+exported_at: "2026-08-06T13:21:41Z"
 modules:
     "":
-        dir_name: ZenNote 项目根目录（Vite + Tauri 2 多子模块编排）
-        title: ZenNote 项目根目录（Vite + Tauri 2 多子模块编排）
+        dir_name: ZenNote 根项目（React + Tauri Markdown 笔记应用）
+        title: ZenNote 根项目（React + Tauri Markdown 笔记应用）
         scope:
             - README.md
             - .gitignore
@@ -39,8 +39,8 @@ modules:
             - path: frontend_app
             - path: tauri_backend
     frontend_app:
-        dir_name: ZenNote 前端应用（React + Vite + Zustand Markdown 编辑器）
-        title: ZenNote 前端应用（React + Vite + Zustand Markdown 编辑器）
+        dir_name: ZenNote 前端应用（React + Tauri Markdown 编辑器）
+        title: ZenNote 前端应用（React + Tauri Markdown 编辑器）
         scope:
             - src/
         source_files: []
@@ -49,8 +49,8 @@ modules:
         related_to:
             - path: docs
     tauri_backend:
-        dir_name: ZenNote Tauri 2 桌面后端
-        title: ZenNote Tauri 2 桌面后端
+        dir_name: ZenNote Tauri 桌面后端
+        title: ZenNote Tauri 桌面后端
         scope:
             - src-tauri/
         source_files: []

@@ -97,11 +97,14 @@ export function FileTree() {
   const setTree = useStore(s => s.setTree);
   const recentWorkspaces = useStore(s => s.recentWorkspaces);
   const removeRecentWorkspace = useStore(s => s.removeRecentWorkspace);
+  const isLoading = useStore(s => s.isLoading);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [focusIndex, setFocusIndex] = useState(-1);
   const [showWorkspaces, setShowWorkspaces] = useState(false);
   const treeRef = useRef<HTMLDivElement>(null);
   const workspaceAreaRef = useRef<HTMLDivElement>(null);
+  // Folders whose children are currently being fetched (dedupe guard).
+  const loadingFoldersRef = useRef(new Set<string>());
 
   const flatNodes = useMemo(() => flattenTree(tree, expandedFolders), [tree, expandedFolders]);
 
@@ -112,6 +115,22 @@ export function FileTree() {
       setTree(t);
     } catch { /* */ }
   }, [workspacePath, setTree]);
+
+  // Lazy tree: load ONE folder level on demand when it gets expanded.
+  // children === null marks "not loaded yet"; on failure treat as empty so the
+  // spinner never sticks.
+  const loadChildren = useCallback(async (path: string) => {
+    if (loadingFoldersRef.current.has(path)) return;
+    loadingFoldersRef.current.add(path);
+    try {
+      const children = await fs.readDir(path);
+      useStore.getState().setFolderChildren(path, children);
+    } catch {
+      useStore.getState().setFolderChildren(path, []);
+    } finally {
+      loadingFoldersRef.current.delete(path);
+    }
+  }, []);
 
   const openFile = useCallback(async (filePath: string) => {
     setSelectedFile(filePath);
@@ -165,9 +184,12 @@ export function FileTree() {
   }, [refreshTree]);
 
   // Switch to a workspace: update current + recents, then load its tree.
+  // The OLD tree is cleared IMMEDIATELY so the panel never keeps showing the
+  // previous workspace while the new listing loads (spinner instead).
   const switchWorkspace = useCallback(async (path: string) => {
     const store = useStore.getState();
     store.setWorkspace(path);
+    store.setTree([]);
     store.setLoading(true);
     try {
       const t = await fs.openWorkspace(path);
@@ -192,7 +214,9 @@ export function FileTree() {
         const inCurrent = isWithinWorkspace(parent, ws);
         if (!inCurrent) {
           store.setWorkspace(parent);
-          try { const t = await fs.openWorkspace(parent); store.setTree(t); } catch {}
+          store.setTree([]);
+          store.setLoading(true);
+          try { const t = await fs.openWorkspace(parent); store.setTree(t); } catch { store.setTree([]); } finally { store.setLoading(false); }
         }
       }
     } catch { /* */ }
@@ -276,7 +300,7 @@ export function FileTree() {
         <HeaderBtn title={t().filetree.openFolder} onClick={handleOpenFolderDialog}><OpenFolderIcon /></HeaderBtn>
         <div style={{ flex: 1 }} />
         <HeaderBtn title={t().filetree.newNote + " (Ctrl+N)"} onClick={() => handleNewFile()}>
-          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+          <svg width="17" height="17" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
             <path d="M7.5 2.5v10M2.5 7.5h10" />
           </svg>
         </HeaderBtn>
@@ -302,7 +326,12 @@ export function FileTree() {
       </div>
 
       <div ref={treeRef} tabIndex={0} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "4px 0", outline: "none" }}>
-        {tree.length === 0 ? (
+        {isLoading ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "28px 12px", fontSize: 12, color: "var(--text-tertiary)" }}>
+            <div className="zn-spinner" style={{ width: 22, height: 22 }} />
+            <span>{t().welcome.loadingWorkspace}</span>
+          </div>
+        ) : tree.length === 0 ? (
           <div style={{ padding: "16px 12px", fontSize: 12, color: "var(--text-tertiary)", textAlign: "center" }}>{t().filetree.noNotes}</div>
         ) : (
           tree.map((node) => (
@@ -310,7 +339,7 @@ export function FileTree() {
               selectedFilePath={selectedFilePath} expandedFolders={expandedFolders}
               onToggle={toggleFolder} onSelect={openFile}
               onContextMenu={handleContextMenu} focusIndex={focusIndex}
-              flatNodes={flatNodes} />
+              flatNodes={flatNodes} onLoadChildren={loadChildren} />
           ))
         )}
       </div>
@@ -324,17 +353,23 @@ export function FileTree() {
 }
 
 // ---- FileTreeNode (memoized — avoids re-rendering the whole tree on unrelated state changes) ----
-const FileTreeNode = memo(function FileTreeNode({ node, depth, selectedFilePath, expandedFolders, onToggle, onSelect, onContextMenu, focusIndex, flatNodes }: {
+const FileTreeNode = memo(function FileTreeNode({ node, depth, selectedFilePath, expandedFolders, onToggle, onSelect, onContextMenu, focusIndex, flatNodes, onLoadChildren }: {
   node: FileNode; depth: number; selectedFilePath: string | null;
   expandedFolders: string[]; onToggle: (p: string) => void; onSelect: (p: string) => void;
   onContextMenu: (e: React.MouseEvent, n: FileNode) => void;
-  focusIndex: number; flatNodes: FileNode[];
+  focusIndex: number; flatNodes: FileNode[]; onLoadChildren: (p: string) => void;
 }) {
   const isExpanded = expandedFolders.includes(node.path);
   const isSelected = selectedFilePath === node.path;
   const nodeIndex = flatNodes.findIndex(n => n.path === node.path);
   const isFocused = focusIndex === nodeIndex;
   const pl = 12 + depth * 12;
+  // Lazy tree: an expanded folder whose children haven't been fetched yet
+  // (children === null) triggers an on-demand load exactly once.
+  const needsLoad = node.isDir && isExpanded && node.children == null;
+  useEffect(() => {
+    if (needsLoad) onLoadChildren(node.path);
+  }, [needsLoad, node.path, onLoadChildren]);
 
   return (
     <>
@@ -348,11 +383,18 @@ const FileTreeNode = memo(function FileTreeNode({ node, depth, selectedFilePath,
         <span style={{ marginRight: 4, flexShrink: 0 }}>{node.isDir ? "\uD83D\uDCC1" : "\uD83D\uDCC4"}</span>
         <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{node.name}</span>
       </div>
-      {node.isDir && isExpanded && node.children?.map(child => (
-        <FileTreeNode key={child.path} node={child} depth={depth + 1}
-          selectedFilePath={selectedFilePath} expandedFolders={expandedFolders}
-          onToggle={onToggle} onSelect={onSelect} onContextMenu={onContextMenu}
-          focusIndex={focusIndex} flatNodes={flatNodes} />
+      {node.isDir && isExpanded && (node.children ? (
+        node.children.map(child => (
+          <FileTreeNode key={child.path} node={child} depth={depth + 1}
+            selectedFilePath={selectedFilePath} expandedFolders={expandedFolders}
+            onToggle={onToggle} onSelect={onSelect} onContextMenu={onContextMenu}
+            focusIndex={focusIndex} flatNodes={flatNodes} onLoadChildren={onLoadChildren} />
+        ))
+      ) : (
+        <div style={{ height: 28, display: "flex", alignItems: "center", paddingLeft: pl + 16, gap: 6, fontSize: 12, color: "var(--text-tertiary)" }}>
+          <div className="zn-spinner" style={{ width: 12, height: 12 }} />
+          <span>{t().search.searching}</span>
+        </div>
       ))}
     </>
   );
@@ -366,5 +408,5 @@ function HeaderBtn(p: { children: React.ReactNode; onClick: () => void; title?: 
   return <button className="zn-header-btn" onClick={p.onClick} title={p.title}>{p.children}</button>;
 }
 
-function OpenFileIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 2h4l2 2h5a1 1 0 011 1v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z"/></svg>); }
-function OpenFolderIcon() { return (<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2 4a1 1 0 011-1h3l2 2h5a1 1 0 011 1v6a1 1 0 01-1 1H3a1 1 0 01-1-1V4z"/><rect x="6" y="10" width="4" height="3" rx="0.5" fill="currentColor"/></svg>); }
+function OpenFileIcon() { return (<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 2h4l2 2h5a1 1 0 011 1v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z"/></svg>); }
+function OpenFolderIcon() { return (<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2 4a1 1 0 011-1h3l2 2h5a1 1 0 011 1v6a1 1 0 01-1 1H3a1 1 0 01-1-1V4z"/><rect x="6" y="10" width="4" height="3" rx="0.5" fill="currentColor"/></svg>); }
