@@ -201,6 +201,33 @@ describe('table drag selection', () => {
     expect(view.focus).toHaveBeenCalled();
   });
 
+  it('a plain click places the caret at the EXACT offset, not the cell/paragraph start', () => {
+    // Regression: posAtCoords also reports `inside` — the START of the
+    // enclosing block — and an earlier version used it, snapping every caret
+    // to the left edge of the cell. Multi-character cell makes the exact
+    // offset observable.
+    const doc2 = schema.nodes.doc.create(null, [
+      table.create(null, [row.create(null, [textCell(cell, 'hello'), textCell(cell, 'world')])]),
+    ]);
+    const starts: number[] = [];
+    doc2.descendants((n: any, pos: number) => {
+      if (n.type.name === 'table_cell') starts.push(pos);
+    });
+    // Click after "he" in the first cell: exact pos = starts[0]+1+2, while
+    // `inside` points at the wrapping paragraph start (starts[0]+1).
+    const view = makeView({
+      '120,100': { pos: starts[0] + 3, inside: starts[0] + 1 },
+    }, doc2);
+    const h = createTableDragHandlers(() => view);
+
+    h.mousedown(mouseEvent({ clientX: 120, clientY: 100 }));
+    h.mouseup(mouseEvent({ clientX: 120, clientY: 100 }));
+
+    expect(view.state.selection).toBeInstanceOf(TextSelection);
+    expect(view.state.selection.from).toBe(starts[0] + 3); // NOT the paragraph start
+    expect(view.focus).toHaveBeenCalled();
+  });
+
   it('dragging past the table edge keeps the current selection (no crash)', () => {
     const starts = cellNodeStarts(makeDoc());
     const posMap = {

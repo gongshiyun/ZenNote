@@ -817,10 +817,32 @@
 }
 
 /* ========================================
-   Table: multi-cell selection & header cells
+   Table: layout, multi-cell selection & header cells
    (Milkdown ships tables.css but the app never loads it — these rules are
    the editor-side complement so CellSelection and th are actually visible.)
    ======================================== */
+
+/* Text wrapping inside cells: prosemirror-tables' tables.css forces
+   `table-layout: fixed; width: 100%` on `.ProseMirror table`, but Crepe's
+   tableBlock node view renders the <table> inside its OWN DOM where
+   `.ProseMirror` is NOT an ancestor — so that rule never applies and the
+   table stretches to fit content (no wrapping, editor overflows). Replicate
+   the layout here so long text wraps inside the column width instead. */
+.milkdown .milkdown-table-block .table-wrapper {
+  overflow-x: auto;
+}
+.milkdown .milkdown-table-block table.children {
+  table-layout: fixed;
+  width: 100%;
+  border-collapse: collapse;
+}
+.milkdown .milkdown-table-block td,
+.milkdown .milkdown-table-block th {
+  vertical-align: top;
+  word-break: normal; /* keep CJK wrapping at natural break points */
+  overflow-wrap: anywhere; /* still break extremely long tokens (URLs etc.) */
+}
+
 .milkdown .tableWrapper td,
 .milkdown .tableWrapper th,
 .milkdown .table-wrapper td,

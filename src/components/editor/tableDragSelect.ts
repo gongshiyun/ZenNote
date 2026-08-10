@@ -140,11 +140,14 @@ export function createTableDragHandlers(getView: () => any | null): TableDragHan
     drag = null;
     if (!state.active) {
       // A plain click: place the caret where the user pressed (ProseMirror
-      // never saw the mousedown, so we do its default job here).
+      // never saw the mousedown, so we do its default job here). Use
+      // posAtCoords' `pos` — the EXACT character offset — and NOT `inside`
+      // (that is the start of the enclosing block, which would drop the caret
+      // at the left edge of the cell on every click).
       try {
-        const pos = state.view.posAtCoords({ left: e.clientX, top: e.clientY });
-        if (pos) {
-          const $pos = state.view.state.doc.resolve(pos.inside >= 0 ? pos.inside : pos.pos);
+        const coords = state.view.posAtCoords({ left: e.clientX, top: e.clientY });
+        if (coords) {
+          const $pos = state.view.state.doc.resolve(coords.pos);
           state.view.dispatch(
             state.view.state.tr.setSelection(TextSelection.near($pos, 1))
           );
