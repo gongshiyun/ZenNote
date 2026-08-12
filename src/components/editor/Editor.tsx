@@ -745,7 +745,7 @@ export function Editor() {
                 const child = mdNode.children[i];
                 if (child.type === "paragraph" && child.position) {
                   const c = child.children;
-                  if (c && c.length === 1 && c[0].type === "text" && /^[\[【［]\s*toc\s*[\]】］]$/i.test(String(c[0].value).trim())) {
+                  if (c && c.length === 1 && c[0].type === "text" && /^[[【［]\s*toc\s*[\]】］]$/i.test(String(c[0].value).trim())) {
                     mdNode.children[i] = { type: "zn_toc" };
                     continue;
                   }
@@ -969,7 +969,7 @@ export function Editor() {
             rules: [
               // Fullwidth brackets (【［】］) are accepted too — they are easy to
               // type by accident under a Chinese IME.
-              new InputRule(/^[\[【［]\s*toc\s*[\]】］]$/i, (state: any, _match: any, start: number, end: number) => {
+              new InputRule(/^[[【［]\s*toc\s*[\]】］]$/i, (state: any, _match: any, start: number, end: number) => {
                 const $start = state.doc.resolve(start);
                 if ($start.parent.type.name !== "paragraph") return null;
                 const paraStart = $start.before();
@@ -987,7 +987,7 @@ export function Editor() {
         let tocAutoConvertPlugin: any = null;
         if (pmView.state.schema.nodes.zn_toc) {
           const tocType = pmView.state.schema.nodes.zn_toc;
-          const TOC_PARA_RE = /^[\[【［]\s*toc\s*[\]】］]$/i;
+          const TOC_PARA_RE = /^[[【［]\s*toc\s*[\]】］]$/i;
           tocAutoConvertPlugin = new Plugin({
             key: new PluginKey("znTocAutoConvert"),
             view: () => ({
@@ -1475,7 +1475,7 @@ export function Editor() {
     }
 
     return () => destroyEditor();
-  }, [currentFilePath, sourceMode, reuseFailTick]);
+  }, [currentFilePath, sourceMode, reuseFailTick, setCursorPosition, setEditorRef]);
 
   // Locate the enclosing image-block node of an <img> (position + alignment).
   const readImageBlockAt = useCallback((img: HTMLElement): { pos: number; align: string } => {

@@ -6,7 +6,8 @@
  * Extract the parent directory from a file path (handles both / and \ separators).
  */
 export function parentDir(filePath: string): string {
-  return filePath.replace(/[\\/][^\\/]+$/, "");
+  const idx = Math.max(filePath.lastIndexOf("\\"), filePath.lastIndexOf("/"));
+  return idx === -1 ? "" : filePath.slice(0, idx);
 }
 
 /**

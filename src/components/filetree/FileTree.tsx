@@ -253,7 +253,10 @@ export function FileTree() {
       if (e.key === "Enter" && focusIndex >= 0) {
         e.preventDefault();
         const node = flatNodes[focusIndex];
-        if (node) node.isDir ? toggleFolder(node.path) : openFile(node.path);
+        if (node) {
+          if (node.isDir) toggleFolder(node.path);
+          else openFile(node.path);
+        }
         return;
       }
       if (e.key === "ArrowRight" && focusIndex >= 0) {

@@ -69,29 +69,17 @@ ZenNote 是一款纯本地的 Markdown 书写工具：**打开就用，写完就
 
 ## 技术栈
 
-| 层面          | 技术                                        |
-| ----------- | ----------------------------------------- |
-| 桌面框架        | [Tauri 2](https://tauri.app/) (Rust)      |
-| 前端          | React 19 + TypeScript                     |
+| 层面 | 技术 |
+| --- | --- |
+| 桌面框架 | [Tauri 2](https://tauri.app/) (Rust) |
+| 前端 | React 19 + TypeScript |
 | Markdown 引擎 | [Milkdown](https://milkdown.dev/) (Crepe) |
-| 源码编辑器       | CodeMirror 6                              |
-| 图表          | Mermaid 11                                |
-
-KaTeX
-
-Tailwind CSS 4
-
-Zustand
-
-Vite 8
-
-| <br /> | <br /> |
-| ------ | ------ |
-| <br /> | <br /> |
-| 数学公式   | <br /> |
-| 样式     | <br /> |
-| 状态管理   | <br /> |
-| 构建工具   | <br /> |
+| 源码编辑器 | CodeMirror 6 |
+| 图表 | Mermaid 11 |
+| 数学公式 | KaTeX |
+| 样式 | Tailwind CSS 4 |
+| 状态管理 | Zustand |
+| 构建工具 | Vite 8 |
 
 ## 下载安装
 

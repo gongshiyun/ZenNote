@@ -95,7 +95,11 @@ async function ensureMermaidRendered(root: HTMLElement): Promise<void> {
 async function serializeEditorContent(fallbackContent: string): Promise<string> {
   const editorEl = document.querySelector(".ProseMirror") as HTMLElement | null;
   if (!editorEl) {
-    return fallbackContent.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+    return fallbackContent
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\n/g, "<br>");
   }
   const clone = editorEl.cloneNode(true) as HTMLElement;
 
