@@ -402,6 +402,12 @@ export function Editor() {
   // be marked dirty and autosaved with the normalized content — silently
   // rewriting the user's file just because they switched tabs.
   const reuseInProgressRef = useRef(false);
+  // In-flight Crepe teardown. Crepe.destroy() is async — destroy/create on the
+  // same container MUST be serialized, otherwise the old instance's teardown
+  // wipes the freshly mounted DOM (the editor area turns blank after closing a
+  // tab). Every destroy is chained through this promise; init awaits it before
+  // creating a new instance.
+  const pendingDestroyRef = useRef<Promise<void> | null>(null);
 
   // Registry of rendered mermaid blocks: applyPreview callback -> mermaid source.
   // applyPreview updates Milkdown's internal preview ref (the source of truth),
@@ -412,33 +418,49 @@ export function Editor() {
   useEffect(() => {
     const path = currentFilePath;
     const container = containerRef.current;
-    if (!container || !path) return;
+    if (!container) return;
 
-    // In source mode, destroy any existing editor and return (no Milkdown needed)
-    if (sourceMode) {
-      if (crepeRef.current) {
-        const oldCrepe = crepeRef.current;
-        crepeRef.current = null;
-        oldCrepe.destroy().catch((err: any) => { console.warn("editor-destroy-failed", err); });
-      }
-      tokenRef.current = null;
-      safeRef.current = false;
-      editorReadyRef.current = false;
-      setEditorReady(false);
-      setEditorRef(null);
-      if (container) container.innerHTML = "";
-      return;
-    }
+    // Chain every teardown: the async destroy of a previous instance must
+    // finish before the next destroy/create touches the same container.
+    const destroyCrepe = (crepe: any): Promise<void> => {
+      const prev = pendingDestroyRef.current ?? Promise.resolve();
+      pendingDestroyRef.current = prev.then(() =>
+        Promise.resolve(crepe.destroy()).catch((err: any) => { console.warn("editor-destroy-failed", err); })
+      );
+      return pendingDestroyRef.current;
+    };
 
-    // Shared teardown for both the reuse path and the full-init path.
-    const destroyEditor = () => {
+    const invalidate = () => {
       tokenRef.current = null;
       safeRef.current = false;
       editorReadyRef.current = false;
       focusCleanupRef.current?.();
+    };
+
+    // Nothing to show (no file open, or source mode): tear the editor down.
+    // This also covers "closing the current tab left no other tab".
+    if (!path || sourceMode) {
+      invalidate();
+      setEditorReady(false);
+      setEditorRef(null);
       if (crepeRef.current) {
-        try { crepeRef.current.destroy(); } catch (err) { console.warn("editor-destroy-failed", err); }
+        const old = crepeRef.current;
         crepeRef.current = null;
+        pmViewRef.current = null;
+        void destroyCrepe(old);
+      }
+      container.innerHTML = "";
+      return;
+    }
+
+    // Full teardown, used by the reuse-failure fallback and by init().
+    const destroyEditor = () => {
+      invalidate();
+      if (crepeRef.current) {
+        const old = crepeRef.current;
+        crepeRef.current = null;
+        pmViewRef.current = null;
+        void destroyCrepe(old);
       }
     };
 
@@ -482,11 +504,7 @@ export function Editor() {
         setBigFileHint(docContent.split("\n").length > 5000);
       } catch (err) {
         console.warn("editor-reuse-failed", err);
-        try { prevCrepe.destroy(); } catch { /* already dead */ }
-        crepeRef.current = null;
-        pmViewRef.current = null;
-        editorReadyRef.current = false;
-        setEditorReady(false);
+        destroyEditor();
         setReuseFailTick(v => v + 1);
       }
     };
@@ -494,17 +512,43 @@ export function Editor() {
     const token = {};
     tokenRef.current = token;
     safeRef.current = false;
+    setError(null);
+
+    // A fully-initialized instance survived the switch (tab switch, or
+    // closing the current tab while other tabs remain): swap the document in
+    // place — no destroy/rebuild, no blank/loading flash. editorReadyRef is
+    // true only after init() completed, so a half-created instance (init
+    // still awaiting create()) falls through to init(), which tears it down
+    // first.
+    if (crepeRef.current && editorReadyRef.current && pmViewRef.current) {
+      void tryReuse();
+      return () => {
+        // Abort any in-flight async init work from this run; the instance
+        // itself is NOT destroyed here — the next effect run decides whether
+        // to reuse it (file switch) or tear it down (no file left / source
+        // mode / unmount).
+        tokenRef.current = null;
+        safeRef.current = false;
+      };
+    }
+
     editorReadyRef.current = false;
     setEditorReady(false);
-    setError(null);
     // Fresh editor: drop any stale mermaid applyPreview registrations.
     mermaidApplyPreviews.current.clear();
     setBigFileHint(false);
 
     const init = async () => {
       if (crepeRef.current) {
-        try { await crepeRef.current.destroy(); } catch (err) { console.warn("editor-destroy-failed", err); }
+        // A half-created instance from an interrupted init — tear it down
+        // first (destroyCrepe chains onto any pending teardown).
+        await destroyCrepe(crepeRef.current);
         crepeRef.current = null;
+      } else if (pendingDestroyRef.current) {
+        // NEVER create while the previous instance is still being torn down —
+        // concurrent destroy/create on the same container races and leaves
+        // the editor blank.
+        await pendingDestroyRef.current;
       }
       if (tokenRef.current !== token) return;
 
@@ -1468,13 +1512,17 @@ export function Editor() {
       }
     };
 
-    if (crepeRef.current && editorReadyRef.current && pmViewRef.current) {
-      void tryReuse();
-    } else {
-      init();
-    }
+    void init();
 
-    return () => destroyEditor();
+    return () => {
+      // Abort this run's in-flight async init work (token guard). The
+      // instance itself is NOT destroyed here — the next effect run decides
+      // whether to reuse it (file switch) or tear it down (no file left /
+      // source mode / unmount). Eager destruction forced a slow full rebuild
+      // after every tab close and raced with the new instance's create.
+      tokenRef.current = null;
+      safeRef.current = false;
+    };
   }, [currentFilePath, sourceMode, reuseFailTick, setCursorPosition, setEditorRef]);
 
   // Locate the enclosing image-block node of an <img> (position + alignment).
@@ -1746,8 +1794,11 @@ export function Editor() {
       editorReadyRef.current = false;
       if (scrollSaveTimer.current) clearInterval(scrollSaveTimer.current);
       if (crepeRef.current) {
-        try { crepeRef.current.destroy(); } catch (err) { console.warn("editor-destroy-failed", err); }
+        // Chain onto any in-flight teardown so two destroys never overlap.
+        const old = crepeRef.current;
         crepeRef.current = null;
+        const prev = pendingDestroyRef.current ?? Promise.resolve();
+        prev.then(() => Promise.resolve(old.destroy()).catch((err: any) => { console.warn("editor-destroy-failed", err); }));
       }
     };
   }, []);
