@@ -606,6 +606,17 @@ fn unwatch_workspace(state: tauri::State<'_, Mutex<FsWatcher>>) -> Result<(), St
     Ok(())
 }
 
+// ---- OS "Open with" support ----
+
+/// Return the raw OS launch arguments (argv). On Windows, opening a file via
+/// "Open with -> ZenNote" launches the exe with the file path as an argument;
+/// the frontend picks the first `.md` argument and opens it (workspace = its
+/// parent directory). argv[0] is the executable path itself.
+#[tauri::command]
+fn get_launch_args() -> Vec<String> {
+    std::env::args().collect()
+}
+
 // ---- App entry ----
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -642,6 +653,7 @@ pub fn run() {
             search_workspace,
             watch_workspace,
             unwatch_workspace,
+            get_launch_args,
             export_pdf,
             export_debug_log,
         ])

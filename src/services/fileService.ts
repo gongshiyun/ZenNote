@@ -71,3 +71,11 @@ export function watchWorkspace(path: string): Promise<void> {
 export function unwatchWorkspace(): Promise<void> {
   return invoke("unwatch_workspace");
 }
+
+// ---- OS "Open with" support ----
+
+/** Raw OS launch arguments (argv). argv[0] is the exe path; on Windows an
+ * "Open with" launch passes the file path as a following argument. */
+export function getLaunchArgs(): Promise<string[]> {
+  return invoke<string[]>("get_launch_args");
+}

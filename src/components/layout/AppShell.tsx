@@ -63,6 +63,60 @@ function useWorkspaceWatcher() {
   }, [workspacePath]);
 }
 
+// ---- OS "Open with" (file association) ----
+// Windows launches `zennote.exe <file.md>` for "Open with -> ZenNote". In that
+// case open the file with its PARENT DIRECTORY as the workspace, and let this
+// take precedence over the persisted session.
+let osOpenedFilePromise: Promise<string | null> | null = null;
+function getOsOpenedFileOnce(): Promise<string | null> {
+  if (!osOpenedFilePromise) {
+    osOpenedFilePromise = (async () => {
+      try {
+        const args = await fs.getLaunchArgs();
+        for (let i = 1; i < args.length; i++) {
+          const a = args[i];
+          if (typeof a === "string" && a.toLowerCase().endsWith(".md")) {
+            // Some shells pass a file:// URL instead of a plain path.
+            return a.startsWith("file://") ? decodeURIComponent(a.replace(/^file:\/\/\/?/, "")) : a;
+          }
+        }
+      } catch { /* non-desktop context */ }
+      return null;
+    })();
+  }
+  return osOpenedFilePromise;
+}
+
+async function openOsFile(file: string): Promise<void> {
+  const parent = parentDir(file);
+  if (!parent) return;
+  const store = useStore.getState();
+  store.setWorkspace(parent);
+  store.setTree([]);
+  store.setLoading(true);
+  try { store.setTree(await fs.openWorkspace(parent)); }
+  catch { store.setTree([]); }
+  finally { store.setLoading(false); }
+  try {
+    const content = await fs.readFile(file);
+    const s = useStore.getState();
+    s.setSelectedFile(file);
+    s.setCurrentFile(file, content);
+  } catch { /* file unreadable — keep the workspace only */ }
+}
+
+function useOsOpenFile() {
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const file = await getOsOpenedFileOnce();
+      if (!file || cancelled) return;
+      await openOsFile(file);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+}
+
 // ---- Window state persistence ----
 function useWindowPersistence() {
   useEffect(() => {
@@ -91,34 +145,42 @@ function useWindowPersistence() {
   }, []);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("zennote:session");
-      if (!raw) return;
-      const data = JSON.parse(raw);
-      if (data.mode) useStore.getState().setMode(data.mode);
-      if (data.themeId) useStore.getState().setThemeId(data.themeId);
-      if (data.fontFamily) useStore.getState().setFontFamily(data.fontFamily);
-      if (typeof data.editorPadding === "number") useStore.getState().setEditorPadding(data.editorPadding);
-      if (typeof data.autoCheckUpdate === "boolean") useStore.getState().setAutoCheckUpdate(data.autoCheckUpdate);
-      if (typeof data.updateCheckInterval === "number") useStore.getState().setUpdateCheckInterval(data.updateCheckInterval);
-      if (data.workspacePath) {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const raw = localStorage.getItem("zennote:session");
+        if (!raw || cancelled) return;
+        const data = JSON.parse(raw);
+        if (data.mode) useStore.getState().setMode(data.mode);
+        if (data.themeId) useStore.getState().setThemeId(data.themeId);
+        if (data.fontFamily) useStore.getState().setFontFamily(data.fontFamily);
+        if (typeof data.editorPadding === "number") useStore.getState().setEditorPadding(data.editorPadding);
+        if (typeof data.autoCheckUpdate === "boolean") useStore.getState().setAutoCheckUpdate(data.autoCheckUpdate);
+        if (typeof data.updateCheckInterval === "number") useStore.getState().setUpdateCheckInterval(data.updateCheckInterval);
+        // An OS-launched file ("Open with") wins over the persisted workspace
+        // and open tabs (useOsOpenFile sets those).
+        const osFile = await getOsOpenedFileOnce();
+        if (osFile || cancelled || !data.workspacePath) return;
         useStore.getState().setWorkspace(data.workspacePath);
         if (Array.isArray(data.openTabs)) useStore.getState().setOpenTabs(data.openTabs.filter((p: unknown) => typeof p === "string"));
         // Show the loading spinner while the restored workspace is listed.
         useStore.getState().setTree([]);
         useStore.getState().setLoading(true);
         fs.openWorkspace(data.workspacePath).then(tree => {
+          if (cancelled) return;
           useStore.getState().setTree(tree);
           useStore.getState().setLoading(false);
           if (data.currentFilePath) {
             fs.readFile(data.currentFilePath).then(content => {
+              if (cancelled) return;
               useStore.getState().setSelectedFile(data.currentFilePath);
               useStore.getState().setCurrentFile(data.currentFilePath, content);
             }).catch(() => {});
           }
-        }).catch(() => { useStore.getState().setLoading(false); });
-      }
-    } catch { /* */ }
+        }).catch(() => { if (!cancelled) useStore.getState().setLoading(false); });
+      } catch { /* */ }
+    })();
+    return () => { cancelled = true; };
   }, []);
 }
 
@@ -144,6 +206,7 @@ export function AppShell() {
 
   useAutoSave();
   useWorkspaceWatcher();
+  useOsOpenFile();
   useMermaid();
   useWindowPersistence();
   useUpdater();

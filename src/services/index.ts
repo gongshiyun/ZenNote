@@ -13,6 +13,7 @@ export {
   readDir,
   watchWorkspace,
   unwatchWorkspace,
+  getLaunchArgs,
 } from "./fileService";
 
 export { saveImage, resolveImageUrl } from "./imageService";
