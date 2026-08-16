@@ -12,8 +12,8 @@ dist
 dist-ssr
 *.local
 
-# Updater signing keys (NEVER commit the private key)
-src-tauri/keys/*.key
+# Updater signing keys (NEVER commit the private key or password)
+src-tauri/keys/*
 !src-tauri/keys/*.key.pub
 
 # Local debug/verification artifacts

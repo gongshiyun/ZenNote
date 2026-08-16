@@ -33,7 +33,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg0RTk0QzcwMEI1MzI1QjAKUldTd0pWTUxjRXpwaEQzMzdkWFZPVnZLWGw0RUJNemFKekRmT08rYUpsemxicUtBVDhNdjRFS1YK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ5NTQxODNCRUFERTNBM0YKUldRL090N3FPeGhVU2YzNkJFQyt2K1d4VUdTZytNZElBYjRQWk5nbVVVSzJMa0dDamVveGdEV2wK",
       "endpoints": [
         "https://github.com/gongshiyun/ZenNote/releases/latest/download/latest.json"
       ]
