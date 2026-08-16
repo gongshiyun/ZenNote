@@ -12,11 +12,16 @@
  * drag here, on the editor container, in the CAPTURE phase:
  * - mousedown inside a td/th (left button, no modifiers, not on a tableBlock
  *   handle/button/image) → preventDefault + stopPropagation (blocks both
- *   ProseMirror and the browser's native text selection) and record the anchor;
- * - mousemove beyond a small threshold → dispatch a CellSelection from the
- *   anchor to the cell under the pointer on every move;
- * - mouseup: a plain click (no drag) still places the caret; a drag keeps the
- *   CellSelection so the table menu commands act on the covered cells.
+ *   ProseMirror and the browser's native text selection) and record the
+ *   anchor cell plus the EXACT text offset under the pointer;
+ * - mousemove beyond a small threshold:
+ *   - pointer still inside the PRESSED cell → synthesize a native-style
+ *     TextSelection from the press offset to the pointer (the user is picking
+ *     a text range to edit);
+ *   - pointer entered ANOTHER cell → dispatch a CellSelection rectangle from
+ *     the anchor cell to the cell under the pointer on every further move;
+ * - mouseup: a plain click (no drag) still places the caret; a drag keeps
+ *   whatever selection it built so editing / table menu commands act on it.
  */
 
 import { CellSelection, cellAround } from "@milkdown/kit/prose/tables";
@@ -30,6 +35,8 @@ interface DragState {
   startY: number;
   /** Anchor cell NODE start (doc position) — what CellSelection expects. */
   anchorStart: number;
+  /** Exact text offset under the pointer at press time (in-cell text drag anchor). */
+  anchorTextPos: number | null;
   active: boolean;
 }
 
@@ -97,9 +104,16 @@ export function createTableDragHandlers(getView: () => any | null): TableDragHan
     if (!view || view.editable === false) return;
     const anchorStart = cellStartAt(view, e.clientX, e.clientY);
     if (anchorStart == null) return;
+    // Also capture the EXACT text offset under the pointer — the anchor of an
+    // in-cell TEXT drag (selecting a range of characters to edit).
+    let anchorTextPos: number | null = null;
+    try {
+      const c = view.posAtCoords({ left: e.clientX, top: e.clientY });
+      anchorTextPos = c ? c.pos : null;
+    } catch { anchorTextPos = null; }
     e.preventDefault();
     e.stopPropagation();
-    drag = { view, startX: e.clientX, startY: e.clientY, anchorStart, active: false };
+    drag = { view, startX: e.clientX, startY: e.clientY, anchorStart, anchorTextPos, active: false };
   };
 
   const mousemove = (e: MouseEvent) => {
@@ -122,6 +136,20 @@ export function createTableDragHandlers(getView: () => any | null): TableDragHan
     if (headStart == null) return; // pointer left the table — keep current selection
     try {
       const doc = drag.view.state.doc;
+      if (headStart === drag.anchorStart) {
+        // Still inside the PRESSED cell: behave like native text selection so
+        // the user can pick a range of characters to edit. The moment the
+        // pointer crosses into another cell, the branch below takes over and
+        // builds the cell rectangle instead.
+        if (drag.anchorTextPos == null) return;
+        const c = drag.view.posAtCoords({ left: e.clientX, top: e.clientY });
+        if (!c) return;
+        const sel = TextSelection.create(doc, drag.anchorTextPos, c.pos);
+        if (!drag.view.state.selection.eq(sel)) {
+          drag.view.dispatch(drag.view.state.tr.setSelection(sel));
+        }
+        return;
+      }
       const $anchor = doc.resolve(drag.anchorStart);
       const $head = doc.resolve(headStart);
       if ($anchor.node(-1) !== $head.node(-1)) return; // different tables
@@ -130,7 +158,7 @@ export function createTableDragHandlers(getView: () => any | null): TableDragHan
         drag.view.dispatch(drag.view.state.tr.setSelection(selection));
       }
     } catch {
-      // Invalid rectangle — keep the previous selection.
+      // Invalid rectangle/text range — keep the previous selection.
     }
   };
 

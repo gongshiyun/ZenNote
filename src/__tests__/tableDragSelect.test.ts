@@ -228,6 +228,59 @@ describe('table drag selection', () => {
     expect(view.focus).toHaveBeenCalled();
   });
 
+  it('dragging INSIDE a single cell selects TEXT (not the cell)', () => {
+    // Regression: the capture-phase interception used to hijack in-cell text
+    // drags into cell selection, making it impossible to pick a text range to
+    // edit. Multi-character cells make the range observable.
+    const doc2 = schema.nodes.doc.create(null, [
+      table.create(null, [row.create(null, [textCell(cell, 'hello'), textCell(cell, 'world')])]),
+    ]);
+    const starts: number[] = [];
+    doc2.descendants((n: any, pos: number) => {
+      if (n.type.name === 'table_cell') starts.push(pos);
+    });
+    const view = makeView({
+      '100,100': { pos: starts[0] + 2, inside: starts[0] + 1 }, // before 'h'
+      '140,100': { pos: starts[0] + 5, inside: starts[0] + 1 }, // after 'hel'
+    }, doc2);
+    const h = createTableDragHandlers(() => view);
+
+    h.mousedown(mouseEvent({ clientX: 100, clientY: 100 }));
+    h.mousemove(mouseEvent({ clientX: 140, clientY: 100 }));
+
+    expect(view.state.selection).toBeInstanceOf(TextSelection);
+    expect(view.state.selection).not.toBeInstanceOf(CellSelection);
+    expect(view.state.selection.from).toBe(starts[0] + 2);
+    expect(view.state.selection.to).toBe(starts[0] + 5);
+    expect(view.state.doc.textBetween(view.state.selection.from, view.state.selection.to, '')).toBe('hel');
+  });
+
+  it('an in-cell text drag crossing into another cell upgrades to a CellSelection', () => {
+    const doc2 = schema.nodes.doc.create(null, [
+      table.create(null, [row.create(null, [textCell(cell, 'hello'), textCell(cell, 'world')])]),
+    ]);
+    const starts: number[] = [];
+    doc2.descendants((n: any, pos: number) => {
+      if (n.type.name === 'table_cell') starts.push(pos);
+    });
+    const view = makeView({
+      '100,100': { pos: starts[0] + 2, inside: starts[0] + 1 }, // press in cell 1
+      '140,100': { pos: starts[0] + 5, inside: starts[0] + 1 }, // still cell 1
+      '300,100': { pos: starts[1] + 2, inside: starts[1] + 1 }, // cell 2
+    }, doc2);
+    const h = createTableDragHandlers(() => view);
+
+    h.mousedown(mouseEvent({ clientX: 100, clientY: 100 }));
+    h.mousemove(mouseEvent({ clientX: 140, clientY: 100 }));
+    expect(view.state.selection).toBeInstanceOf(TextSelection);
+
+    h.mousemove(mouseEvent({ clientX: 300, clientY: 100 }));
+    expect(view.state.selection).toBeInstanceOf(CellSelection);
+    const texts: string[] = [];
+    (view.state.selection as CellSelection).forEachCell((n: any) => texts.push(n.textContent));
+    expect(texts).toEqual(['hello', 'world']);
+  });
+
   it('dragging past the table edge keeps the current selection (no crash)', () => {
     const starts = cellNodeStarts(makeDoc());
     const posMap = {

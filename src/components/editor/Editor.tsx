@@ -348,6 +348,10 @@ function createFrontmatterNodeView(node: any, view: any, getPos: any) {
 export function Editor() {
   const currentFilePath = useStore(s => s.currentFilePath);
   const sourceMode = useStore(s => s.sourceMode);
+  // Bumped by the workspace watcher when the CURRENT file is reloaded from
+  // disk (external change): re-runs this effect so the reuse path swaps the
+  // document in place.
+  const reloadTick = useStore(s => s.reloadTick);
   const setCursorPosition = useStore(s => s.setCursorPosition);
   // NOTE: scrollPosition is intentionally NOT subscribed here — reading it via
   // useStore would re-run the editor init effect every time the periodic scroll
@@ -394,8 +398,6 @@ export function Editor() {
   const [reuseFailTick, setReuseFailTick] = useState(0);
   // Zoom overlay opener (assigned inside the init closure; used by image click).
   const openZoomRef = useRef<(el: SVGElement | HTMLImageElement) => void>(() => {});
-  // Detached mermaid SVGs while offscreen (code block element -> svg node).
-  const mermaidLazySvgs = useRef(new Map<HTMLElement, SVGElement>());
   // True while tryReuse() is swapping the document: replaceAll fires
   // markdownUpdated with the RE-SERIALIZED markdown, which can differ from the
   // raw file (formatting normalization). Without this guard the new file would
@@ -842,7 +844,7 @@ export function Editor() {
         const computeFocusDecos = (state: any) => {
           const decos: any[] = [];
           const sel = state.selection;
-          if (!sel || !sel.empty) return DecorationSet.empty;
+          if (!sel) return DecorationSet.empty;
           const $head = sel.$head;
           // Tables always stay fully rendered (no source-reveal).
           let inTable = false;
@@ -852,21 +854,38 @@ export function Editor() {
           }
           if (inTable) return DecorationSet.empty;
 
-          // Source-reveal highlight on the focused block (gated by interaction).
-          if (hasInteracted) {
+          if (!hasInteracted) return DecorationSet.empty;
+
+          // Reveal the focused block enclosing the given resolved position
+          // (preferring the enclosing list_item / blockquote so the whole
+          // item/quote is highlighted).
+          const seen = new Set<number>();
+          const revealBlockAt = ($pos: any) => {
             let from = -1, nodeSize = 0;
-            // Prefer the enclosing list_item / blockquote so the whole item/quote is highlighted
-            for (let d = $head.depth; d >= 1 && from < 0; d--) {
-              const name = $head.node(d).type.name;
-              if (name === "list_item" || name === "blockquote") { from = $head.before(d); nodeSize = $head.node(d).nodeSize; }
+            for (let d = $pos.depth; d >= 1 && from < 0; d--) {
+              const name = $pos.node(d).type.name;
+              if (name === "list_item" || name === "blockquote") { from = $pos.before(d); nodeSize = $pos.node(d).nodeSize; }
             }
             if (from < 0) {
-              for (let d = $head.depth; d >= 1 && from < 0; d--) {
-                const name = $head.node(d).type.name;
-                if (FOCUS_TYPES.has(name)) { from = $head.before(d); nodeSize = $head.node(d).nodeSize; }
+              for (let d = $pos.depth; d >= 1 && from < 0; d--) {
+                const name = $pos.node(d).type.name;
+                if (FOCUS_TYPES.has(name)) { from = $pos.before(d); nodeSize = $pos.node(d).nodeSize; }
               }
             }
-            if (from >= 0) decos.push(Decoration.node(from, from + nodeSize, { class: "zn-block-focused" }));
+            if (from >= 0 && !seen.has(from)) {
+              seen.add(from);
+              decos.push(Decoration.node(from, from + nodeSize, { class: "zn-block-focused" }));
+            }
+          };
+
+          revealBlockAt($head);
+          if (!sel.empty) {
+            // While text is SELECTED keep the reveal STABLE — the user is
+            // picking a range to edit, and hiding the "#" marks mid-selection
+            // would reflow the text under the pointer. Keep the blocks at
+            // both selection ends revealed (deduped above when they match).
+            revealBlockAt(sel.$from);
+            revealBlockAt(sel.$to);
           }
 
           return decos.length ? DecorationSet.create(state.doc, decos) : DecorationSet.empty;
@@ -1409,39 +1428,12 @@ export function Editor() {
         // Expose zoom to effects registered outside this init closure (image click).
         openZoomRef.current = openZoom;
 
-        // ---- Offscreen mermaid diagrams: detach the SVG while far offscreen ----
-        // Re-attach the SAME node on re-entry (no re-render cost). Limits the
-        // live SVG node count for documents with many diagrams.
-        const lazyObserver = new IntersectionObserver((entries) => {
-          for (const entry of entries) {
-            const cb = entry.target as HTMLElement;
-            const preview = cb.querySelector(".preview-panel .preview") as HTMLElement | null;
-            if (!preview) continue;
-            if (!entry.isIntersecting) {
-              const svg = preview.querySelector("svg") as SVGElement | null;
-              if (svg && !mermaidLazySvgs.current.has(cb)) {
-                mermaidLazySvgs.current.set(cb, svg);
-                const ph = document.createElement("div");
-                ph.className = "zn-mermaid-lazy";
-                let hgt = 120;
-                try { hgt = Math.max(60, Math.min(Math.round(svg.getBoundingClientRect().height), 420)); } catch { /* */ }
-                ph.style.minHeight = hgt + "px";
-                svg.replaceWith(ph);
-              }
-            } else {
-              const svg = mermaidLazySvgs.current.get(cb);
-              if (svg) {
-                const ph = preview.querySelector(".zn-mermaid-lazy");
-                if (ph) ph.replaceWith(svg);
-                mermaidLazySvgs.current.delete(cb);
-              }
-            }
-          }
-        }, { rootMargin: "800px 0px" });
-
         // Ensure every mermaid preview panel has a zoom button (re-add after re-renders).
+        // NOTE: rendered diagrams STAY mounted permanently — an earlier version
+        // detached offscreen SVGs into placeholders, but the swap was visible
+        // while scrolling and users found it disruptive. Once rendered, a
+        // diagram never reverts to its raw state.
         const ZOOM_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35M11 8v6M8 11h6"/></svg>';
-        const lazyObserved = new WeakSet<HTMLElement>();
         const ensureCodeBlockExtras = () => {
           if (tokenRef.current !== token) return;
           container.querySelectorAll(".milkdown-code-block .preview-panel").forEach((panel) => {
@@ -1453,15 +1445,6 @@ export function Editor() {
               btn.title = t().editor.zoomOpen;
               btn.innerHTML = ZOOM_ICON;
               panel.appendChild(btn);
-            }
-          });
-          // Offscreen observation on mermaid code blocks. (Code copying is covered
-          // by Crepe's built-in copy button — no custom injection here.)
-          container.querySelectorAll(".milkdown-code-block").forEach((cbEl) => {
-            const cb = cbEl as HTMLElement;
-            if (cb.querySelector(".preview svg") && !lazyObserved.has(cb)) {
-              lazyObserved.add(cb);
-              lazyObserver.observe(cb);
             }
           });
         };
@@ -1487,7 +1470,6 @@ export function Editor() {
           container.removeEventListener("beforeinput", onBeforeInput);
           document.removeEventListener("selectionchange", onSelChange);
           zoomBtnObserver.disconnect();
-          lazyObserver.disconnect();
           if (zoomBtnTimer) clearTimeout(zoomBtnTimer);
           closeMermaidZoom();
         };
@@ -1523,7 +1505,7 @@ export function Editor() {
       tokenRef.current = null;
       safeRef.current = false;
     };
-  }, [currentFilePath, sourceMode, reuseFailTick, setCursorPosition, setEditorRef]);
+  }, [currentFilePath, sourceMode, reuseFailTick, reloadTick, setCursorPosition, setEditorRef]);
 
   // Locate the enclosing image-block node of an <img> (position + alignment).
   const readImageBlockAt = useCallback((img: HTMLElement): { pos: number; align: string } => {
@@ -1671,8 +1653,6 @@ export function Editor() {
           fontFamily: currentFontStack(),
         });
         // Group registered blocks by source so identical diagrams render once.
-        // Offscreen placeholders are dropped — applyPreview re-inserts fresh SVGs.
-        mermaidLazySvgs.current.clear();
         const bySource = new Map<string, Array<(v: null | string | HTMLElement) => void>>();
         mermaidApplyPreviews.current.forEach((source, applyPreview) => {
           if (!source) return;

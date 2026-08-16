@@ -15,8 +15,19 @@ export function readFile(path: string): Promise<string> {
   return invoke<string>("read_file", { path });
 }
 
+/** path -> content last written by THIS app (self-change detection for the
+ * workspace watcher: an external-change event whose content equals this was
+ * caused by our own save and must be ignored). */
+const lastWritten = new Map<string, string>();
+
+export function getLastWritten(path: string): string | undefined {
+  return lastWritten.get(path);
+}
+
 export function writeFile(path: string, content: string): Promise<void> {
-  return invoke("write_file", { path, content });
+  const p = invoke<void>("write_file", { path, content });
+  p.then(() => { lastWritten.set(path, content); }).catch(() => { /* failed write: nothing recorded */ });
+  return p;
 }
 
 export function createFile(path: string): Promise<void> {
@@ -47,4 +58,16 @@ export function openWorkspace(path: string): Promise<FileNode[]> {
  */
 export function readDir(path: string): Promise<FileNode[]> {
   return invoke<FileNode[]>("read_dir", { path });
+}
+
+// ---- Workspace watching (external-change auto-refresh) ----
+
+/** Start watching a folder recursively; changes arrive as `workspace-changed` events. */
+export function watchWorkspace(path: string): Promise<void> {
+  return invoke("watch_workspace", { path });
+}
+
+/** Stop the active workspace watcher. */
+export function unwatchWorkspace(): Promise<void> {
+  return invoke("unwatch_workspace");
 }

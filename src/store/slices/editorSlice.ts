@@ -30,6 +30,10 @@ export interface EditorSlice {
   setOpenTabs: (tabs: string[]) => void;
   switchTab: (path: string) => void;
   closeTab: (path: string) => void;
+  /** Bumped when the CURRENT file is reloaded from disk (external change).
+   * The editor effect includes it in its deps so the document is swapped in
+   * place via the instance-reuse path. */
+  reloadTick: number;
   /** Close every tab except the given one. */
   closeOtherTabs: (path: string) => void;
   /** Close all tabs positioned left of the given tab. */
@@ -79,6 +83,7 @@ export const createEditorSlice: StateCreator<EditorSlice, [], [], EditorSlice> =
   lastSavedAt: null,
   fileStates: new Map(),
   openTabs: [],
+  reloadTick: 0,
 
   setCurrentFile: (path, content) => {
     const prev = get().currentFilePath;

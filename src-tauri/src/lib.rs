@@ -1,6 +1,8 @@
 ﻿use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
+use std::sync::Mutex;
 use walkdir::WalkDir;
 
 // ---- Data structures ----
@@ -484,6 +486,126 @@ fn export_debug_log(app: tauri::AppHandle, msg: String) -> String {
         .to_string()
 }
 
+// ---- Workspace file watching (auto-refresh on external changes) ----
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceChange {
+    pub paths: Vec<String>,
+}
+
+/// Holds the active workspace watcher. Managed via `app.manage()`; at most
+/// ONE watcher exists at a time (a new `watch_workspace` call replaces it).
+struct FsWatcher {
+    watcher: Option<notify::RecommendedWatcher>,
+}
+
+/// Watch a workspace folder RECURSIVELY; changed paths are batched over a
+/// short window and delivered to the frontend as `workspace-changed` events.
+/// Hidden entries and non-markdown FILES are filtered here (directories still
+/// pass through so folder add/remove refreshes the tree).
+#[tauri::command]
+async fn watch_workspace(
+    app: tauri::AppHandle,
+    path: String,
+    state: tauri::State<'_, Mutex<FsWatcher>>,
+) -> Result<(), String> {
+    use notify::{Config, Event, RecursiveMode, Watcher};
+    use std::time::Duration;
+    use tauri::Emitter;
+
+    // Drop any previous watcher BEFORE creating the new one (workspace switch).
+    {
+        let mut st = state.lock().map_err(|e| e.to_string())?;
+        st.watcher = None;
+    }
+
+    // Debounce buffer shared with the watcher thread: events within ~350ms are
+    // merged into a single emission (editors trigger bursts of raw events).
+    let buffer: std::sync::Arc<Mutex<HashSet<String>>> =
+        std::sync::Arc::new(Mutex::new(HashSet::new()));
+    let pending: std::sync::Arc<Mutex<bool>> = std::sync::Arc::new(Mutex::new(false));
+
+    let buf_c = buffer.clone();
+    let pend_c = pending.clone();
+    let mut watcher = notify::RecommendedWatcher::new(
+        move |res: notify::Result<Event>| {
+            let event = match res {
+                Ok(e) => e,
+                Err(_) => return,
+            };
+            let schedule = {
+                let mut buf = match buf_c.lock() {
+                    Ok(b) => b,
+                    Err(_) => return,
+                };
+                for p in &event.paths {
+                    let name = p
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    if name.starts_with('.') {
+                        continue; // hidden (.git, temp files...)
+                    }
+                    let s = p.to_string_lossy().to_string();
+                    if p.is_file() && !s.to_lowercase().ends_with(".md") {
+                        continue; // only markdown files matter for the tree/editor
+                    }
+                    buf.insert(s);
+                }
+                !buf.is_empty()
+            };
+            if !schedule {
+                return;
+            }
+            let mut flush_scheduled = match pend_c.lock() {
+                Ok(p) => p,
+                Err(_) => return,
+            };
+            if *flush_scheduled {
+                return; // a flush is already queued; it picks up new entries
+            }
+            *flush_scheduled = true;
+            drop(flush_scheduled);
+            let buf_t = buf_c.clone();
+            let pend_t = pend_c.clone();
+            let app_t = app.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(350));
+                let paths: Vec<String> = match buf_t.lock() {
+                    Ok(mut b) => b.drain().collect(),
+                    Err(_) => return,
+                };
+                if let Ok(mut p) = pend_t.lock() {
+                    *p = false;
+                }
+                if paths.is_empty() {
+                    return;
+                }
+                let _ = app_t.emit("workspace-changed", WorkspaceChange { paths });
+            });
+        },
+        Config::default(),
+    )
+    .map_err(|e| format!("创建文件监听失败: {}", e))?;
+
+    watcher
+        .watch(Path::new(&path), RecursiveMode::Recursive)
+        .map_err(|e| format!("监听文件夹失败: {}", e))?;
+
+    let mut st = state.lock().map_err(|e| e.to_string())?;
+    st.watcher = Some(watcher);
+    Ok(())
+}
+
+/// Stop watching (workspace closed / app teardown).
+#[tauri::command]
+fn unwatch_workspace(state: tauri::State<'_, Mutex<FsWatcher>>) -> Result<(), String> {
+    let mut st = state.lock().map_err(|e| e.to_string())?;
+    st.watcher = None;
+    Ok(())
+}
+
 // ---- App entry ----
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -495,6 +617,8 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            use tauri::Manager;
+            app.manage(Mutex::new(FsWatcher { watcher: None }));
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -516,6 +640,8 @@ pub fn run() {
             move_file,
             write_file_binary,
             search_workspace,
+            watch_workspace,
+            unwatch_workspace,
             export_pdf,
             export_debug_log,
         ])

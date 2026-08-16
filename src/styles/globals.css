@@ -690,9 +690,19 @@
    pure white in light themes) so blocks were invisible against the editor bg.
    Typora reference (github theme): #F5F5F5 fill, small radius, no border. */
 .milkdown .milkdown-code-block {
-  background: var(--bg-code) !important;
   border: none !important;
   border-radius: 6px;
+  /* Typora-tight spacing: Crepe defaults to `padding: 8px 20px 20px` with
+     `margin: 4px 0` — noticeably airier than Typora's compact fences. */
+  padding: 4px 12px 8px !important;
+  margin: 2px 0 !important;
+  /* Light mode: near-white fill (--bg-code, e.g. #F5F5F5). Dark themes mix a
+     little text color in (override below) for contrast against the dark page. */
+  background: var(--bg-code) !important;
+}
+/* Shrink the toolbar→code gap too (Crepe gives the language button 8px). */
+.milkdown .milkdown-code-block .tools .language-button {
+  margin-bottom: 4px;
 }
 .milkdown .milkdown-code-block .cm-editor {
   background: var(--bg-code) !important;
@@ -700,6 +710,34 @@
 }
 .milkdown .milkdown-code-block .cm-gutters {
   background: var(--bg-code) !important;
+}
+/* Dark themes only: slightly stronger fill so the block separates from the
+   dark page background. */
+.dark .milkdown .milkdown-code-block,
+.dark .milkdown .milkdown-code-block .cm-editor,
+.dark .milkdown .milkdown-code-block .cm-gutters {
+  background: color-mix(in srgb, var(--text-primary) 7%, var(--bg-code)) !important;
+}
+/* Visible text selection inside code blocks: CodeMirror draws the selection
+   via the .cm-selectionBackground layer whose defaults (#d9d9d9 / #222) are
+   near-invisible on the gray fill — use the same selection color as the
+   document text, focused or not. The ::selection fallback covers any path
+   where the native browser selection is used instead. */
+.milkdown .milkdown-code-block .cm-selectionBackground,
+.milkdown .milkdown-code-block.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground {
+  background: var(--selection-bg) !important;
+}
+.milkdown .milkdown-code-block ::-moz-selection,
+.milkdown .milkdown-code-block ::selection {
+  background: var(--selection-bg) !important;
+}
+/* Turn OFF CodeMirror's "highlight every occurrence of the selected text"
+   (highlightSelectionMatches from basicSetup): tinting identical tokens on
+   OTHER lines while selecting is distracting — only the actual selection
+   range should be colored. */
+.milkdown .milkdown-code-block .cm-selectionMatch {
+  background: transparent !important;
+  outline: none !important;
 }
 /* Default (unhighlighted) code text: Crepe ships One Dark whose #ABB2BF
    foreground is invisible on light fills — drive it from the theme palette. */
@@ -1308,20 +1346,6 @@ html, body, #root {
 @keyframes zn-spin {
   to { transform: rotate(360deg); }
 }
-
-/* ========================================
-   Offscreen mermaid placeholder (lazy SVG detach)
-   ======================================== */
-.zn-mermaid-lazy {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--bg-code) 50%, transparent);
-  color: var(--text-tertiary);
-  font-size: 12px;
-}
-.zn-mermaid-lazy::before { content: "\2026"; }
 
 /* ========================================
    Source mode editor (CodeMirror 6)

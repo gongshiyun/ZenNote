@@ -11,6 +11,8 @@ export {
   deleteFile,
   openWorkspace,
   readDir,
+  watchWorkspace,
+  unwatchWorkspace,
 } from "./fileService";
 
 export { saveImage, resolveImageUrl } from "./imageService";

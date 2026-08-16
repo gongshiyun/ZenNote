@@ -1,6 +1,6 @@
 [package]
 name = "zennote"
-version = "0.8.11"
+version = "0.8.12"
 description = "ZenNote - 极简本地 Markdown 笔记"
 authors = ["ZenNote"]
 license = "MIT"
@@ -26,6 +26,8 @@ tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 walkdir = "2"
+# Filesystem watching for workspace auto-refresh (notify crate).
+notify = "6"
 
 # Windows-only: direct WebView2 PrintToPdf for Typora-style PDF export (no print dialog)
 [target.'cfg(windows)'.dependencies]

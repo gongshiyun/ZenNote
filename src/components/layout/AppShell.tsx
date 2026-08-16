@@ -17,6 +17,7 @@ import { t } from "../../i18n";
 import { exportToHtml, exportToPdf } from "../../lib/exportNote";
 import { parentDir, isWithinWorkspace } from "../../domain";
 import * as fs from "../../services";
+import { startWorkspaceWatcher } from "../../lib/workspaceWatcher";
 
 // ---- Auto-save ----
 function useAutoSave() {
@@ -38,6 +39,28 @@ function useAutoSave() {
     }, autoSaveDelay);
     return () => clearTimeout(timer);
   }, [content, isDirty, currentFilePath, autoSaveDelay]);
+}
+
+// ---- Workspace file watching (external-change auto-refresh) ----
+// The Rust side watches the current workspace folder and emits change events;
+// the watcher module refreshes the tree and reloads externally-modified open
+// files. Re-armed on every workspace switch; unwatched on cleanup.
+function useWorkspaceWatcher() {
+  const workspacePath = useStore(s => s.workspacePath);
+  useEffect(() => {
+    if (!workspacePath) return;
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    fs.watchWorkspace(workspacePath).catch(() => { /* watcher unavailable */ });
+    startWorkspaceWatcher()
+      .then(u => { if (cancelled) u(); else unlisten = u; })
+      .catch(() => { /* events unavailable */ });
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+      fs.unwatchWorkspace().catch(() => { /* */ });
+    };
+  }, [workspacePath]);
 }
 
 // ---- Window state persistence ----
@@ -120,6 +143,7 @@ export function AppShell() {
   }, [locale]);
 
   useAutoSave();
+  useWorkspaceWatcher();
   useMermaid();
   useWindowPersistence();
   useUpdater();
