@@ -125,7 +125,12 @@ const zhCN = {
     "checkNow": "立即检查",
     "checking": "检查中...",
     "downloading": "下载中...",
-    "updateReady": "已下载，点击安装"
+    "updateReady": "已下载 v{v}，点击安装",
+    "installNow": "立即安装",
+    "installing": "安装中，即将重启...",
+    "retry": "重试更新",
+    "uptodate": "已是最新版本",
+    "updateFailed": "更新失败"
   },
   "search": {
     "placeholder": "在工作区中搜索...",

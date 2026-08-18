@@ -60,4 +60,4 @@ export interface AppConfig {
   defaultSourceMode: boolean;
 }
 
-export type UpdateState = "idle" | "checking" | "downloading" | "ready" | "error";
+export type UpdateState = "idle" | "checking" | "downloading" | "ready" | "error" | "installing" | "uptodate";

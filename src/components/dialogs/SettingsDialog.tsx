@@ -1,7 +1,7 @@
 import { useStore } from "../../store";
 import { t, setLocale } from "../../i18n";
 import { useRef, useEffect } from "react";
-import { checkAndDownloadUpdate } from "../../lib/updater";
+import { checkAndDownloadUpdate, installUpdate } from "../../lib/updater";
 
 const SETTINGS_THEMES = [
   { id: "zen", label: "Zen", colors: ["#3B82F6", "#FFFFFF", "#1E1E1E"] },
@@ -57,6 +57,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const setUpdateCheckInterval = useStore(s => s.setUpdateCheckInterval);
   const updateState = useStore(s => s.updateState);
   const updateVersion = useStore(s => s.updateVersion);
+  const updateError = useStore(s => s.updateError);
+  const updateProgress = useStore(s => s.updateProgress);
 
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -267,16 +269,41 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               </select>
             </Row>
             <Row label={t().settings.checkNow}>
-              <button onClick={() => { void checkAndDownloadUpdate(); }} style={{
-                padding: "5px 14px", border: "1px solid var(--border)", borderRadius: 6,
-                fontSize: 12, background: "var(--bg-sidebar)", color: "var(--text-primary)",
-                cursor: "pointer", transition: "all 120ms ease",
-              }}
+              <button
+                onClick={() => {
+                  // ready 状态点击 = 安装；其余状态点击 = （重新）检查。
+                  if (updateState === "ready") void installUpdate();
+                  else void checkAndDownloadUpdate(true);
+                }}
+                disabled={updateState === "checking" || updateState === "downloading" || updateState === "installing"}
+                style={{
+                  padding: "5px 14px", border: "1px solid var(--border)", borderRadius: 6,
+                  fontSize: 12, background: "var(--bg-sidebar)",
+                  color: updateState === "ready" ? "var(--text-accent)" : "var(--text-primary)",
+                  cursor: updateState === "checking" || updateState === "downloading" || updateState === "installing" ? "default" : "pointer",
+                  transition: "all 120ms ease",
+                  opacity: updateState === "checking" || updateState === "downloading" || updateState === "installing" ? 0.6 : 1,
+                  fontWeight: updateState === "ready" || updateState === "error" ? 600 : 400,
+                }}
                 onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
                 onMouseLeave={e => { e.currentTarget.style.background = "var(--bg-sidebar)"; }}>
-                {updateState === "checking" ? t().settings.checking : updateState === "downloading" ? t().settings.downloading : updateState === "ready" ? (t().settings.updateReady + " v" + (updateVersion || "")) : t().settings.checkNow}
+                {updateState === "checking" ? t().settings.checking
+                  : updateState === "downloading" ? t().settings.downloading + (updateProgress != null ? " " + updateProgress + "%" : "")
+                  : updateState === "ready" ? t().settings.updateReady.replace("{v}", updateVersion || "")
+                  : updateState === "installing" ? t().settings.installing
+                  : updateState === "error" ? t().settings.retry
+                  : updateState === "uptodate" ? t().settings.uptodate
+                  : t().settings.checkNow}
               </button>
             </Row>
+            {updateError && (
+              <div title={updateError} style={{
+                margin: "-4px 0 8px", fontSize: 12, color: "#DC2626",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>
+                {t().settings.updateFailed}: {updateError}
+              </div>
+            )}
           </Section>
 
           {/* Section: File Tree */}

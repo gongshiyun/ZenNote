@@ -15,10 +15,16 @@ export interface UpdateSlice {
   updateCheckInterval: number; // minutes
   updateState: UpdateState;
   updateVersion: string | null;
+  /** 最近一次更新检查/下载/安装失败的错误信息（null = 无错误）；持续展示直到下次重试，不再静默清除 */
+  updateError: string | null;
+  /** 下载进度（0-100）；null = 未知或非下载中 */
+  updateProgress: number | null;
   setAutoCheckUpdate: (v: boolean) => void;
   setUpdateCheckInterval: (n: number) => void;
   setUpdateState: (s: UpdateState) => void;
   setUpdateVersion: (v: string | null) => void;
+  setUpdateError: (msg: string | null) => void;
+  setUpdateProgress: (p: number | null) => void;
 }
 
 export interface UISlice {
@@ -42,10 +48,14 @@ export const createUpdateSlice: StateCreator<UpdateSlice, [], [], UpdateSlice> =
   updateCheckInterval: 60,
   updateState: "idle",
   updateVersion: null,
+  updateError: null,
+  updateProgress: null,
   setAutoCheckUpdate: (v) => set({ autoCheckUpdate: v }),
   setUpdateCheckInterval: (n) => set({ updateCheckInterval: n }),
   setUpdateState: (s) => set({ updateState: s }),
   setUpdateVersion: (v) => set({ updateVersion: v }),
+  setUpdateError: (msg) => set({ updateError: msg }),
+  setUpdateProgress: (p) => set({ updateProgress: p }),
 });
 
 export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({

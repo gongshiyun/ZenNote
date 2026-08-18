@@ -125,7 +125,12 @@ const enUS = {
     "checkNow": "Check now",
     "checking": "Checking...",
     "downloading": "Downloading...",
-    "updateReady": "Downloaded, click to install"
+    "updateReady": "Downloaded v{v}, click to install",
+    "installNow": "Install now",
+    "installing": "Installing, restarting soon...",
+    "retry": "Retry update",
+    "uptodate": "Up to date",
+    "updateFailed": "Update failed"
   },
   "search": {
     "placeholder": "Search in workspace...",
