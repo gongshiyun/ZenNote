@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { useStore } from "../../store";
 import { t } from "../../i18n";
-import { computeWordCount, estimateReadingTime } from "../../domain";
+import { computeWordCount, WORDS_PER_MINUTE } from "../../domain";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 
 export function StatusBar() {
   const cursorLine = useStore(s => s.cursorLine);
@@ -13,8 +14,18 @@ export function StatusBar() {
   const currentFilePath = useStore(s => s.currentFilePath);
   const lastSavedAt = useStore(s => s.lastSavedAt);
 
-  const { totalWords, totalChars, lineCount } = useMemo(() => computeWordCount(content), [content]);
-  const readMin = useMemo(() => estimateReadingTime(content), [content]);
+  // 词数/字数/行数/阅读时长是全文扫描统计，不能压在每次按键的热路径上：
+  // 防抖 500ms 后刷新（初始值立即返回，首屏展示不受影响）。Ln/Col 仍然即时。
+  const debouncedContent = useDebouncedValue(content, 500);
+
+  // 单次扫描得到全部统计（阅读时长直接从 totalWords 推导，避免再扫一遍全文）。
+  const { totalWords, totalChars, lineCount, readMin } = useMemo(() => {
+    const stats = computeWordCount(debouncedContent);
+    return {
+      ...stats,
+      readMin: stats.totalWords > 0 ? Math.max(1, Math.ceil(stats.totalWords / WORDS_PER_MINUTE)) : 0,
+    };
+  }, [debouncedContent]);
   const savedTimeLabel = useMemo(() => {
     if (!lastSavedAt) return "";
     const d = new Date(lastSavedAt);

@@ -1449,9 +1449,19 @@ export function Editor() {
           });
         };
         let zoomBtnTimer = 0;
-        const zoomBtnObserver = new MutationObserver(() => {
-          if (zoomBtnTimer) return;
-          zoomBtnTimer = window.setTimeout(() => { zoomBtnTimer = 0; ensureCodeBlockExtras(); }, 300);
+        const zoomBtnObserver = new MutationObserver((mutations) => {
+          // 只在有 ELEMENT 节点被加入时才重扫：纯文本编辑（插入 text 节点）、
+          // 属性/删除变更都不会产生新的代码块预览面板，直接忽略，避免
+          // 打字停顿 300ms 后对全树 querySelectorAll。
+          for (const m of mutations) {
+            for (const n of m.addedNodes) {
+              if (n.nodeType === 1) {
+                if (zoomBtnTimer) return;
+                zoomBtnTimer = window.setTimeout(() => { zoomBtnTimer = 0; ensureCodeBlockExtras(); }, 300);
+                return;
+              }
+            }
+          }
         });
         zoomBtnObserver.observe(container, { childList: true, subtree: true });
         ensureCodeBlockExtras();
@@ -1634,13 +1644,8 @@ export function Editor() {
   // so replacing the SVG there is safe.
   const mermaidThemeFontFirstRun = useRef(true);
   useEffect(() => {
-    // Debug logger (writes to export-debug.log so we can diagnose in release builds)
-    const log = (msg: string) => {
-      import("@tauri-apps/api/core").then(({ invoke }) => invoke("export_debug_log", { msg: "[mermaid-re] " + msg })).catch((err) => { console.warn("export-debug-log-failed", err); });
-    };
-    if (mermaidThemeFontFirstRun.current) { mermaidThemeFontFirstRun.current = false; log("skip first run"); return; }
-    log("effect fired: resolvedMode=" + resolvedMode + " font=" + fontFamily + " sourceMode=" + sourceMode + " editorReady=" + editorReady + " registered=" + mermaidApplyPreviews.current.size);
-    if (sourceMode || !editorReady) { log("early return (sourceMode or not ready)"); return; }
+    if (mermaidThemeFontFirstRun.current) { mermaidThemeFontFirstRun.current = false; return; }
+    if (sourceMode || !editorReady) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -1660,7 +1665,7 @@ export function Editor() {
           list.push(applyPreview);
           bySource.set(source, list);
         });
-        log("re-rendering " + bySource.size + " unique mermaid sources, isDark=" + isDark);
+        console.debug("[mermaid-re] re-rendering " + bySource.size + " unique mermaid sources, isDark=" + isDark);
         let reRendered = 0;
         for (const [source, applyFns] of bySource) {
           if (cancelled) return;
@@ -1672,10 +1677,10 @@ export function Editor() {
             // so Milkdown's own watchEffect won't revert it back to the old SVG.
             applyFns.forEach(fn => fn(svg));
             reRendered++;
-          } catch (err) { log("render failed: " + String(err)); }
+          } catch (err) { console.warn("mermaid-re-render-failed", err); }
         }
-        log("re-rendered " + reRendered + " mermaid diagrams via applyPreview");
-      } catch (err) { log("mermaid import/init failed: " + String(err)); }
+        console.debug("[mermaid-re] re-rendered " + reRendered + " mermaid diagrams via applyPreview");
+      } catch (err) { console.warn("mermaid-re-init-failed", err); }
     })();
     return () => { cancelled = true; };
   }, [resolvedMode, fontFamily, sourceMode, editorReady]);

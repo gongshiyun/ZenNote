@@ -69,8 +69,8 @@ describe('System slices', () => {
       updateCheckInterval: 60,
       updateState: 'idle',
       updateVersion: null,
-      sidebarVisible: true,
-      outlineVisible: true,
+      sidebarVisible: false,
+      outlineVisible: false,
       searchVisible: false,
       settingsVisible: false,
     });
@@ -100,8 +100,8 @@ describe('System slices', () => {
     s.setSettingsVisible(true);
 
     const next = useStore.getState();
-    expect(next.sidebarVisible).toBe(false);
-    expect(next.outlineVisible).toBe(false);
+    expect(next.sidebarVisible).toBe(true);
+    expect(next.outlineVisible).toBe(true);
     expect(next.searchVisible).toBe(true);
     expect(next.settingsVisible).toBe(true);
   });

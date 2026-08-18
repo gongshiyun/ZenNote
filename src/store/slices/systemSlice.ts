@@ -49,8 +49,9 @@ export const createUpdateSlice: StateCreator<UpdateSlice, [], [], UpdateSlice> =
 });
 
 export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({
-  sidebarVisible: true,
-  outlineVisible: true,
+  // 默认不展示侧边栏和大纲，由用户在会话中手动开启
+  sidebarVisible: false,
+  outlineVisible: false,
   searchVisible: false,
   settingsVisible: false,
   toggleSidebar: () => set(s => ({ sidebarVisible: !s.sidebarVisible })),

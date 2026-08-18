@@ -72,6 +72,11 @@ function removeTabsImpl(
   }
 }
 
+/** 干净（已保存）文件状态的缓存上限：超出后逐出最旧的干净条目，控制内存
+ * 占用不随标签页数无限增长。脏条目永不逐出（承载未保存内容）；被逐出的
+ * 干净文件切回时由 switchTab 从磁盘重读（既有路径）。 */
+const MAX_CACHED_CLEAN_FILES = 16;
+
 export const createEditorSlice: StateCreator<EditorSlice, [], [], EditorSlice> = (set, get) => ({
   currentFilePath: null,
   content: "",
@@ -119,6 +124,11 @@ export const createEditorSlice: StateCreator<EditorSlice, [], [], EditorSlice> =
     if (currentFilePath) {
       const next = new Map(fileStates);
       next.set(currentFilePath, { content, scrollPos: scrollPosition, cursorLine, cursorCol, dirty: isDirty });
+      // Map 迭代顺序 = 插入顺序，从最旧的干净条目开始逐出（当前文件除外）。
+      for (const [p, st] of next) {
+        if (next.size <= MAX_CACHED_CLEAN_FILES) break;
+        if (p !== currentFilePath && !st.dirty) next.delete(p);
+      }
       set({ fileStates: next });
     }
   },

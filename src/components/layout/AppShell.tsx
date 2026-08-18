@@ -10,7 +10,9 @@ import { Outline } from "../outline/Outline";
 const SearchPanel = lazy(() => import("../search/SearchPanel").then(m => ({ default: m.SearchPanel })));
 const SettingsDialog = lazy(() => import("../dialogs/SettingsDialog").then(m => ({ default: m.SettingsDialog })));
 const ShortcutsPanel = lazy(() => import("../dialogs/ShortcutsPanel").then(m => ({ default: m.ShortcutsPanel })));
-import { useMermaid } from "../../hooks/useMermaid";
+// NOTE: useMermaid 的启动预热已移除 —— 它会在挂载时动态加载整个 mermaid
+// （~500KB+ JS），即使当前文档没有任何图表。代码块的 renderPreview 路径
+// 本身就会按需 import 并 initialize，无需提前加载。
 import { useUpdater } from "../../hooks/useUpdater";
 import { useStore } from "../../store";
 import { t } from "../../i18n";
@@ -133,8 +135,6 @@ function useWindowPersistence() {
           editorPadding: s.editorPadding,
           autoCheckUpdate: s.autoCheckUpdate,
           updateCheckInterval: s.updateCheckInterval,
-          sidebarVisible: s.sidebarVisible,
-          outlineVisible: s.outlineVisible,
         };
         localStorage.setItem("zennote:session", JSON.stringify(data));
       } catch { /* */ }
@@ -207,7 +207,6 @@ export function AppShell() {
   useAutoSave();
   useWorkspaceWatcher();
   useOsOpenFile();
-  useMermaid();
   useWindowPersistence();
   useUpdater();
 

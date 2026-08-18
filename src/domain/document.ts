@@ -56,7 +56,7 @@ export function computeWordCount(content: string): WordCount {
 }
 
 /** Average reading speed used for the estimate (mixed CJK/latin content). */
-const WORDS_PER_MINUTE = 400;
+export const WORDS_PER_MINUTE = 400;
 
 /**
  * Estimate the reading time of a document in whole minutes.

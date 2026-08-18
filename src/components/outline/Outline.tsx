@@ -2,6 +2,7 @@ import { useEffect, useMemo, useCallback, useRef } from "react";
 import { useStore } from "../../store";
 import { t } from "../../i18n";
 import { parseHeadings, displayableHeadings } from "../../domain";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 
 export function Outline() {
   const content = useStore(s => s.content);
@@ -12,8 +13,12 @@ export function Outline() {
   const setSourceMode = useStore(s => s.setSourceMode);
   const scrollTimer = useRef<number>(0);
 
+  // 大纲解析是全文扫描（split + 逐行正则），不能压在每次按键的热路径上；
+  // 防抖 400ms 后重新解析（初始值立即返回，打开面板首屏不延迟）。
+  const debouncedContent = useDebouncedValue(content, 400);
+
   // Parse all headings (h1-h6), then display only h1-h3
-  const headings = useMemo(() => parseHeadings(content), [content]);
+  const headings = useMemo(() => parseHeadings(debouncedContent), [debouncedContent]);
   const displayHeadings = useMemo(() => displayableHeadings(headings), [headings]);
 
   useEffect(() => { setHeadings(headings); }, [headings, setHeadings]);
