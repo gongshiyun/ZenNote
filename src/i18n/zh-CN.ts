@@ -1,6 +1,7 @@
 const zhCN = {
   "app": {
-    "title": "ZenNote"
+    "title": "ZenNote",
+    "closeSaveFailed": "部分文件保存失败，仍要退出吗？"
   },
   "titlebar": {
     "toggleSidebar": "切换侧边栏 (Ctrl+B)",
@@ -39,7 +40,10 @@ const zhCN = {
     "theme": "主题",
     "light": "浅色",
     "dark": "深色",
-    "system": "系统"
+    "system": "系统",
+    "saveFailed": "保存失败",
+    "selection": "选中",
+    "imageProcessing": "正在处理图片..."
   },
   "filetree": {
     "folder": "文件夹",
@@ -54,7 +58,9 @@ const zhCN = {
     "noNotes": "暂无笔记",
     "noteName": "笔记名称",
     "folderName": "文件夹名称",
-    "untitled": "未命名"
+    "untitled": "未命名",
+    "deleteCurrentBlocked": "文件正在编辑中，无法删除",
+    "deleteDirtyBlocked": "该位置还有未保存的笔记，请先保存或关闭"
   },
   "editor": {
     "loading": "编辑器加载中...",
@@ -71,7 +77,14 @@ const zhCN = {
     "tocTitle": "目录",
     "bigFileHint": "文档较大，建议切换到源码模式以获得更流畅的编辑体验",
     "switchToSource": "切换源码模式",
-    "dismiss": "忽略"
+    "dismiss": "忽略",
+    "externalModified": "文件已被外部修改",
+    "externalDeleted": "文件已被外部删除，内容仍保留在编辑器中",
+    "reloadExternal": "重新加载",
+    "keepLocal": "保留我的版本",
+    "imageUnsupported": "不支持的图片格式",
+    "imageTooLarge": "图片大小为 {size} MB，超过 10MB。确定继续插入吗？",
+    "imageUploadFailed": "图片保存失败"
   },
   "tabs": {
     "closeTab": "关闭标签页",
@@ -140,6 +153,10 @@ const zhCN = {
     "escToClose": "Esc 关闭",
     "fileNameMatch": "文件名匹配"
   },
+  "quickOpen": {
+    "placeholder": "按文件名快速打开...",
+    "noResults": "没有匹配的笔记"
+  },
   "table": {
     "insertRowAbove": "在上方插入行",
     "insertRowBelow": "在下方插入行",
@@ -170,11 +187,13 @@ const zhCN = {
     "closeHint": "按 Esc 关闭",
     "groupFile": "文件",
     "groupEdit": "编辑",
+    "groupFormatting": "文本格式",
     "groupView": "视图",
     "groupFormat": "格式与导出",
     "newNote": "新建笔记",
     "openFile": "打开文件",
     "openFolder": "打开文件夹",
+    "quickOpen": "快速打开",
     "save": "保存",
     "closeTab": "关闭标签页",
     "switchTab": "切换标签页",
@@ -182,6 +201,12 @@ const zhCN = {
     "globalSearch": "全局搜索",
     "undo": "撤销",
     "redo": "重做",
+    "bold": "加粗",
+    "italic": "斜体",
+    "link": "插入链接",
+    "headings": "标题级别 / 普通段落",
+    "strikethrough": "删除线",
+    "inlineCode": "行内代码",
     "sourceMode": "源码/预览模式",
     "sidebar": "文件树",
     "outline": "大纲面板",

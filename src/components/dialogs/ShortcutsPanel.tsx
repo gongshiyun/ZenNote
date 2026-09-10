@@ -25,6 +25,7 @@ export function ShortcutsPanel({ onClose }: { onClose: () => void }) {
         { label: sc.newNote, keys: "Ctrl+N" },
         { label: sc.openFile, keys: "Ctrl+O" },
         { label: sc.openFolder, keys: "Ctrl+Shift+O" },
+        { label: sc.quickOpen, keys: "Ctrl+P" },
         { label: sc.save, keys: "Ctrl+S" },
         { label: sc.closeTab, keys: "Ctrl+W" },
         { label: sc.switchTab, keys: "Ctrl+Tab" },
@@ -33,7 +34,7 @@ export function ShortcutsPanel({ onClose }: { onClose: () => void }) {
     {
       title: sc.groupEdit,
       items: [
-        { label: sc.find, keys: "Ctrl+F" },
+        { label: sc.find, keys: "Ctrl+F / Ctrl+H" },
         { label: sc.globalSearch, keys: "Ctrl+Shift+F" },
         { label: sc.undo, keys: "Ctrl+Z" },
         { label: sc.redo, keys: "Ctrl+Y" },
@@ -47,6 +48,17 @@ export function ShortcutsPanel({ onClose }: { onClose: () => void }) {
         { label: sc.outline, keys: "Ctrl+Shift+B" },
         { label: sc.darkMode, keys: "Ctrl+Shift+D" },
         { label: sc.help, keys: "F1" },
+      ],
+    },
+    {
+      title: sc.groupFormatting,
+      items: [
+        { label: sc.bold, keys: "Ctrl+B" },
+        { label: sc.italic, keys: "Ctrl+I" },
+        { label: sc.link, keys: "Ctrl+K" },
+        { label: sc.headings, keys: "Ctrl+1…6 / Ctrl+0" },
+        { label: sc.strikethrough, keys: "Ctrl+Shift+X" },
+        { label: sc.inlineCode, keys: "Ctrl+Shift+C" },
       ],
     },
     {

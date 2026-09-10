@@ -10,9 +10,14 @@ import { isHttpUrl, collectMatchesFromDoc } from "../../lib/findQuery";
 import { fitContainScale } from "../../lib/imageZoom";
 import { znCodeHighlightStyle } from "./codeHighlight";
 import { t } from "../../i18n";
-import { writeFile } from "../../services";
-import { saveImage, resolveImageUrl } from "../../services";
+import { resolveImageUrl } from "../../services";
 import { currentFontStack } from "../../lib/fontStack";
+import { saveCurrentDocument } from "../../lib/saveCoordinator";
+import { keepExternalConflict, reloadExternalConflict } from "../../lib/workspaceWatcher";
+import { sanitizeHtmlFragment, sanitizeSvg } from "../../lib/sanitize";
+import { lineColAtProseMirrorDoc, posAtLineColProseMirrorDoc } from "../../lib/textPosition";
+import { computeWordCount } from "../../domain";
+import { prepareImageUpload } from "../../lib/imageUpload";
 import "@milkdown/crepe/theme/common/style.css";
 // KaTeX 字体/排版样式：Crepe 的 Latex feature 已启用，但公式渲染依赖此 CSS。
 import "katex/dist/katex.min.css";
@@ -39,22 +44,6 @@ const mermaidLanguage = LanguageDescription.of({
 });
 if (!codeMirrorLanguages.some((l) => l.name === "mermaid")) {
   codeMirrorLanguages.unshift(mermaidLanguage);
-}
-
-// Sanitize raw HTML before rendering (local notes, but strip obvious hazards).
-// Uses <template> so nothing executes during parsing.
-function sanitizeHtml(html: string): string {
-  const tpl = document.createElement("template");
-  tpl.innerHTML = html;
-  tpl.content.querySelectorAll("script, iframe, object, embed, link, meta, base").forEach(el => el.remove());
-  tpl.content.querySelectorAll("*").forEach(el => {
-    for (const attr of Array.from(el.attributes)) {
-      const name = attr.name.toLowerCase();
-      if (name.startsWith("on")) el.removeAttribute(attr.name);
-      else if ((name === "href" || name === "src") && attr.value.trim().toLowerCase().startsWith("javascript:")) el.removeAttribute(attr.name);
-    }
-  });
-  return tpl.innerHTML;
 }
 
 // Render simple markdown (links/bold/italic/code/lists) inside an HTML block's
@@ -93,9 +82,9 @@ function renderHtmlValue(value: string): string {
   const block = isBlockHtml(value);
   const m = block ? value.trim().match(/^<(\w+)([^>]*)>([\s\S]*)<\/\1>\s*$/) : null;
   if (m && !m[3].includes("<")) {
-    return sanitizeHtml("<" + m[1] + m[2] + ">" + renderInnerMarkdown(m[3]) + "</" + m[1] + ">");
+    return sanitizeHtmlFragment("<" + m[1] + m[2] + ">" + renderInnerMarkdown(m[3]) + "</" + m[1] + ">");
   }
-  return sanitizeHtml(value);
+  return sanitizeHtmlFragment(value);
 }
 
 // Typora-style node view for the raw-HTML node: shows the RENDERED html by
@@ -352,6 +341,7 @@ export function Editor() {
   // disk (external change): re-runs this effect so the reuse path swaps the
   // document in place.
   const reloadTick = useStore(s => s.reloadTick);
+  const externalConflict = useStore(s => s.externalConflict);
   const setCursorPosition = useStore(s => s.setCursorPosition);
   // NOTE: scrollPosition is intentionally NOT subscribed here — reading it via
   // useStore would re-run the editor init effect every time the periodic scroll
@@ -359,6 +349,8 @@ export function Editor() {
   // page (observed as random auto-scrolling while idle).
   const setScrollPosition = useStore(s => s.setScrollPosition);
   const setEditorRef = useStore(s => s.setEditorRef);
+  const setPmSelection = useStore(s => s.setPmSelection);
+  const setSelectionStats = useStore(s => s.setSelectionStats);
   const editorPadding = useStore(s => s.editorPadding);
   const resolvedMode = useStore(s => s.resolvedMode);
   const fontFamily = useStore(s => s.fontFamily);
@@ -391,7 +383,12 @@ export function Editor() {
   // ProseMirror view ref (set after editor init) so effects can dispatch transactions.
   const pmViewRef = useRef<any>(null);
   // Preset query for the find bar (set when jumping in from global search).
-  const [findPreset, setFindPreset] = useState<{ query: string; ts: number } | null>(null);
+  const [findPreset, setFindPreset] = useState<{
+    query: string;
+    line?: number;
+    showReplace?: boolean;
+    ts: number;
+  } | null>(null);
   // Large-document hint: suggest source mode for very long notes.
   const [bigFileHint, setBigFileHint] = useState(false);
   // Bumped when instance-reuse fails so the init effect re-runs a full create.
@@ -486,12 +483,30 @@ export function Editor() {
         }
         // Rebuild the EditorState with the SAME plugins: plugin states (history,
         // decorations) are re-initialized, selection moves to the doc start.
-        const { EditorState: PMState, Selection } = await import("@milkdown/kit/prose/state");
+        const {
+          EditorState: PMState,
+          TextSelection,
+        } = await import("@milkdown/kit/prose/state");
         const pmView = pmViewRef.current;
         if (!pmView) throw new Error("pm-view-lost");
+        const storedSelection = useStore.getState().pmSelection;
+        const selection = storedSelection?.content === docContent
+          ? TextSelection.create(
+            pmView.state.doc,
+            Math.min(storedSelection.anchor, pmView.state.doc.content.size),
+            Math.min(storedSelection.head, pmView.state.doc.content.size),
+          )
+          : TextSelection.create(
+            pmView.state.doc,
+            posAtLineColProseMirrorDoc(
+              pmView.state.doc,
+              useStore.getState().cursorLine,
+              useStore.getState().cursorCol,
+            ),
+          );
         pmView.updateState(PMState.create({
           doc: pmView.state.doc,
-          selection: Selection.atStart(pmView.state.doc),
+          selection,
           plugins: pmView.state.plugins,
         }));
         // Restore this file's saved scroll position (per-file cache first).
@@ -499,6 +514,7 @@ export function Editor() {
         const saved = st.fileStates.get(path)?.scrollPos ?? st.scrollPosition;
         if (saved > 0) {
           setTimeout(() => {
+            if (tokenRef.current !== token) return;
             const scrollEl = editorScrollEl(container);
             if (scrollEl) scrollEl.scrollTop = saved;
           }, 120);
@@ -561,6 +577,14 @@ export function Editor() {
         if (tokenRef.current !== token) return;
 
         const docContent = useStore.getState().content || "";
+        const uploadImage = async (file: File) => {
+          const relative = await prepareImageUpload(
+            file,
+            useStore.getState().currentFilePath,
+          );
+          if (relative === null) throw new Error("image-upload-cancelled");
+          return relative;
+        };
         const crepe = new Crepe({
           root: container,
           defaultValue: docContent,
@@ -606,14 +630,14 @@ export function Editor() {
                     mermaidMod.default.initialize({
                       startOnLoad: false,
                       theme: isDark ? "dark" : "default",
-                      securityLevel: "loose",
+                      securityLevel: "antiscript",
                       // Follow the user's selected UI font
                       fontFamily: currentFontStack(),
                     });
                     const id = "m-" + Math.random().toString(36).slice(2, 8);
                     const { svg } = await mermaidMod.default.render(id, content.trim());
                     if (tokenRef.current !== token) return;
-                    applyPreview(svg);
+                    applyPreview(sanitizeSvg(svg));
                   } catch (err) {
                     console.warn("mermaid-render-failed", err);
                     if (tokenRef.current === token) applyPreview(null);
@@ -626,9 +650,9 @@ export function Editor() {
             [CrepeFeature.ImageBlock]: {
               // Persist pasted/dropped/uploaded images to the note's assets folder
               // and embed them by relative path (survives restarts, portable).
-              onUpload: async (file: File) => saveImage(file, useStore.getState().currentFilePath),
-              inlineOnUpload: async (file: File) => saveImage(file, useStore.getState().currentFilePath),
-              blockOnUpload: async (file: File) => saveImage(file, useStore.getState().currentFilePath),
+              onUpload: uploadImage,
+              inlineOnUpload: uploadImage,
+              blockOnUpload: uploadImage,
               // Resolve stored (relative/absolute) paths to webview-loadable asset URLs.
               proxyDomURL: (url: string) => resolveImageUrl(url, useStore.getState().currentFilePath),
             },
@@ -1075,9 +1099,24 @@ export function Editor() {
         }
         // Inject the plugins by reconfiguring the state. Safe to do right after create():
         // the undo history and all plugin states are still empty.
+        const storedSelection = useStore.getState().pmSelection;
+        const initialSelection = storedSelection?.content === useStore.getState().content
+          ? TextSelection.create(
+            pmView.state.doc,
+            Math.min(storedSelection.anchor, pmView.state.doc.content.size),
+            Math.min(storedSelection.head, pmView.state.doc.content.size),
+          )
+          : TextSelection.create(
+            pmView.state.doc,
+            posAtLineColProseMirrorDoc(
+              pmView.state.doc,
+              useStore.getState().cursorLine,
+              useStore.getState().cursorCol,
+            ),
+          );
         pmView.updateState(EditorState.create({
           doc: pmView.state.doc,
-          selection: pmView.state.selection,
+          selection: initialSelection,
           plugins: [...pmView.state.plugins, focusDecoPlugin, imageAlignPlugin, tocRefreshPlugin, footnoteFlashPlugin, findPlugin, urlPastePlugin, ...(tocInputRulePlugin ? [tocInputRulePlugin] : []), ...(tocAutoConvertPlugin ? [tocAutoConvertPlugin] : [])],
         }));
         pmViewRef.current = pmView;
@@ -1120,6 +1159,30 @@ export function Editor() {
 
 // ---- Cursor tracking ----
         const updateCursor = () => {
+          const pmState = pmView.state;
+          if (pmState?.selection) {
+            const selection = pmState.selection;
+            const anchor = typeof selection.anchor === "number" ? selection.anchor : selection.from;
+            const head = typeof selection.head === "number" ? selection.head : selection.to;
+            const position = lineColAtProseMirrorDoc(
+              pmState.doc,
+              head,
+            );
+            setCursorPosition(position.line, position.col);
+            setPmSelection({
+              anchor,
+              head,
+              content: useStore.getState().content,
+            });
+            const selected = pmState.doc.textBetween(
+              Math.min(anchor, head),
+              Math.max(anchor, head),
+              "\n",
+              "\n",
+            );
+            setSelectionStats(selected.length, computeWordCount(selected).totalWords);
+            return;
+          }
           const sel = window.getSelection();
           if (sel && sel.rangeCount > 0) {
             const node = sel.anchorNode;
@@ -1515,7 +1578,7 @@ export function Editor() {
       tokenRef.current = null;
       safeRef.current = false;
     };
-  }, [currentFilePath, sourceMode, reuseFailTick, reloadTick, setCursorPosition, setEditorRef]);
+  }, [currentFilePath, sourceMode, reuseFailTick, reloadTick, setCursorPosition, setEditorRef, setPmSelection, setSelectionStats]);
 
   // Locate the enclosing image-block node of an <img> (position + alignment).
   const readImageBlockAt = useCallback((img: HTMLElement): { pos: number; align: string } => {
@@ -1654,7 +1717,7 @@ export function Editor() {
         mermaidMod.default.initialize({
           startOnLoad: false,
           theme: isDark ? "dark" : "default",
-          securityLevel: "loose",
+          securityLevel: "antiscript",
           fontFamily: currentFontStack(),
         });
         // Group registered blocks by source so identical diagrams render once.
@@ -1675,7 +1738,8 @@ export function Editor() {
             if (cancelled) return;
             // Update Milkdown's preview ref (source of truth) — NOT the DOM directly,
             // so Milkdown's own watchEffect won't revert it back to the old SVG.
-            applyFns.forEach(fn => fn(svg));
+            const safeSvg = sanitizeSvg(svg);
+            applyFns.forEach(fn => fn(safeSvg));
             reRendered++;
           } catch (err) { console.warn("mermaid-re-render-failed", err); }
         }
@@ -1743,15 +1807,7 @@ export function Editor() {
     if (e.key === "f" && !e.shiftKey) { e.preventDefault(); setFindVisible(v => !v); }
     if (e.key === "s") {
       e.preventDefault();
-      const s = useStore.getState();
-      if (s.content !== undefined && s.currentFilePath) {
-        writeFile(s.currentFilePath, s.content)
-          .then(() => {
-            useStore.getState().setDirty(false);
-            useStore.getState().setLastSavedAt(Date.now());
-          })
-          .catch((err) => { console.error("file-write-failed", err); });
-      }
+      saveCurrentDocument().catch((err) => { console.error("file-write-failed", err); });
     }
   }, [currentFilePath]);
 
@@ -1765,7 +1821,16 @@ export function Editor() {
   useEffect(() => {
     const handler = (e: Event) => {
       const q = (e as CustomEvent).detail?.query;
-      if (typeof q === "string" && q) setFindPreset({ query: q, ts: Date.now() });
+      const line = (e as CustomEvent).detail?.line;
+      const showReplace = (e as CustomEvent).detail?.showReplace === true;
+      if ((typeof q === "string" && q) || showReplace) {
+        setFindPreset({
+          query: typeof q === "string" ? q : "",
+          line: typeof line === "number" ? line : undefined,
+          showReplace,
+          ts: Date.now(),
+        });
+      }
       setFindVisible(true);
     };
     window.addEventListener("zn-find-open", handler);
@@ -1799,10 +1864,48 @@ export function Editor() {
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
       <FindReplaceBar visible={findVisible} onClose={() => setFindVisible(false)}
-        preset={findPreset} getPmView={() => pmViewRef.current} getCmView={() => cmViewRef.current} />
+        preset={findPreset}
+        documentKey={currentFilePath + ":" + reloadTick}
+        getPmView={() => pmViewRef.current}
+        getCmView={() => cmViewRef.current}
+      />
       {error && (
         <div style={{ padding: "6px 12px", fontSize: 12, background: "#FEF3C7", color: "#92400E", borderBottom: "1px solid #FCD34D", flexShrink: 0 }}>
           Warning: {error}
+        </div>
+      )}
+      {externalConflict && externalConflict.path === currentFilePath && (
+        <div style={{
+          padding: "7px 12px", fontSize: 12, display: "flex", alignItems: "center", gap: 10,
+          background: externalConflict.reason === "deleted" ? "var(--bg-toolbar)" : "#FEF3C7",
+          color: externalConflict.reason === "deleted" ? "var(--text-secondary)" : "#92400E",
+          borderBottom: "1px solid var(--border)", flexShrink: 0,
+        }}>
+          <span>
+            {externalConflict.reason === "deleted"
+              ? t().editor.externalDeleted
+              : t().editor.externalModified}
+          </span>
+          {externalConflict.reason === "modified" && (
+            <button
+              onClick={() => reloadExternalConflict(externalConflict.path)}
+              style={{
+                border: "1px solid currentColor", background: "transparent",
+                color: "inherit", borderRadius: 4, padding: "2px 8px", cursor: "pointer",
+              }}
+            >
+              {t().editor.reloadExternal}
+            </button>
+          )}
+          <button
+            onClick={() => keepExternalConflict(externalConflict.path)}
+            style={{
+              border: "1px solid var(--border)", background: "var(--bg-editor)",
+              color: "var(--text-primary)", borderRadius: 4, padding: "2px 8px", cursor: "pointer",
+            }}
+          >
+            {t().editor.keepLocal}
+          </button>
         </div>
       )}
       {/* Large-document hint: recommend source mode for very long notes */}

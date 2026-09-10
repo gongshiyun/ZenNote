@@ -10,8 +10,12 @@
  * ignored, so autosave never triggers a refresh loop.
  */
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { useStore } from "../store";
+import { remapWorkspacePaths, useStore } from "../store";
 import * as fs from "../services/fileService";
+import { invalidateWorkspaceSearchCache } from "./workspaceSearch";
+
+const acknowledgedExternal = new Map<string, string>();
+const DELETED = "\u0000deleted";
 
 /**
  * Re-list the workspace root, then re-read every expanded folder so the lazy
@@ -23,7 +27,7 @@ export async function refreshWorkspaceTree(): Promise<void> {
   if (!ws) return;
   let root;
   try {
-    root = await fs.openWorkspace(ws);
+    root = await fs.openWorkspace(ws, useStore.getState().showHiddenFiles);
   } catch {
     return; // workspace folder gone/unreadable — keep the old tree
   }
@@ -32,7 +36,7 @@ export async function refreshWorkspaceTree(): Promise<void> {
   const alive: string[] = [];
   for (const folder of expanded) {
     try {
-      const children = await fs.readDir(folder);
+      const children = await fs.readDir(folder, useStore.getState().showHiddenFiles);
       useStore.getState().setFolderChildren(folder, children);
       alive.push(folder);
     } catch {
@@ -60,19 +64,23 @@ export async function reloadExternallyChanged(paths: string[]): Promise<void> {
     try {
       disk = await fs.readFile(p);
     } catch {
-      continue; // deleted or unreadable — leave the tab as-is
+      if (await fs.pathExists(p)) continue; // unreadable, not deleted
+      invalidateWorkspaceSearchCache(p);
+      if (acknowledgedExternal.get(p) === DELETED) continue;
+      const s = useStore.getState();
+      if (p === s.currentFilePath) {
+        s.setExternalConflict({ path: p, diskContent: null, reason: "deleted" });
+      }
+      continue;
     }
     if (fs.getLastWritten(p) === disk) continue; // echo of our own write
+    if (acknowledgedExternal.get(p) === disk) continue;
+    invalidateWorkspaceSearchCache(p);
+    acknowledgedExternal.delete(p);
     const s = useStore.getState();
     if (p === s.currentFilePath) {
-      if (s.isDirty) continue; // never overwrite unsaved edits
       if (s.content === disk) continue;
-      if (s.sourceMode) continue; // the source editor is the user's view now
-      // Swap content and bump reloadTick: the editor effect re-runs and the
-      // instance-reuse path replaces the document in place. (setCurrentFile
-      // can't be used here — it restores the just-cached OLD content for a
-      // path that is already current.)
-      useStore.setState({ content: disk, isDirty: false, reloadTick: s.reloadTick + 1 });
+      s.setExternalConflict({ path: p, diskContent: disk, reason: "modified" });
     } else {
       const st = s.fileStates.get(p);
       if (!st || st.dirty || st.content === disk) continue;
@@ -83,6 +91,29 @@ export async function reloadExternallyChanged(paths: string[]): Promise<void> {
   }
 }
 
+export function reloadExternalConflict(path: string): void {
+  const s = useStore.getState();
+  const conflict = s.externalConflict;
+  if (!conflict || conflict.path !== path || s.currentFilePath !== path) return;
+  if (conflict.reason === "deleted" || conflict.diskContent === null) return;
+  acknowledgedExternal.set(path, conflict.diskContent);
+  useStore.setState({
+    content: conflict.diskContent,
+    isDirty: false,
+    reloadTick: s.reloadTick + 1,
+    externalConflict: null,
+    fileStates: new Map(s.fileStates),
+  });
+}
+
+export function keepExternalConflict(path: string): void {
+  const s = useStore.getState();
+  const conflict = s.externalConflict;
+  if (!conflict || conflict.path !== path) return;
+  acknowledgedExternal.set(path, conflict.diskContent ?? DELETED);
+  s.setExternalConflict(null);
+}
+
 /**
  * Subscribe to `workspace-changed` and start the debounced refresh. Returns
  * the unsubscribe function (call it on workspace change / unmount).
@@ -91,9 +122,14 @@ export async function startWorkspaceWatcher(): Promise<UnlistenFn> {
   const { listen } = await import("@tauri-apps/api/event");
   let timer = 0;
   let pending: Set<string> = new Set();
-  return listen<{ paths: string[] }>("workspace-changed", (ev) => {
+  return listen<{ paths: string[]; renames?: Array<{ from: string; to: string }> }>("workspace-changed", (ev) => {
     const changed = ev.payload?.paths;
     if (!Array.isArray(changed)) return;
+    const renames = Array.isArray(ev.payload?.renames) ? ev.payload.renames : [];
+    if (renames.length) {
+      applyExternalRenames(renames);
+      for (const rename of renames) pending.add(rename.to);
+    }
     for (const p of changed) pending.add(p);
     // Second debounce layer on top of the Rust-side batching: bursts of
     // events (multi-file saves, git operations) collapse into one refresh.
@@ -106,4 +142,13 @@ export async function startWorkspaceWatcher(): Promise<UnlistenFn> {
       void reloadExternallyChanged(paths);
     }, 250);
   });
+}
+
+export function applyExternalRenames(
+  renames: Array<{ from: string; to: string }>,
+): void {
+  for (const rename of renames) {
+    if (!rename.from || !rename.to) continue;
+    remapWorkspacePaths(rename.from, rename.to);
+  }
 }

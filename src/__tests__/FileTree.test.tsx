@@ -4,14 +4,16 @@ import { useStore } from '../store';
 
 // Mock the service layer (Tauri IPC) — readDir drives the lazy-load tests.
 const readDirSpy = vi.fn();
+const readFileSpy = vi.fn();
+const openWorkspaceSpy = vi.fn();
 vi.mock('../services', () => ({
-  readFile: vi.fn(),
+  readFile: (...args: unknown[]) => readFileSpy(...args),
   writeFile: vi.fn(),
   createFile: vi.fn(),
   createFolder: vi.fn(),
   renameFile: vi.fn(),
   deleteFile: vi.fn(),
-  openWorkspace: vi.fn(),
+  openWorkspace: (...args: unknown[]) => openWorkspaceSpy(...args),
   readDir: (...args: unknown[]) => readDirSpy(...args),
   saveImage: vi.fn(),
   resolveImageUrl: vi.fn(),
@@ -22,12 +24,17 @@ import { FileTree } from '../components/filetree/FileTree';
 describe('FileTree — workspace loading UX', () => {
   beforeEach(() => {
     readDirSpy.mockReset();
+    readFileSpy.mockReset();
+    openWorkspaceSpy.mockReset();
     useStore.setState({
       workspacePath: '/ws',
       tree: [],
       expandedFolders: [],
       isLoading: false,
       selectedFilePath: null,
+      sourceMode: false,
+      defaultSourceMode: false,
+      showFileExtensions: true,
     });
   });
 
@@ -61,7 +68,7 @@ describe('FileTree — workspace loading UX', () => {
 
     // After readDir resolves, the children appear and the spinner is gone.
     await waitFor(() => expect(screen.getByText('child.md')).toBeInTheDocument());
-    expect(readDirSpy).toHaveBeenCalledWith('/ws/folder');
+    expect(readDirSpy).toHaveBeenCalledWith('/ws/folder', false);
     expect(screen.queryByText('搜索中...')).toBeNull();
   });
 
@@ -112,6 +119,32 @@ describe('FileTree — workspace loading UX', () => {
     render(<FileTree />);
     fireEvent.click(screen.getByText('folder'));
     expect(useStore.getState().expandedFolders).toContain('/ws/folder');
-    await waitFor(() => expect(readDirSpy).toHaveBeenCalledWith('/ws/folder'));
+    await waitFor(() => expect(readDirSpy).toHaveBeenCalledWith('/ws/folder', false));
+  });
+
+  it('hides .md extensions when showFileExtensions is disabled', () => {
+    useStore.setState({
+      showFileExtensions: false,
+      tree: [{ name: 'note.md', path: '/ws/note.md', isDir: false }],
+    });
+    render(<FileTree />);
+    expect(screen.getByText('note')).toBeInTheDocument();
+    expect(screen.queryByText('note.md')).toBeNull();
+  });
+
+  it('opens files in source mode when defaultSourceMode is enabled', async () => {
+    readFileSpy.mockResolvedValue('# note');
+    useStore.setState({
+      defaultSourceMode: true,
+      tree: [{ name: 'note.md', path: '/ws/note.md', isDir: false }],
+    });
+    render(<FileTree />);
+
+    fireEvent.click(screen.getByText('note.md'));
+
+    await waitFor(() => {
+      expect(useStore.getState().currentFilePath).toBe('/ws/note.md');
+      expect(useStore.getState().sourceMode).toBe(true);
+    });
   });
 });

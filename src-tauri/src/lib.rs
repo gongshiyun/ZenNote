@@ -1,6 +1,7 @@
 ﻿use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 use std::sync::Mutex;
 use walkdir::WalkDir;
@@ -20,7 +21,7 @@ pub struct FileNode {
 // ---- File system commands ----
 
 #[tauri::command]
-fn open_workspace(path: String) -> Result<Vec<FileNode>, String> {
+fn open_workspace(path: String, include_hidden: Option<bool>) -> Result<Vec<FileNode>, String> {
     let root = Path::new(&path);
     if !root.exists() {
         return Err(format!("文件夹不存在: {}", path));
@@ -32,7 +33,7 @@ fn open_workspace(path: String) -> Result<Vec<FileNode>, String> {
     // ("not loaded yet") and are populated on demand via read_dir. This keeps
     // opening a huge workspace (e.g. a whole drive) near-instant instead of
     // walking millions of entries up front.
-    list_dir(root)
+    list_dir(root, include_hidden.unwrap_or(false))
 }
 
 #[tauri::command]
@@ -41,8 +42,48 @@ fn read_file(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn path_exists(path: String) -> bool {
+    Path::new(&path).exists()
+}
+
+#[tauri::command]
 fn write_file(path: String, content: String) -> Result<(), String> {
-    fs::write(&path, &content).map_err(|e| format!("保存失败: {}", e))
+    atomic_write(Path::new(&path), content.as_bytes()).map_err(|e| format!("保存失败: {}", e))
+}
+
+fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("note");
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let temp = parent.join(format!(".{}.{}.{}.tmp", name, std::process::id(), stamp));
+
+    let write_result = (|| -> Result<(), String> {
+        let mut file = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temp)
+            .map_err(|e| e.to_string())?;
+        file.write_all(bytes).map_err(|e| e.to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+        drop(file);
+        fs::rename(&temp, path).map_err(|e| e.to_string())?;
+        if let Ok(dir) = fs::File::open(parent) {
+            let _ = dir.sync_all();
+        }
+        Ok(())
+    })();
+
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    write_result
 }
 
 #[tauri::command]
@@ -102,7 +143,7 @@ fn write_file_binary(path: String, bytes: Vec<u8>) -> Result<(), String> {
     if let Some(parent) = Path::new(&path).parent() {
         fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
     }
-    fs::write(&path, &bytes).map_err(|e| format!("保存图片失败: {}", e))
+    atomic_write(Path::new(&path), &bytes).map_err(|e| format!("保存图片失败: {}", e))
 }
 
 // ---- Tree builder ----
@@ -110,7 +151,7 @@ fn write_file_binary(path: String, bytes: Vec<u8>) -> Result<(), String> {
 /// List ONE directory level. Sub-directories are returned with
 /// `children: None` meaning "not loaded yet" (lazy loading marker); the
 /// frontend requests them via `read_dir` when the user expands the folder.
-fn list_dir(root: &Path) -> Result<Vec<FileNode>, String> {
+fn list_dir(root: &Path, include_hidden: bool) -> Result<Vec<FileNode>, String> {
     let mut nodes: Vec<FileNode> = Vec::new();
 
     for entry in WalkDir::new(root)
@@ -128,7 +169,7 @@ fn list_dir(root: &Path) -> Result<Vec<FileNode>, String> {
             .to_string();
 
         // Skip hidden files and non-markdown files (for now)
-        if name.starts_with('.') {
+        if !include_hidden && name.starts_with('.') {
             continue;
         }
 
@@ -139,7 +180,10 @@ fn list_dir(root: &Path) -> Result<Vec<FileNode>, String> {
                 is_dir: true,
                 children: None, // lazy: load via read_dir on expand
             });
-        } else if path.extension().map_or(false, |ext| ext == "md") {
+        } else if path
+            .extension()
+            .map_or(false, |ext| ext.to_string_lossy().eq_ignore_ascii_case("md"))
+        {
             nodes.push(FileNode {
                 name,
                 path: path.to_string_lossy().to_string(),
@@ -154,12 +198,57 @@ fn list_dir(root: &Path) -> Result<Vec<FileNode>, String> {
 
 /// Load the immediate children of a folder on demand (lazy tree loading).
 #[tauri::command]
-fn read_dir(path: String) -> Result<Vec<FileNode>, String> {
+fn read_dir(path: String, include_hidden: Option<bool>) -> Result<Vec<FileNode>, String> {
     let dir = Path::new(&path);
     if !dir.exists() || !dir.is_dir() {
         return Err(format!("文件夹不存在: {}", path));
     }
-    list_dir(dir)
+    list_dir(dir, include_hidden.unwrap_or(false))
+}
+
+#[tauri::command]
+fn list_markdown_files(
+    path: String,
+    include_hidden: Option<bool>,
+) -> Result<Vec<FileNode>, String> {
+    let root = Path::new(&path);
+    if !root.exists() || !root.is_dir() {
+        return Err(format!("文件夹不存在: {}", path));
+    }
+    let include_hidden = include_hidden.unwrap_or(false);
+    let mut files = Vec::new();
+    for entry in WalkDir::new(root)
+        .into_iter()
+        .filter_entry(|entry| {
+            include_hidden
+                || !entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with('.')
+        })
+        .filter_map(|entry| entry.ok())
+    {
+        let path = entry.path();
+        if !path.is_file()
+            || !path
+                .extension()
+                .map_or(false, |ext| ext.to_string_lossy().eq_ignore_ascii_case("md"))
+        {
+            continue;
+        }
+        files.push(FileNode {
+            name: path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string(),
+            path: path.to_string_lossy().to_string(),
+            is_dir: false,
+            children: None,
+        });
+    }
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(files)
 }
 
 // ---- Workspace search (Rust-side, replaces the old per-file JS traversal) ----
@@ -221,7 +310,9 @@ fn search_workspace(
         if p.is_dir() {
             continue;
         }
-        if p.extension().map_or(true, |ext| ext != "md") {
+        if p.extension().map_or(true, |ext| {
+            !ext.to_string_lossy().eq_ignore_ascii_case("md")
+        }) {
             continue;
         }
         let name = p
@@ -492,6 +583,32 @@ fn export_debug_log(app: tauri::AppHandle, msg: String) -> String {
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceChange {
     pub paths: Vec<String>,
+    pub renames: Vec<RenamePair>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RenamePair {
+    pub from: String,
+    pub to: String,
+}
+
+fn rename_pair_from_event(
+    kind: &notify::EventKind,
+    paths: &[std::path::PathBuf],
+) -> Option<RenamePair> {
+    use notify::event::{ModifyKind, RenameMode};
+    if !matches!(
+        kind,
+        notify::EventKind::Modify(ModifyKind::Name(RenameMode::Both))
+    ) || paths.len() < 2
+    {
+        return None;
+    }
+    Some(RenamePair {
+        from: paths[0].to_string_lossy().to_string(),
+        to: paths[1].to_string_lossy().to_string(),
+    })
 }
 
 /// Holds the active workspace watcher. Managed via `app.manage()`; at most
@@ -510,7 +627,8 @@ async fn watch_workspace(
     path: String,
     state: tauri::State<'_, Mutex<FsWatcher>>,
 ) -> Result<(), String> {
-    use notify::{Config, Event, RecursiveMode, Watcher};
+    use notify::event::{ModifyKind, RenameMode};
+    use notify::{Config, Event, EventKind, RecursiveMode, Watcher};
     use std::time::Duration;
     use tauri::Emitter;
 
@@ -524,9 +642,15 @@ async fn watch_workspace(
     // merged into a single emission (editors trigger bursts of raw events).
     let buffer: std::sync::Arc<Mutex<HashSet<String>>> =
         std::sync::Arc::new(Mutex::new(HashSet::new()));
+    let renames: std::sync::Arc<Mutex<Vec<RenamePair>>> =
+        std::sync::Arc::new(Mutex::new(Vec::new()));
+    let pending_from: std::sync::Arc<Mutex<Option<String>>> =
+        std::sync::Arc::new(Mutex::new(None));
     let pending: std::sync::Arc<Mutex<bool>> = std::sync::Arc::new(Mutex::new(false));
 
     let buf_c = buffer.clone();
+    let renames_c = renames.clone();
+    let pending_from_c = pending_from.clone();
     let pend_c = pending.clone();
     let mut watcher = notify::RecommendedWatcher::new(
         move |res: notify::Result<Event>| {
@@ -534,19 +658,41 @@ async fn watch_workspace(
                 Ok(e) => e,
                 Err(_) => return,
             };
+            if let Some(pair) = rename_pair_from_event(&event.kind, &event.paths) {
+                if let Ok(mut list) = renames_c.lock() {
+                    list.push(pair);
+                }
+            } else if matches!(
+                event.kind,
+                EventKind::Modify(ModifyKind::Name(RenameMode::From))
+            ) {
+                if let Some(path) = event.paths.first() {
+                    if let Ok(mut from) = pending_from_c.lock() {
+                        *from = Some(path.to_string_lossy().to_string());
+                    }
+                }
+            } else if matches!(
+                event.kind,
+                EventKind::Modify(ModifyKind::Name(RenameMode::To))
+            ) {
+                if let Some(path) = event.paths.first() {
+                    let from = pending_from_c.lock().ok().and_then(|mut value| value.take());
+                    if let Some(from) = from {
+                        if let Ok(mut list) = renames_c.lock() {
+                            list.push(RenamePair {
+                                from,
+                                to: path.to_string_lossy().to_string(),
+                            });
+                        }
+                    }
+                }
+            }
             let schedule = {
                 let mut buf = match buf_c.lock() {
                     Ok(b) => b,
                     Err(_) => return,
                 };
                 for p in &event.paths {
-                    let name = p
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_default();
-                    if name.starts_with('.') {
-                        continue; // hidden (.git, temp files...)
-                    }
                     let s = p.to_string_lossy().to_string();
                     if p.is_file() && !s.to_lowercase().ends_with(".md") {
                         continue; // only markdown files matter for the tree/editor
@@ -568,6 +714,7 @@ async fn watch_workspace(
             *flush_scheduled = true;
             drop(flush_scheduled);
             let buf_t = buf_c.clone();
+            let renames_t = renames_c.clone();
             let pend_t = pend_c.clone();
             let app_t = app.clone();
             std::thread::spawn(move || {
@@ -576,13 +723,17 @@ async fn watch_workspace(
                     Ok(mut b) => b.drain().collect(),
                     Err(_) => return,
                 };
+                let renames: Vec<RenamePair> = match renames_t.lock() {
+                    Ok(mut list) => std::mem::take(&mut *list),
+                    Err(_) => Vec::new(),
+                };
                 if let Ok(mut p) = pend_t.lock() {
                     *p = false;
                 }
                 if paths.is_empty() {
                     return;
                 }
-                let _ = app_t.emit("workspace-changed", WorkspaceChange { paths });
+                let _ = app_t.emit("workspace-changed", WorkspaceChange { paths, renames });
             });
         },
         Config::default(),
@@ -642,7 +793,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_workspace,
             read_dir,
+            list_markdown_files,
             read_file,
+            path_exists,
             write_file,
             create_file,
             create_folder,
@@ -756,7 +909,7 @@ mod tests {
         let root = dir.to_string_lossy().to_string();
 
         // open_workspace lists only the FIRST level; folders are lazy markers.
-        let top = open_workspace(root.clone()).unwrap();
+        let top = open_workspace(root.clone(), None).unwrap();
         let sub = top.iter().find(|n| n.name == "sub").unwrap();
         assert!(sub.is_dir);
         assert!(sub.children.is_none()); // NOT pre-loaded
@@ -764,16 +917,102 @@ mod tests {
         assert!(!top.iter().any(|n| n.name == "ignored.txt"));
 
         // read_dir loads one level on demand, again lazily below.
-        let lvl1 = read_dir(sub.path.clone()).unwrap();
+        let lvl1 = read_dir(sub.path.clone(), None).unwrap();
         let deep = lvl1.iter().find(|n| n.name == "deep").unwrap();
         assert!(deep.children.is_none());
         assert!(lvl1.iter().any(|n| n.name == "nested.md"));
-        let lvl2 = read_dir(deep.path.clone()).unwrap();
+        let lvl2 = read_dir(deep.path.clone(), None).unwrap();
         assert!(lvl2.iter().any(|n| n.name == "deepest.md"));
 
         // read_dir rejects missing folders.
-        assert!(read_dir(format!("{}{}nope", root, std::path::MAIN_SEPARATOR)).is_err());
+        assert!(read_dir(format!("{}{}nope", root, std::path::MAIN_SEPARATOR), None).is_err());
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn workspace_listing_can_include_hidden_entries() {
+        let dir = std::env::temp_dir().join(format!("zennote-hidden-list-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(".hidden.md"), "hidden").unwrap();
+        fs::write(dir.join("visible.md"), "visible").unwrap();
+
+        let default = open_workspace(dir.to_string_lossy().to_string(), None).unwrap();
+        assert!(!default.iter().any(|node| node.name == ".hidden.md"));
+
+        let all = open_workspace(dir.to_string_lossy().to_string(), Some(true)).unwrap();
+        assert!(all.iter().any(|node| node.name == ".hidden.md"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn uppercase_md_files_are_listed_and_searched() {
+        let dir = std::env::temp_dir().join(format!("zennote-upper-md-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("NOTE.MD"), "Hello uppercase").unwrap();
+        let root = dir.to_string_lossy().to_string();
+
+        let tree = open_workspace(root.clone(), None).unwrap();
+        assert!(tree.iter().any(|node| node.name == "NOTE.MD"));
+        let hits = search_workspace(root, "uppercase".into(), None).unwrap();
+        assert!(hits.iter().any(|hit| hit.file_name == "NOTE.MD"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn quick_open_lists_markdown_files_recursively() {
+        let dir = std::env::temp_dir().join(format!("zennote-quick-open-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("sub")).unwrap();
+        fs::write(dir.join("top.md"), "x").unwrap();
+        fs::write(dir.join("sub").join("deep.MD"), "x").unwrap();
+        fs::write(dir.join("skip.txt"), "x").unwrap();
+
+        let files = list_markdown_files(dir.to_string_lossy().to_string(), None).unwrap();
+        assert_eq!(files.len(), 2);
+        assert!(files.iter().any(|file| file.name == "top.md"));
+        assert!(files.iter().any(|file| file.name == "deep.MD"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn path_exists_reports_existing_files() {
+        let file = std::env::temp_dir().join(format!("zennote-exists-{}.md", std::process::id()));
+        fs::write(&file, "x").unwrap();
+        assert!(path_exists(file.to_string_lossy().to_string()));
+        let _ = fs::remove_file(&file);
+        assert!(!path_exists(file.to_string_lossy().to_string()));
+    }
+
+    #[test]
+    fn atomic_write_replaces_content_without_leaving_temp_files() {
+        let dir = std::env::temp_dir().join(format!("zennote-atomic-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("note.md");
+        fs::write(&file, "old").unwrap();
+
+        atomic_write(&file, b"new content").unwrap();
+
+        assert_eq!(fs::read_to_string(&file).unwrap(), "new content");
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rename_events_expose_old_and_new_paths() {
+        use notify::event::{EventKind, ModifyKind, RenameMode};
+        use std::path::PathBuf;
+
+        let pair = rename_pair_from_event(
+            &EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
+            &[PathBuf::from("old.md"), PathBuf::from("new.md")],
+        );
+        assert_eq!(pair.map(|p| (p.from, p.to)), Some(("old.md".into(), "new.md".into())));
     }
 }

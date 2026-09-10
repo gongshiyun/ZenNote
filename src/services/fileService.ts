@@ -15,6 +15,10 @@ export function readFile(path: string): Promise<string> {
   return invoke<string>("read_file", { path });
 }
 
+export function pathExists(path: string): Promise<boolean> {
+  return invoke<boolean>("path_exists", { path });
+}
+
 /** path -> content last written by THIS app (self-change detection for the
  * workspace watcher: an external-change event whose content equals this was
  * caused by our own save and must be ignored). */
@@ -25,9 +29,13 @@ export function getLastWritten(path: string): string | undefined {
 }
 
 export function writeFile(path: string, content: string): Promise<void> {
-  const p = invoke<void>("write_file", { path, content });
-  p.then(() => { lastWritten.set(path, content); }).catch(() => { /* failed write: nothing recorded */ });
-  return p;
+  const previous = lastWritten.get(path);
+  lastWritten.set(path, content);
+  return invoke<void>("write_file", { path, content }).catch((error) => {
+    if (previous === undefined) lastWritten.delete(path);
+    else lastWritten.set(path, previous);
+    throw error;
+  });
 }
 
 export function createFile(path: string): Promise<void> {
@@ -48,16 +56,20 @@ export function deleteFile(path: string): Promise<void> {
 
 // ---- Workspace operations ----
 
-export function openWorkspace(path: string): Promise<FileNode[]> {
-  return invoke<FileNode[]>("open_workspace", { path });
+export function openWorkspace(path: string, includeHidden = false): Promise<FileNode[]> {
+  return invoke<FileNode[]>("open_workspace", { path, includeHidden });
 }
 
 /**
  * Load ONE folder level on demand (lazy tree loading). The workspace listing
  * is shallow; sub-folder children arrive through this call when expanded.
  */
-export function readDir(path: string): Promise<FileNode[]> {
-  return invoke<FileNode[]>("read_dir", { path });
+export function readDir(path: string, includeHidden = false): Promise<FileNode[]> {
+  return invoke<FileNode[]>("read_dir", { path, includeHidden });
+}
+
+export function listMarkdownFiles(path: string, includeHidden = false): Promise<FileNode[]> {
+  return invoke<FileNode[]>("list_markdown_files", { path, includeHidden });
 }
 
 // ---- Workspace watching (external-change auto-refresh) ----

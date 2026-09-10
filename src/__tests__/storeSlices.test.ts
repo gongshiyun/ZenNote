@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from '../store';
+import { DEFAULT_AUTO_SAVE_DELAY } from '../store/slices/appearanceSlice';
 
 describe('Appearance slices', () => {
   beforeEach(() => {
@@ -24,6 +25,10 @@ describe('Appearance slices', () => {
     expect(s.resolvedMode).toBe('light');
     expect(s.themeId).toBe('zen');
     expect(s.fontFamily).toBe('sans');
+  });
+
+  it('uses the documented 500ms auto-save default', () => {
+    expect(DEFAULT_AUTO_SAVE_DELAY).toBe(500);
   });
 
   it('updates theme state', () => {
@@ -139,6 +144,10 @@ describe('Editor slice edge cases', () => {
       lastSavedAt: null,
       fileStates: new Map(),
       openTabs: [],
+      pmSelection: null,
+      cmSelection: null,
+      selectionCharCount: 0,
+      selectionWordCount: 0,
     });
   });
 
@@ -164,6 +173,8 @@ describe('Editor slice edge cases', () => {
       cursorLine: 4,
       cursorCol: 2,
       dirty: true,
+      pmSelection: null,
+      cmSelection: null,
     });
 
     useStore.getState().setCurrentFile('/notes/b.md', 'beta');
@@ -186,6 +197,26 @@ describe('Editor slice edge cases', () => {
     expect(next.cursorCol).toBe(1);
     expect(next.scrollPosition).toBe(42);
     expect(next.isDirty).toBe(true);
+  });
+
+  it('caches editor selections per file across tab switches', () => {
+    const s = useStore.getState();
+    s.setCurrentFile('/notes/a.md', 'alpha');
+    s.setPmSelection({ anchor: 3, head: 7, content: 'alpha' });
+    s.setCmSelection({ anchor: 1, head: 4, content: 'alpha' });
+    s.setCurrentFile('/notes/b.md', 'beta');
+
+    s.setCurrentFile('/notes/a.md', 'ignored');
+
+    const next = useStore.getState();
+    expect(next.pmSelection).toEqual({ anchor: 3, head: 7, content: 'alpha' });
+    expect(next.cmSelection).toEqual({ anchor: 1, head: 4, content: 'alpha' });
+  });
+
+  it('updates selection statistics', () => {
+    useStore.getState().setSelectionStats(6, 2);
+    expect(useStore.getState().selectionCharCount).toBe(6);
+    expect(useStore.getState().selectionWordCount).toBe(2);
   });
 
   it('switchTab switches to a cached tab without reading disk', () => {

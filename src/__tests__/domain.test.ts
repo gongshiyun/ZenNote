@@ -33,6 +33,30 @@ describe('parseHeadings', () => {
       { level: 1, text: 'Heading', pos: 1 },
     ]);
   });
+
+  it('ignores hash-looking lines inside fenced code blocks', () => {
+    const markdown = [
+      '# Real',
+      '```md',
+      '# Not a heading',
+      '```',
+      '~~~',
+      '## Still code',
+      '~~~',
+      '## Real 2',
+    ].join('\n');
+    expect(parseHeadings(markdown)).toEqual([
+      { level: 1, text: 'Real', pos: 0 },
+      { level: 2, text: 'Real 2', pos: 7 },
+    ]);
+  });
+
+  it('ignores YAML frontmatter values that look like headings', () => {
+    const markdown = ['---', '# frontmatter', 'title: test', '---', '# Real'].join('\n');
+    expect(parseHeadings(markdown)).toEqual([
+      { level: 1, text: 'Real', pos: 4 },
+    ]);
+  });
 });
 
 describe('displayableHeadings', () => {
@@ -79,6 +103,24 @@ describe('computeWordCount', () => {
   it('counts CJK Extension A characters', () => {
     // U+3400..U+4DBF is included by the implementation.
     expect(computeWordCount('\u3400\u4dbf').chineseChars).toBe(2);
+  });
+
+  it('excludes fenced code blocks and markdown syntax from writing stats', () => {
+    const markdown = [
+      '# 标题',
+      '',
+      '- item one',
+      '',
+      '**bold** and [link text](https://example.com)',
+      '',
+      '```js',
+      'const ignored = true;',
+      '```',
+    ].join('\n');
+    const result = computeWordCount(markdown);
+    expect(result.chineseChars).toBe(2);
+    expect(result.englishWords).toBe(6);
+    expect(result.totalWords).toBe(8);
   });
 });
 

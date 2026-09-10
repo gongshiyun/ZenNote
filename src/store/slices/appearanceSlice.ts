@@ -32,6 +32,8 @@ export interface ConfigSlice {
   setDefaultSourceMode: (v: boolean) => void;
 }
 
+export const DEFAULT_AUTO_SAVE_DELAY = 500;
+
 export const createThemeSlice: StateCreator<ThemeSlice, [], [], ThemeSlice> = (set) => ({
   mode: "system",
   resolvedMode: "light",
@@ -47,7 +49,7 @@ export const createConfigSlice: StateCreator<ConfigSlice, [], [], ConfigSlice> =
   fontSize: 16,
   tabSize: 2,
   editorPadding: 80,
-  autoSaveDelay: 0,
+  autoSaveDelay: DEFAULT_AUTO_SAVE_DELAY,
   showHiddenFiles: false,
   showFileExtensions: true,
   defaultSourceMode: false,

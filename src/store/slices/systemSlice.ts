@@ -32,10 +32,15 @@ export interface UISlice {
   outlineVisible: boolean;
   searchVisible: boolean;
   settingsVisible: boolean;
+  saveError: string | null;
+  imageUploadCount: number;
   toggleSidebar: () => void;
   toggleOutline: () => void;
   setSearchVisible: (visible: boolean) => void;
   setSettingsVisible: (visible: boolean) => void;
+  setSaveError: (message: string | null) => void;
+  beginImageUpload: () => void;
+  endImageUpload: () => void;
 }
 
 export const createLocaleSlice: StateCreator<LocaleSlice, [], [], LocaleSlice> = (set) => ({
@@ -64,8 +69,13 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({
   outlineVisible: false,
   searchVisible: false,
   settingsVisible: false,
+  saveError: null,
+  imageUploadCount: 0,
   toggleSidebar: () => set(s => ({ sidebarVisible: !s.sidebarVisible })),
   toggleOutline: () => set(s => ({ outlineVisible: !s.outlineVisible })),
   setSearchVisible: (visible) => set({ searchVisible: visible }),
   setSettingsVisible: (visible) => set({ settingsVisible: visible }),
+  setSaveError: (message) => set({ saveError: message }),
+  beginImageUpload: () => set(s => ({ imageUploadCount: s.imageUploadCount + 1 })),
+  endImageUpload: () => set(s => ({ imageUploadCount: Math.max(0, s.imageUploadCount - 1) })),
 });

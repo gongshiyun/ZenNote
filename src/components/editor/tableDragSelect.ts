@@ -74,6 +74,36 @@ export interface TableDragHandlers {
   mousedown: (e: MouseEvent) => void;
   mousemove: (e: MouseEvent) => void;
   mouseup: (e: MouseEvent) => void;
+  dblclick: (e: MouseEvent) => void;
+}
+
+function cellTextRangeAt(
+  view: any,
+  clientX: number,
+  clientY: number,
+): { from: number; to: number } | null {
+  try {
+    const coords = view.posAtCoords({ left: clientX, top: clientY });
+    if (!coords) return null;
+    const $cell = cellAround(
+      view.state.doc.resolve(coords.inside >= 0 ? coords.inside : coords.pos),
+    );
+    if (!$cell) return null;
+    const cellNode = view.state.doc.nodeAt($cell.pos);
+    if (!cellNode) return null;
+
+    let from: number | null = null;
+    let to: number | null = null;
+    cellNode.descendants((child: any, relPos: number) => {
+      if (!child.isText || !child.text) return;
+      const absolute = $cell.pos + 1 + relPos;
+      if (from === null) from = absolute;
+      to = absolute + child.nodeSize;
+    });
+    return from === null || to === null ? null : { from, to };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -190,7 +220,27 @@ export function createTableDragHandlers(getView: () => any | null): TableDragHan
     state.view.focus();
   };
 
-  return { mousedown, mousemove, mouseup };
+  const dblclick = (e: MouseEvent) => {
+    if (e.button === 2 || !cellTarget(e.target)) return;
+    const view = getView();
+    if (!view || view.editable === false) return;
+    const range = cellTextRangeAt(view, e.clientX, e.clientY);
+    if (!range) return;
+    e.preventDefault();
+    e.stopPropagation();
+    drag = null;
+    try {
+      const selection = TextSelection.create(view.state.doc, range.from, range.to);
+      if (!view.state.selection.eq(selection)) {
+        view.dispatch(view.state.tr.setSelection(selection));
+      }
+      view.focus();
+    } catch {
+      // Keep the existing selection if the cell content cannot be selected.
+    }
+  };
+
+  return { mousedown, mousemove, mouseup, dblclick };
 }
 
 /**
@@ -201,10 +251,12 @@ export function createTableDragHandlers(getView: () => any | null): TableDragHan
 export function startTableDragSelect(container: HTMLElement, getView: () => any | null): () => void {
   const handlers = createTableDragHandlers(getView);
   container.addEventListener("mousedown", handlers.mousedown, true);
+  container.addEventListener("dblclick", handlers.dblclick, true);
   window.addEventListener("mousemove", handlers.mousemove, true);
   window.addEventListener("mouseup", handlers.mouseup, true);
   return () => {
     container.removeEventListener("mousedown", handlers.mousedown, true);
+    container.removeEventListener("dblclick", handlers.dblclick, true);
     window.removeEventListener("mousemove", handlers.mousemove, true);
     window.removeEventListener("mouseup", handlers.mouseup, true);
   };

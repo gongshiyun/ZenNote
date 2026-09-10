@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useStore } from "../../store";
 import { t } from "../../i18n";
-import * as fs from "../../services";
 import { searchWorkspace, type WsSearchResult } from "../../lib/workspaceSearch";
+import { openDocumentWithSave } from "../../lib/openDocument";
+import { splitHighlight } from "../../lib/highlight";
 
 interface SearchResult {
   filePath: string;
@@ -14,7 +15,6 @@ interface SearchResult {
 
 export function SearchPanel({ onClose }: { onClose: () => void }) {
   const workspacePath = useStore(s => s.workspacePath);
-  const setCurrentFile = useStore(s => s.setCurrentFile);
   const setSelectedFile = useStore(s => s.setSelectedFile);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -22,47 +22,50 @@ export function SearchPanel({ onClose }: { onClose: () => void }) {
   const [focusIdx, setFocusIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const abortRef = useRef(false);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
   // Search with debounce. Runs in the Rust backend (search_workspace) with a
   // JS fallback; results are cached per workspace+query in workspaceSearch.
   useEffect(() => {
-    if (!query || !workspacePath) { setResults([]); setFocusIdx(0); return; }
-    abortRef.current = false;
+    if (!query || !workspacePath) {
+      setResults([]);
+      setFocusIdx(0);
+      setSearching(false);
+      return;
+    }
+    let active = true;
 
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
         const found: WsSearchResult[] = await searchWorkspace(workspacePath, query);
-        if (!abortRef.current) {
+        if (active) {
           setResults(found);
           setFocusIdx(0);
         }
       } catch { /* */ }
-      if (!abortRef.current) setSearching(false);
+      if (active) setSearching(false);
     }, 300);
 
-    return () => { clearTimeout(timer); };
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
   }, [query, workspacePath]);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => { abortRef.current = true; };
-  }, []);
-
   const handleClick = useCallback(async (r: SearchResult) => {
-    try {
-      const content = await fs.readFile(r.filePath);
-      setSelectedFile(r.filePath);
-      setCurrentFile(r.filePath, content);
-      onClose();
-      // Hand the query over to the in-document find bar so the user lands
-      // directly on highlighted matches (global search -> locate loop).
-      window.dispatchEvent(new CustomEvent("zn-find-open", { detail: { query } }));
-    } catch { /* */ }
-  }, [setSelectedFile, setCurrentFile, onClose, query]);
+    const s = useStore.getState();
+    const opened = await openDocumentWithSave(r.filePath, undefined, {
+      sourceMode: s.defaultSourceMode,
+    });
+    if (!opened) return;
+    setSelectedFile(r.filePath);
+    onClose();
+    // Hand the query and target line to the in-document find bar so the user
+    // lands on the result they selected instead of the first workspace match.
+    window.dispatchEvent(new CustomEvent("zn-find-open", { detail: { query, line: r.line } }));
+  }, [setSelectedFile, onClose, query]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -151,7 +154,7 @@ export function SearchPanel({ onClose }: { onClose: () => void }) {
                 if (i !== focusIdx) e.currentTarget.style.background = "transparent";
               }}>
               <div style={{ fontWeight: 600, marginBottom: 2, color: "var(--text-primary)" }}>
-                {r.fileName}
+                <HighlightedText text={r.fileName} query={query} />
                 {r.line > 0 ? (
                   <span style={{ fontWeight: 400, color: "var(--text-tertiary)", marginLeft: 8 }}>
                     :{r.line}
@@ -170,7 +173,7 @@ export function SearchPanel({ onClose }: { onClose: () => void }) {
                   color: "var(--text-secondary)", whiteSpace: "nowrap",
                   overflow: "hidden", textOverflow: "ellipsis",
                 }}>
-                  {r.content}
+                  <HighlightedText text={r.content} query={query} />
                 </div>
               )}
             </div>
@@ -186,5 +189,29 @@ export function SearchPanel({ onClose }: { onClose: () => void }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function HighlightedText({ text, query }: { text: string; query: string }) {
+  return (
+    <>
+      {splitHighlight(text, query).map((segment, index) =>
+        segment.match ? (
+          <mark
+            key={index}
+            style={{
+              background: "var(--selection-bg)",
+              color: "inherit",
+              borderRadius: 2,
+              padding: "0 1px",
+            }}
+          >
+            {segment.text}
+          </mark>
+        ) : (
+          <span key={index}>{segment.text}</span>
+        ),
+      )}
+    </>
   );
 }

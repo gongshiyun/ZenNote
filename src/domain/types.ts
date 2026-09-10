@@ -38,6 +38,17 @@ export interface FileEditorState {
   cursorCol: number;
   /** Unsaved-changes flag at the time the state was cached */
   dirty?: boolean;
+  /** Last selection in the WYSIWYG editor, valid only for `content`. */
+  pmSelection?: EditorSelectionSnapshot | null;
+  /** Last selection in the source editor, valid only for `content`. */
+  cmSelection?: EditorSelectionSnapshot | null;
+}
+
+export interface EditorSelectionSnapshot {
+  anchor: number;
+  head: number;
+  /** Snapshot is only restored when it belongs to the current content. */
+  content: string;
 }
 
 // ═══════════════════════════════════════════

@@ -44,6 +44,12 @@ export function clearWorkspaceSearchCache(): void {
   cacheWorkspace = null;
 }
 
+/** Invalidate cached search results after a file write or external change. */
+export function invalidateWorkspaceSearchCache(_path?: string): void {
+  cache = [];
+  cacheWorkspace = null;
+}
+
 /** Legacy JS traversal (used when the Rust command is unavailable). */
 async function legacySearch(workspacePath: string, query: string, opts: WsSearchOptions): Promise<WsSearchResult[]> {
   const tree = await fs.openWorkspace(workspacePath);

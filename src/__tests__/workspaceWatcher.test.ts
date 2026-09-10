@@ -8,11 +8,18 @@ const fsMock = vi.hoisted(() => ({
   openWorkspace: vi.fn(),
   readDir: vi.fn(),
   readFile: vi.fn(),
+  pathExists: vi.fn(),
   getLastWritten: vi.fn(),
 }));
 vi.mock('../services/fileService', () => fsMock);
 
-import { refreshWorkspaceTree, reloadExternallyChanged } from '../lib/workspaceWatcher';
+import {
+  applyExternalRenames,
+  keepExternalConflict,
+  refreshWorkspaceTree,
+  reloadExternallyChanged,
+  reloadExternalConflict,
+} from '../lib/workspaceWatcher';
 import { useStore } from '../store';
 
 function resetStore() {
@@ -26,6 +33,8 @@ function resetStore() {
     content: '',
     isDirty: false,
     reloadTick: 0,
+    sourceMode: false,
+    externalConflict: null,
   });
 }
 
@@ -67,19 +76,36 @@ describe('refreshWorkspaceTree', () => {
 describe('reloadExternallyChanged', () => {
   beforeEach(() => { resetStore(); vi.clearAllMocks(); });
 
-  it('reloads the current file when it changed externally (no unsaved edits)', async () => {
+  it('surfaces an external modification instead of silently replacing content', async () => {
     useStore.getState().setCurrentFile('/ws/a.md', 'old content');
-    const tickBefore = useStore.getState().reloadTick;
     fsMock.readFile.mockResolvedValue('new external content');
     fsMock.getLastWritten.mockReturnValue(undefined);
 
     await reloadExternallyChanged(['/ws/a.md']);
 
     const s = useStore.getState();
+    expect(s.content).toBe('old content');
+    expect(s.externalConflict).toEqual({
+      path: '/ws/a.md',
+      diskContent: 'new external content',
+      reason: 'modified',
+    });
+  });
+
+  it('reloads the external version only after the user chooses reload', async () => {
+    useStore.getState().setCurrentFile('/ws/a.md', 'old content');
+    const tickBefore = useStore.getState().reloadTick;
+    fsMock.readFile.mockResolvedValue('new external content');
+    fsMock.getLastWritten.mockReturnValue(undefined);
+    await reloadExternallyChanged(['/ws/a.md']);
+
+    reloadExternalConflict('/ws/a.md');
+
+    const s = useStore.getState();
     expect(s.content).toBe('new external content');
-    // reloadTick bump makes the editor effect swap the document in place.
     expect(s.reloadTick).toBe(tickBefore + 1);
     expect(s.isDirty).toBe(false);
+    expect(s.externalConflict).toBeNull();
   });
 
   it('ignores echoes of our own writes (same content as last save)', async () => {
@@ -103,6 +129,20 @@ describe('reloadExternallyChanged', () => {
     const s = useStore.getState();
     expect(s.content).toBe('v1 + unsaved typing');
     expect(s.isDirty).toBe(true);
+    expect(s.externalConflict?.diskContent).toBe('external v2');
+  });
+
+  it('keeps the local version and acknowledges the external change', async () => {
+    useStore.getState().setCurrentFile('/ws/a.md', 'local');
+    useStore.getState().setContent('local edited');
+    fsMock.readFile.mockResolvedValue('external');
+    fsMock.getLastWritten.mockReturnValue(undefined);
+    await reloadExternallyChanged(['/ws/a.md']);
+
+    keepExternalConflict('/ws/a.md');
+
+    expect(useStore.getState().externalConflict).toBeNull();
+    expect(useStore.getState().content).toBe('local edited');
   });
 
   it('updates a background tab cached content when its file changed externally', async () => {
@@ -120,12 +160,31 @@ describe('reloadExternallyChanged', () => {
     expect(s.content).toBe('B');
   });
 
-  it('skips files that are not open and unreadable files', async () => {
+  it('reports externally deleted open files while keeping their content', async () => {
     useStore.getState().setCurrentFile('/ws/a.md', 'A');
     fsMock.readFile.mockRejectedValue(new Error('deleted'));
+    fsMock.pathExists.mockResolvedValue(false);
 
     await reloadExternallyChanged(['/ws/not-open.md', '/ws/a.md']);
 
-    expect(useStore.getState().content).toBe('A');
+    const s = useStore.getState();
+    expect(s.content).toBe('A');
+    expect(s.externalConflict).toEqual({
+      path: '/ws/a.md',
+      diskContent: null,
+      reason: 'deleted',
+    });
+  });
+});
+
+describe('applyExternalRenames', () => {
+  beforeEach(() => resetStore());
+
+  it('updates the current file and open tabs after an external rename', () => {
+    useStore.getState().setCurrentFile('/ws/old/a.md', 'content');
+    applyExternalRenames([{ from: '/ws/old/a.md', to: '/ws/new/a.md' }]);
+    const s = useStore.getState();
+    expect(s.currentFilePath).toBe('/ws/new/a.md');
+    expect(s.openTabs).toEqual(['/ws/new/a.md']);
   });
 });

@@ -1,13 +1,15 @@
 import { useEffect, useRef } from "react";
-import { EditorState, Transaction } from "@codemirror/state";
+import { EditorSelection, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import { syntaxHighlighting, indentUnit } from "@codemirror/language";
 import { useStore } from "../../store";
-import { saveImage } from "../../services";
+import { prepareImageUpload } from "../../lib/imageUpload";
 import { znCodeHighlightStyle } from "./codeHighlight";
+import { offsetAtLineCol } from "../../lib/textPosition";
+import { computeWordCount } from "../../domain";
 
 /**
  * Source mode editor — CodeMirror 6 with Markdown syntax highlighting.
@@ -42,6 +44,15 @@ export function SourceEditor({ viewRef }: Props) {
 
     const content = useStore.getState().content || "";
     const savedScroll = useStore.getState().scrollPosition;
+    const storedSelection = useStore.getState().cmSelection;
+    const cursorLine = useStore.getState().cursorLine;
+    const cursorCol = useStore.getState().cursorCol;
+    const initialSelection = storedSelection?.content === content
+      ? EditorSelection.range(
+        Math.min(storedSelection.anchor, content.length),
+        Math.min(storedSelection.head, content.length),
+      )
+      : EditorSelection.cursor(offsetAtLineCol(content, cursorLine, cursorCol));
 
     const updateListener = EditorView.updateListener.of(update => {
       const s = useStore.getState();
@@ -55,6 +66,15 @@ export function SourceEditor({ viewRef }: Props) {
         const head = update.state.selection.main.head;
         const line = update.state.doc.lineAt(head);
         s.setCursorPosition(line.number, head - line.from + 1);
+        s.setCmSelection({
+          anchor: update.state.selection.main.anchor,
+          head,
+          content: update.state.doc.toString(),
+        });
+        const from = Math.min(update.state.selection.main.anchor, head);
+        const to = Math.max(update.state.selection.main.anchor, head);
+        const selected = update.state.doc.sliceString(from, to);
+        s.setSelectionStats(selected.length, computeWordCount(selected).totalWords);
       }
       // Persist scroll position (throttled by the cheap equality guard in the store).
       const scroller = update.view.scrollDOM;
@@ -67,6 +87,7 @@ export function SourceEditor({ viewRef }: Props) {
       parent: host,
       state: EditorState.create({
         doc: content,
+        selection: initialSelection,
         extensions: [
           lineNumbers(),
           highlightActiveLine(),
@@ -91,7 +112,10 @@ export function SourceEditor({ viewRef }: Props) {
                 if (!file) continue;
                 event.preventDefault();
                 const path = useStore.getState().currentFilePath;
-                void saveImage(file, path).then(rel => {
+                void prepareImageUpload(file, path).then(rel => {
+                  if (rel === null) return;
+                  if (useStore.getState().currentFilePath !== path) return;
+                  if (viewRef.current !== cmView) return;
                   cmView.dispatch(cmView.state.replaceSelection("\n![image](" + rel + ")\n"));
                 }).catch((err: unknown) => { console.warn("source-image-paste-failed", err); });
                 return true;
@@ -100,12 +124,22 @@ export function SourceEditor({ viewRef }: Props) {
             },
           }),
           EditorView.theme({
-            "&": { height: "100%", fontSize: "15px", background: "var(--bg-editor)", color: "var(--text-primary)" },
+            "&": {
+              height: "100%",
+              fontSize: "var(--zn-editor-font-size, 15px)",
+              background: "var(--bg-editor)",
+              color: "var(--text-primary)",
+            },
             ".cm-scroller": {
               fontFamily: '"Cascadia Code","Fira Code",Consolas,"Microsoft YaHei",monospace',
               lineHeight: "1.7",
             },
-            ".cm-content": { padding: "40px " + editorPadding + "px", caretColor: "var(--text-primary)" },
+            ".cm-content": {
+              padding: "40px " + editorPadding + "px",
+              caretColor: "var(--text-primary)",
+              maxWidth: "var(--zn-editor-content-width, 980px)",
+              margin: "0 auto",
+            },
             ".cm-gutters": {
               background: "var(--bg-editor)", color: "var(--text-tertiary)",
               border: "none", borderRight: "1px solid var(--border-light)",
@@ -148,6 +182,8 @@ export function SourceEditor({ viewRef }: Props) {
   // (e.g. find/replace-all in another mode, external reload banner), adopt it
   // without focusing or disturbing the caret when the user is typing.
   const content = useStore(s => s.content);
+  const reloadTick = useStore(s => s.reloadTick);
+  const initialReloadTick = useRef(reloadTick);
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
@@ -160,6 +196,20 @@ export function SourceEditor({ viewRef }: Props) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content]);
+
+  // Explicit external reload must win even when the source editor currently
+  // owns focus; normal store sync above intentionally avoids stealing focus.
+  useEffect(() => {
+    if (reloadTick === initialReloadTick.current) return;
+    const view = viewRef.current;
+    if (!view) return;
+    const current = view.state.doc.toString();
+    if (content === current) return;
+    view.dispatch({
+      changes: { from: 0, to: current.length, insert: content },
+      annotations: Transaction.userEvent.of("zn.external"),
+    });
+  }, [reloadTick, content, viewRef]);
 
   return <div ref={hostRef} className="zn-source-editor" style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }} />;
 }

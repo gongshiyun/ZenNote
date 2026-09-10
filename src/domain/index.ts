@@ -6,6 +6,7 @@ export type {
   FileNode,
   Heading,
   FileEditorState,
+  EditorSelectionSnapshot,
   ThemeMode,
   ResolvedTheme,
   AppConfig,

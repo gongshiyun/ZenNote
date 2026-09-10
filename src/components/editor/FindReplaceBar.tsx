@@ -21,14 +21,16 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   /** Pre-filled query (set when jumping in from the global search panel). */
-  preset?: { query: string; ts: number } | null;
+  preset?: { query: string; line?: number; showReplace?: boolean; ts: number } | null;
+  /** Changes whenever the active document changes. */
+  documentKey?: string | null;
   /** ProseMirror view getter (WYSIWYG mode). */
   getPmView: () => any | null;
   /** CodeMirror EditorView getter (source mode). */
   getCmView: () => any | null;
 }
 
-export function FindReplaceBar({ visible, onClose, preset, getPmView, getCmView }: Props) {
+export function FindReplaceBar({ visible, onClose, preset, documentKey, getPmView, getCmView }: Props) {
   const sourceMode = useStore(s => s.sourceMode);
   const [findText, setFindText] = useState("");
   const [replaceText, setReplaceText] = useState("");
@@ -37,6 +39,7 @@ export function FindReplaceBar({ visible, onClose, preset, getPmView, getCmView 
   const [currentIdx, setCurrentIdx] = useState(0);
   const [opts, setOpts] = useState<FindOptions>({ ...defaultFindOptions });
   const [invalidRegex, setInvalidRegex] = useState(false);
+  const [targetLine, setTargetLine] = useState<number | null>(null);
   const findRef = useRef<HTMLInputElement>(null);
 
   // ---- ProseMirror backend helpers ----
@@ -109,12 +112,6 @@ export function FindReplaceBar({ visible, onClose, preset, getPmView, getCmView 
     return findAllMatches(view.state.doc.toString(), findText, opts);
   }, [getCmView, findText, opts]);
 
-  const cmRefresh = useCallback(() => {
-    const matches = cmMatches();
-    setMatchCount(matches.length);
-    setCurrentIdx(matches.length ? 0 : -1);
-  }, [cmMatches]);
-
   const cmGoto = useCallback((index: number) => {
     const view = getCmView();
     if (!view) return;
@@ -151,7 +148,7 @@ export function FindReplaceBar({ visible, onClose, preset, getPmView, getCmView 
 
   // ---- Shared actions (pick backend by mode) ----
 
-  const runFind = useCallback(() => {
+  const runFind = useCallback((jumpToLine?: number) => {
     if (!findText) {
       setMatchCount(0); setCurrentIdx(-1); setInvalidRegex(false);
       const view = getPmView();
@@ -161,9 +158,33 @@ export function FindReplaceBar({ visible, onClose, preset, getPmView, getCmView 
     const fails = opts.regex && buildFails(findText);
     setInvalidRegex(fails);
     if (fails) { setMatchCount(0); setCurrentIdx(-1); return; }
-    if (sourceMode) cmRefresh();
-    else pmDispatchQuery(findText, opts);
-  }, [findText, opts, sourceMode, getPmView, cmRefresh, pmDispatchQuery]);
+    if (sourceMode) {
+      const matches = cmMatches();
+      setMatchCount(matches.length);
+      const targetIndex = jumpToLine
+        ? matches.findIndex(m => {
+          const view = getCmView();
+          return !!view?.state?.doc?.lineAt && view.state.doc.lineAt(m.from).number >= jumpToLine;
+        })
+        : 0;
+      if (targetIndex > 0) cmGoto(targetIndex);
+      else {
+        setCurrentIdx(matches.length ? 0 : -1);
+      }
+    } else {
+      pmDispatchQuery(findText, opts);
+      if (jumpToLine) {
+        const view = getPmView();
+        const state = pmFindState();
+        const targetIndex = state?.matches.findIndex((m: { from: number }) => {
+          if (!view?.state?.doc?.textBetween) return false;
+          const prefix = view.state.doc.textBetween(0, m.from, "\n", "\n");
+          return prefix.split("\n").length >= jumpToLine;
+        }) ?? -1;
+        if (targetIndex > 0) pmGoto(targetIndex);
+      }
+    }
+  }, [findText, opts, sourceMode, getPmView, getCmView, cmMatches, cmGoto, pmDispatchQuery, pmFindState, pmGoto]);
 
   const findNext = useCallback(() => {
     if (sourceMode) cmGoto(currentIdx + 1);
@@ -188,18 +209,23 @@ export function FindReplaceBar({ visible, onClose, preset, getPmView, getCmView 
   // Debounced re-run while typing / toggling options.
   useEffect(() => {
     if (!visible) return;
-    const timer = setTimeout(runFind, 200);
+    const timer = setTimeout(() => runFind(targetLine ?? undefined), 200);
     return () => clearTimeout(timer);
-  }, [runFind, visible]);
+  }, [runFind, visible, targetLine]);
 
   // Focus & preset handling.
   useEffect(() => {
     if (visible) {
       setTimeout(() => { findRef.current?.focus(); findRef.current?.select(); }, 50);
-      if (preset?.query) setFindText(preset.query);
+      if (preset?.query) {
+        setFindText(preset.query);
+        setTargetLine(typeof preset.line === "number" ? preset.line : null);
+      }
+      if (preset?.showReplace) setShowReplace(true);
     } else {
       setFindText(""); setReplaceText(""); setShowReplace(false);
       setMatchCount(0); setCurrentIdx(-1); setInvalidRegex(false);
+      setTargetLine(null);
       // Clear decorations when closing in WYSIWYG mode.
       const view = getPmView();
       if (view) view.dispatch(view.state.tr.setMeta(znFindKey, { type: "clear" } as ZnFindMeta));
@@ -207,11 +233,11 @@ export function FindReplaceBar({ visible, onClose, preset, getPmView, getCmView 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, preset?.ts]);
 
-  // Re-sync the query when the mode flips while the bar is open.
+  // Re-sync the query when the editor surface or active document changes.
   useEffect(() => {
-    if (visible && findText) runFind();
+    if (visible && findText) runFind(targetLine ?? undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceMode]);
+  }, [sourceMode, documentKey]);
 
   // Keyboard handling.
   useEffect(() => {
@@ -220,6 +246,10 @@ export function FindReplaceBar({ visible, onClose, preset, getPmView, getCmView 
       if (e.key === "Escape") { e.preventDefault(); onClose(); }
       else if (e.key === "Enter" && !e.shiftKey && findText) { e.preventDefault(); findNext(); }
       else if (e.key === "Enter" && e.shiftKey && findText) { e.preventDefault(); findPrev(); }
+      else if ((e.ctrlKey || e.metaKey) && e.key === "h") {
+        e.preventDefault();
+        setShowReplace(true);
+      }
       else if ((e.ctrlKey || e.metaKey) && e.key === "r" && findText) {
         e.preventDefault(); setShowReplace(v => !v);
       }

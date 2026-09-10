@@ -13,6 +13,10 @@ export function StatusBar() {
   const setSourceMode = useStore(s => s.setSourceMode);
   const currentFilePath = useStore(s => s.currentFilePath);
   const lastSavedAt = useStore(s => s.lastSavedAt);
+  const saveError = useStore(s => s.saveError);
+  const selectionCharCount = useStore(s => s.selectionCharCount);
+  const selectionWordCount = useStore(s => s.selectionWordCount);
+  const imageUploadCount = useStore(s => s.imageUploadCount);
 
   // 词数/字数/行数/阅读时长是全文扫描统计，不能压在每次按键的热路径上：
   // 防抖 500ms 后刷新（初始值立即返回，首屏展示不受影响）。Ln/Col 仍然即时。
@@ -69,6 +73,24 @@ export function StatusBar() {
           </span>
           <span style={{ color: "var(--border)" }}>|</span>
         </>
+      )}
+
+      {saveError && (
+        <span title={saveError} style={{ color: "#DC2626", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {t().statusbar.saveFailed}: {saveError}
+        </span>
+      )}
+
+      {selectionCharCount > 0 && (
+        <span style={{ color: "var(--text-accent)" }}>
+          {t().statusbar.selection} {selectionCharCount} {t().statusbar.chars} / {selectionWordCount} {t().statusbar.words}
+        </span>
+      )}
+
+      {imageUploadCount > 0 && (
+        <span style={{ color: "var(--text-accent)" }}>
+          {t().statusbar.imageProcessing}
+        </span>
       )}
 
       <span style={{ flex: 1, textAlign: "center" }}>

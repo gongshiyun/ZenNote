@@ -255,6 +255,27 @@ describe('table drag selection', () => {
     expect(view.state.doc.textBetween(view.state.selection.from, view.state.selection.to, '')).toBe('hel');
   });
 
+  it('double-click selects all text inside the current table cell', () => {
+    const doc2 = schema.nodes.doc.create(null, [
+      table.create(null, [row.create(null, [textCell(cell, 'hello'), textCell(cell, 'world')])]),
+    ]);
+    const starts: number[] = [];
+    doc2.descendants((n: any, pos: number) => {
+      if (n.type.name === 'table_cell') starts.push(pos);
+    });
+    const view = makeView({
+      '120,100': { pos: starts[0] + 3, inside: starts[0] + 1 },
+    }, doc2);
+    const h = createTableDragHandlers(() => view);
+
+    h.dblclick(mouseEvent({ clientX: 120, clientY: 100 }));
+
+    expect(view.state.selection).toBeInstanceOf(TextSelection);
+    expect(
+      view.state.doc.textBetween(view.state.selection.from, view.state.selection.to, ''),
+    ).toBe('hello');
+  });
+
   it('an in-cell text drag crossing into another cell upgrades to a CellSelection', () => {
     const doc2 = schema.nodes.doc.create(null, [
       table.create(null, [row.create(null, [textCell(cell, 'hello'), textCell(cell, 'world')])]),

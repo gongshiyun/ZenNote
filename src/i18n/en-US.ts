@@ -1,6 +1,7 @@
 const enUS = {
   "app": {
-    "title": "ZenNote"
+    "title": "ZenNote",
+    "closeSaveFailed": "Some files could not be saved. Exit anyway?"
   },
   "titlebar": {
     "toggleSidebar": "Toggle sidebar (Ctrl+B)",
@@ -39,7 +40,10 @@ const enUS = {
     "theme": "Theme",
     "light": "Light",
     "dark": "Dark",
-    "system": "System"
+    "system": "System",
+    "saveFailed": "Save failed",
+    "selection": "Selected",
+    "imageProcessing": "Processing image..."
   },
   "filetree": {
     "folder": "Folder",
@@ -54,7 +58,9 @@ const enUS = {
     "noNotes": "No notes yet",
     "noteName": "Note name",
     "folderName": "Folder name",
-    "untitled": "untitled"
+    "untitled": "untitled",
+    "deleteCurrentBlocked": "This note is currently being edited and cannot be deleted.",
+    "deleteDirtyBlocked": "This location contains unsaved notes. Save or close them first."
   },
   "editor": {
     "loading": "Loading editor...",
@@ -71,7 +77,14 @@ const enUS = {
     "tocTitle": "Table of Contents",
     "bigFileHint": "This document is large. Source mode is recommended for smoother editing",
     "switchToSource": "Switch to source mode",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "externalModified": "The file was modified externally.",
+    "externalDeleted": "The file was deleted externally. Your content is still here.",
+    "reloadExternal": "Reload",
+    "keepLocal": "Keep My Version",
+    "imageUnsupported": "Unsupported image format",
+    "imageTooLarge": "This image is {size} MB, larger than 10MB. Insert it anyway?",
+    "imageUploadFailed": "Failed to save image"
   },
   "tabs": {
     "closeTab": "Close tab",
@@ -140,6 +153,10 @@ const enUS = {
     "escToClose": "Esc to close",
     "fileNameMatch": "file name match"
   },
+  "quickOpen": {
+    "placeholder": "Quick open by file name...",
+    "noResults": "No matching notes"
+  },
   "table": {
     "insertRowAbove": "Insert row above",
     "insertRowBelow": "Insert row below",
@@ -170,11 +187,13 @@ const enUS = {
     "closeHint": "Press Esc to close",
     "groupFile": "File",
     "groupEdit": "Edit",
+    "groupFormatting": "Text formatting",
     "groupView": "View",
     "groupFormat": "Format & Export",
     "newNote": "New note",
     "openFile": "Open file",
     "openFolder": "Open folder",
+    "quickOpen": "Quick open",
     "save": "Save",
     "closeTab": "Close tab",
     "switchTab": "Switch tab",
@@ -182,6 +201,12 @@ const enUS = {
     "globalSearch": "Global search",
     "undo": "Undo",
     "redo": "Redo",
+    "bold": "Bold",
+    "italic": "Italic",
+    "link": "Insert link",
+    "headings": "Heading level / paragraph",
+    "strikethrough": "Strikethrough",
+    "inlineCode": "Inline code",
     "sourceMode": "Source/preview mode",
     "sidebar": "File tree",
     "outline": "Outline panel",

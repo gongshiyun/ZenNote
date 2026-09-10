@@ -13,6 +13,9 @@ describe('StatusBar', () => {
       cursorLine: 1,
       cursorCol: 1,
       sourceMode: false,
+      saveError: null,
+      selectionCharCount: 0,
+      selectionWordCount: 0,
     });
   });
 
@@ -62,5 +65,26 @@ describe('StatusBar', () => {
     useStore.setState({ currentFilePath: '/n.md', isDirty: false, lastSavedAt: null });
     const { container } = render(<StatusBar />);
     expect(container.textContent).toContain('已保存');
+  });
+
+  it('shows a persistent save error instead of claiming the file is clean', () => {
+    useStore.setState({
+      currentFilePath: '/n.md',
+      isDirty: true,
+      saveError: "文件被占用",
+    });
+    const { container } = render(<StatusBar />);
+    expect(container.textContent).toContain("保存失败");
+    expect(container.textContent).toContain("文件被占用");
+    expect(container.textContent).toContain('未保存');
+  });
+
+  it('shows selected character and word counts', () => {
+    useStore.setState({
+      selectionCharCount: 4,
+      selectionWordCount: 2,
+    });
+    const { container } = render(<StatusBar />);
+    expect(container.textContent).toContain('选中 4 字符 / 2 字');
   });
 });

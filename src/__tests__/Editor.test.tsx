@@ -23,7 +23,15 @@ vi.mock('../services', () => ({
   resolveImageUrl: vi.fn(),
 }));
 vi.mock('../i18n', () => ({
-  t: () => ({ editor: { openNote: '打开笔记以开始编辑' } }),
+  t: () => ({
+    editor: {
+      openNote: '打开笔记以开始编辑',
+      externalModified: '文件已被外部修改',
+      externalDeleted: '文件已被外部删除，内容仍保留在编辑器中',
+      reloadExternal: '重新加载',
+      keepLocal: '保留我的版本',
+    },
+  }),
   getLocale: () => 'zh-CN',
   setLocale: vi.fn(),
 }));
@@ -93,5 +101,25 @@ describe('Editor — smoke tests', () => {
 
     render(<Editor />);
     expect(screen.queryByText('打开笔记以开始编辑')).toBeNull();
+  });
+
+  it('shows external modification actions instead of replacing content silently', () => {
+    useStore.setState({
+      currentFilePath: '/test/note.md',
+      content: 'local',
+      sourceMode: true,
+      openTabs: ['/test/note.md'],
+      externalConflict: {
+        path: '/test/note.md',
+        diskContent: 'external',
+        reason: 'modified',
+      },
+    });
+
+    render(<Editor />);
+
+    expect(screen.getByText('文件已被外部修改')).toBeInTheDocument();
+    expect(screen.getByText('重新加载')).toBeInTheDocument();
+    expect(screen.getByText('保留我的版本')).toBeInTheDocument();
   });
 });

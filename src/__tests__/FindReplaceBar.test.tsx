@@ -48,7 +48,20 @@ function makePmView() {
     scrollIntoView: vi.fn().mockReturnThis(),
     replaceWith: vi.fn().mockReturnThis(),
   };
-  return { tr, view: { state: { tr, doc: {}, selection: {} }, dispatch: vi.fn() } };
+  return {
+    tr,
+    view: {
+      state: {
+        tr,
+        doc: {
+          content: { size: 20 },
+          textBetween: (_from: number, to: number) => (to >= 10 ? "a\nb" : "a"),
+        },
+        selection: {},
+      },
+      dispatch: vi.fn(),
+    },
+  };
 }
 
 function makeCmView(doc: string) {
@@ -246,5 +259,76 @@ describe('FindReplaceBar', () => {
     await waitFor(() => {
       expect((screen.getByPlaceholderText('查找...') as HTMLInputElement).value).toBe('fromSearch');
     });
+  });
+
+  it('preset can open directly in replace mode', async () => {
+    render(
+      <FindReplaceBar
+        {...baseProps()}
+        preset={{ query: 'replace me', showReplace: true, ts: 1 }}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('替换为...')).toBeInTheDocument();
+    });
+  });
+
+  it('jumps to the first match at or after the requested result line', async () => {
+    const { view, tr } = makePmView();
+    mocks.getFindState.mockReturnValue({
+      query: 'target',
+      opts: {},
+      matches: [{ from: 0, to: 6 }, { from: 10, to: 16 }],
+      current: 0,
+      deco: null,
+    });
+    render(
+      <FindReplaceBar
+        {...baseProps()}
+        getPmView={() => view}
+        preset={{ query: 'target', line: 2, ts: 1 }}
+      />,
+    );
+
+    await waitFor(() => {
+      const goto = (tr.setMeta as any).mock.calls.find((c: any[]) => c[1]?.type === 'goto');
+      expect(goto?.[1].index).toBe(1);
+    }, { timeout: 1500 });
+  });
+
+  it('re-runs an active query when the document changes', async () => {
+    const { view } = makePmView();
+    const getPmView = () => view;
+    const getCmView = () => null;
+    mocks.getFindState.mockReturnValue({
+      query: 'same',
+      opts: {},
+      matches: [{ from: 0, to: 4 }],
+      current: 0,
+      deco: null,
+    });
+    const { rerender } = render(
+      <FindReplaceBar
+        {...baseProps()}
+        documentKey="/notes/a.md"
+        getPmView={getPmView}
+        getCmView={getCmView}
+        preset={{ query: 'same', ts: 1 }}
+      />,
+    );
+    await waitFor(() => expect(view.dispatch).toHaveBeenCalled());
+    view.dispatch.mockClear();
+
+    rerender(
+      <FindReplaceBar
+        {...baseProps()}
+        documentKey="/notes/b.md"
+        getPmView={getPmView}
+        getCmView={getCmView}
+        preset={{ query: 'same', ts: 1 }}
+      />,
+    );
+
+    await waitFor(() => expect(view.dispatch).toHaveBeenCalled());
   });
 });

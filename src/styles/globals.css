@@ -387,6 +387,9 @@
    user's "editorPadding" setting (applied on the editor container in Editor.tsx). */
 .milkdown .ProseMirror {
   padding: 0 !important;
+  font-size: var(--zn-editor-font-size, 16px);
+  max-width: var(--zn-editor-content-width, 860px);
+  margin: 0 auto;
 }
 
 /* ========================================

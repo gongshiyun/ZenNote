@@ -1,12 +1,14 @@
 ﻿import { useEffect } from 'react';
 import { useStore } from './store';
 import { AppShell } from './components/layout/AppShell';
+import { applyEditorFontSize } from './lib/editorAppearance';
 
 function App() {
   const mode = useStore(s => s.mode);
   const setResolvedMode = useStore(s => s.setResolvedMode);
   const themeId = useStore(s => s.themeId);
   const fontFamily = useStore(s => s.fontFamily);
+  const fontSize = useStore(s => s.fontSize);
 
   // Resolve theme (system / light / dark)
   useEffect(() => {
@@ -36,6 +38,10 @@ function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-font', fontFamily);
   }, [fontFamily]);
+
+  useEffect(() => {
+    applyEditorFontSize(fontSize);
+  }, [fontSize]);
 
   return <AppShell />;
 }

@@ -1,8 +1,11 @@
 import { useCallback, useState, useEffect, useRef, useMemo, memo } from "react";
-import { useStore } from "../../store";
+import { remapWorkspacePaths, removeWorkspacePaths, useStore } from "../../store";
 import { t } from "../../i18n";
 import type { FileNode } from "../../domain";
 import { parentDir, isWithinWorkspace } from "../../domain";
+import { affectedOpenPaths, joinPath, replaceFileName } from "../../lib/filePaths";
+import { invalidateWorkspaceSearchCache } from "../../lib/workspaceSearch";
+import { openDocumentWithSave } from "../../lib/openDocument";
 import * as fs from "../../services";
 
 // ---- Flatten tree for keyboard nav ----
@@ -93,11 +96,11 @@ export function FileTree() {
   const expandedFolders = useStore(s => s.expandedFolders);
   const toggleFolder = useStore(s => s.toggleFolder);
   const setSelectedFile = useStore(s => s.setSelectedFile);
-  const setCurrentFile = useStore(s => s.setCurrentFile);
   const setTree = useStore(s => s.setTree);
   const recentWorkspaces = useStore(s => s.recentWorkspaces);
   const removeRecentWorkspace = useStore(s => s.removeRecentWorkspace);
   const isLoading = useStore(s => s.isLoading);
+  const showFileExtensions = useStore(s => s.showFileExtensions);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [focusIndex, setFocusIndex] = useState(-1);
   const [showWorkspaces, setShowWorkspaces] = useState(false);
@@ -111,7 +114,7 @@ export function FileTree() {
   const refreshTree = useCallback(async () => {
     if (!workspacePath) return;
     try {
-      const t = await fs.openWorkspace(workspacePath);
+      const t = await fs.openWorkspace(workspacePath, useStore.getState().showHiddenFiles);
       setTree(t);
     } catch { /* */ }
   }, [workspacePath, setTree]);
@@ -123,7 +126,7 @@ export function FileTree() {
     if (loadingFoldersRef.current.has(path)) return;
     loadingFoldersRef.current.add(path);
     try {
-      const children = await fs.readDir(path);
+      const children = await fs.readDir(path, useStore.getState().showHiddenFiles);
       useStore.getState().setFolderChildren(path, children);
     } catch {
       useStore.getState().setFolderChildren(path, []);
@@ -134,23 +137,27 @@ export function FileTree() {
 
   const openFile = useCallback(async (filePath: string) => {
     setSelectedFile(filePath);
-    try {
-      const content = await fs.readFile(filePath);
-      setCurrentFile(filePath, content);
-    } catch {
-      setCurrentFile(filePath, "# " + (filePath.split(/[\\/]/).pop() || "") + "\n\n");
+    const s = useStore.getState();
+    const opened = await openDocumentWithSave(filePath, undefined, { sourceMode: s.defaultSourceMode });
+    if (!opened) {
+      await openDocumentWithSave(
+        filePath,
+        "# " + (filePath.split(/[\\/]/).pop() || "") + "\n\n",
+        { sourceMode: s.defaultSourceMode },
+      );
     }
-  }, [setSelectedFile, setCurrentFile]);
+  }, [setSelectedFile]);
 
   const handleNewFile = useCallback(async (parentPath?: string) => {
     const name = prompt("", t().filetree.untitled + ".md");
     if (!name) return;
     const base = parentPath || workspacePath || "";
-    const newPath = base + "\\" + name;
+    const newPath = joinPath(base, name);
     try {
       await fs.createFile(newPath);
+      invalidateWorkspaceSearchCache(newPath);
       await refreshTree();
-      openFile(newPath);
+      await openFile(newPath);
     } catch { /* */ }
   }, [workspacePath, refreshTree, openFile]);
 
@@ -159,7 +166,8 @@ export function FileTree() {
     if (!name) return;
     const base = parentPath || workspacePath || "";
     try {
-      await fs.createFolder(base + "\\" + name);
+      await fs.createFolder(joinPath(base, name));
+      invalidateWorkspaceSearchCache();
       await refreshTree();
     } catch { /* */ }
   }, [workspacePath, refreshTree]);
@@ -167,18 +175,38 @@ export function FileTree() {
   const handleRename = useCallback(async (path: string, oldName: string) => {
     const newName = prompt("New name:", oldName);
     if (!newName || newName === oldName) return;
-    const newPath = path.replace(/[\\/][^\\/]+$/, "\\" + newName);
+    const newPath = replaceFileName(path, newName);
     try {
       await fs.renameFile(path, newPath);
+      invalidateWorkspaceSearchCache(path);
+      remapWorkspacePaths(path, newPath);
       await refreshTree();
     } catch { /* */ }
   }, [refreshTree]);
 
   const handleDelete = useCallback(async (path: string) => {
     const name = path.split(/[\\/]/).pop() || "";
+    const store = useStore.getState();
+    const affected = new Set([
+      ...affectedOpenPaths(store.openTabs, path),
+      ...(store.currentFilePath && affectedOpenPaths([store.currentFilePath], path).length
+        ? [store.currentFilePath]
+        : []),
+    ]);
+    if (store.currentFilePath && affected.has(store.currentFilePath)) {
+      alert(t().filetree.deleteCurrentBlocked);
+      return;
+    }
+    const hasDirty = Array.from(affected).some(p => store.fileStates.get(p)?.dirty);
+    if (hasDirty) {
+      alert(t().filetree.deleteDirtyBlocked);
+      return;
+    }
     if (!confirm("Delete \"" + name + "\"?")) return;
     try {
       await fs.deleteFile(path);
+      invalidateWorkspaceSearchCache(path);
+      removeWorkspacePaths(path);
       await refreshTree();
     } catch { /* */ }
   }, [refreshTree]);
@@ -192,7 +220,7 @@ export function FileTree() {
     store.setTree([]);
     store.setLoading(true);
     try {
-      const t = await fs.openWorkspace(path);
+      const t = await fs.openWorkspace(path, store.showHiddenFiles);
       store.setTree(t);
     } catch { store.setTree([]); }
     store.setLoading(false);
@@ -206,7 +234,7 @@ export function FileTree() {
         const content = await fs.readFile(file);
         const store = useStore.getState();
         store.setSelectedFile(file);
-        store.setCurrentFile(file, content);
+        await openDocumentWithSave(file, content, { sourceMode: store.defaultSourceMode });
         // Auto-add the file's directory as the workspace (shown in the sidebar)
         // when it lies outside the current workspace.
         const parent = parentDir(file);
@@ -216,7 +244,7 @@ export function FileTree() {
           store.setWorkspace(parent);
           store.setTree([]);
           store.setLoading(true);
-          try { const t = await fs.openWorkspace(parent); store.setTree(t); } catch { store.setTree([]); } finally { store.setLoading(false); }
+          try { const t = await fs.openWorkspace(parent, store.showHiddenFiles); store.setTree(t); } catch { store.setTree([]); } finally { store.setLoading(false); }
         }
       }
     } catch { /* */ }
@@ -342,7 +370,8 @@ export function FileTree() {
               selectedFilePath={selectedFilePath} expandedFolders={expandedFolders}
               onToggle={toggleFolder} onSelect={openFile}
               onContextMenu={handleContextMenu} focusIndex={focusIndex}
-              flatNodes={flatNodes} onLoadChildren={loadChildren} />
+              flatNodes={flatNodes} onLoadChildren={loadChildren}
+              showFileExtensions={showFileExtensions} />
           ))
         )}
       </div>
@@ -356,11 +385,12 @@ export function FileTree() {
 }
 
 // ---- FileTreeNode (memoized — avoids re-rendering the whole tree on unrelated state changes) ----
-const FileTreeNode = memo(function FileTreeNode({ node, depth, selectedFilePath, expandedFolders, onToggle, onSelect, onContextMenu, focusIndex, flatNodes, onLoadChildren }: {
+const FileTreeNode = memo(function FileTreeNode({ node, depth, selectedFilePath, expandedFolders, onToggle, onSelect, onContextMenu, focusIndex, flatNodes, onLoadChildren, showFileExtensions }: {
   node: FileNode; depth: number; selectedFilePath: string | null;
   expandedFolders: string[]; onToggle: (p: string) => void; onSelect: (p: string) => void;
   onContextMenu: (e: React.MouseEvent, n: FileNode) => void;
   focusIndex: number; flatNodes: FileNode[]; onLoadChildren: (p: string) => void;
+  showFileExtensions: boolean;
 }) {
   const isExpanded = expandedFolders.includes(node.path);
   const isSelected = selectedFilePath === node.path;
@@ -384,14 +414,19 @@ const FileTreeNode = memo(function FileTreeNode({ node, depth, selectedFilePath,
         onMouseLeave={e => { if (!isSelected && !isFocused) e.currentTarget.style.background = "transparent"; }}>
         {node.isDir && <span style={{ marginRight: 4, fontSize: 10, width: 12, flexShrink: 0 }}>{isExpanded ? "\u25BC" : "\u25B6"}</span>}
         <span style={{ marginRight: 4, flexShrink: 0 }}>{node.isDir ? "\uD83D\uDCC1" : "\uD83D\uDCC4"}</span>
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{node.name}</span>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+          {!node.isDir && !showFileExtensions
+            ? node.name.replace(/\.md$/i, "")
+            : node.name}
+        </span>
       </div>
       {node.isDir && isExpanded && (node.children ? (
         node.children.map(child => (
           <FileTreeNode key={child.path} node={child} depth={depth + 1}
             selectedFilePath={selectedFilePath} expandedFolders={expandedFolders}
             onToggle={onToggle} onSelect={onSelect} onContextMenu={onContextMenu}
-            focusIndex={focusIndex} flatNodes={flatNodes} onLoadChildren={onLoadChildren} />
+            focusIndex={focusIndex} flatNodes={flatNodes} onLoadChildren={onLoadChildren}
+            showFileExtensions={showFileExtensions} />
         ))
       ) : (
         <div style={{ height: 28, display: "flex", alignItems: "center", paddingLeft: pl + 16, gap: 6, fontSize: 12, color: "var(--text-tertiary)" }}>

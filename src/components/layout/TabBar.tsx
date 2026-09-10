@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useStore } from "../../store";
 import { noteName } from "../../domain";
 import { t } from "../../i18n";
+import { openDocumentWithSave } from "../../lib/openDocument";
 
 // Typora/VS Code-style tab bar: one tab per open note, dirty dot, click to
 // switch, middle-click or × to close (dirty tabs ask for confirmation first),
@@ -19,7 +20,6 @@ export function TabBar() {
   const currentFilePath = useStore(s => s.currentFilePath);
   const isDirty = useStore(s => s.isDirty);
   const fileStates = useStore(s => s.fileStates);
-  const switchTab = useStore(s => s.switchTab);
   const closeTab = useStore(s => s.closeTab);
   const closeOtherTabs = useStore(s => s.closeOtherTabs);
   const closeTabsToLeft = useStore(s => s.closeTabsToLeft);
@@ -69,7 +69,7 @@ export function TabBar() {
             key={path}
             className={"zn-tab" + (active ? " zn-tab-active" : "")}
             title={path}
-            onClick={() => switchTab(path)}
+            onClick={() => { void openDocumentWithSave(path); }}
             onContextMenu={(e) => {
               e.preventDefault();
               setMenu({ path, x: e.clientX, y: e.clientY });

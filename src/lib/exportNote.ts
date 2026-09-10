@@ -6,6 +6,7 @@
 // attributes. This makes the export match the on-screen preview closely.
 
 import { currentFontStack } from "./fontStack";
+import { sanitizeHtmlFragment, sanitizeSvg } from "./sanitize";
 
 // Selectors worth copying: theme variable blocks + anything that styles content.
 const KEEP_RE = /:root|\[data-theme|\[data-font|\.dark|\.milkdown|\.ProseMirror|(^|[\s,>+~(])(h[1-6]|p|blockquote|pre|code|table|thead|tbody|tr|th|td|ul|ol|li|dl|dt|dd|a|strong|em|del|s|hr|img|mark|sub|sup|figure|figcaption|\.katex|\.cm-|\.zn-html-render|\.zn-toc|\.zn-fm)/;
@@ -64,7 +65,7 @@ async function ensureMermaidRendered(root: HTMLElement): Promise<void> {
     const mermaidMod = await import("mermaid");
     const { useStore } = await import("../store");
     const isDark = useStore.getState().resolvedMode === "dark";
-    mermaidMod.default.initialize({ startOnLoad: false, theme: isDark ? "dark" : "default", securityLevel: "loose", fontFamily: currentFontStack() });
+    mermaidMod.default.initialize({ startOnLoad: false, theme: isDark ? "dark" : "default", securityLevel: "antiscript", fontFamily: currentFontStack() });
     for (const cb of pending) {
       const source = getMermaidSource(cb);
       if (source == null) continue;
@@ -83,7 +84,7 @@ async function ensureMermaidRendered(root: HTMLElement): Promise<void> {
           preview.className = "preview";
           panel.appendChild(preview);
         }
-        preview.innerHTML = svg;
+        preview.innerHTML = sanitizeSvg(svg);
       } catch { /* leave this block as source code */ }
     }
   } catch { /* mermaid unavailable; blocks stay as source */ }
@@ -153,7 +154,7 @@ async function serializeEditorContent(fallbackContent: string): Promise<string> 
     wrap.className = "zn-html-render" + (isBlock ? " zn-html-block" : "");
     if (ta) {
       wrap.textContent = "";
-      wrap.innerHTML = renderRawHtmlForExport(ta.value);
+      wrap.innerHTML = sanitizeHtmlFragment(ta.value);
     } else {
       wrap.innerHTML = span.innerHTML;
     }
@@ -161,22 +162,6 @@ async function serializeEditorContent(fallbackContent: string): Promise<string> 
   });
 
   return clone.innerHTML;
-}
-
-// Minimal sanitizer for the rare "html block was being edited at export time"
-// case (mirrors the editor's sanitizeHtml).
-function renderRawHtmlForExport(html: string): string {
-  const tpl = document.createElement("template");
-  tpl.innerHTML = html;
-  tpl.content.querySelectorAll("script, iframe, object, embed, link, meta, base").forEach(el => el.remove());
-  tpl.content.querySelectorAll("*").forEach(el => {
-    for (const attr of Array.from(el.attributes)) {
-      const name = attr.name.toLowerCase();
-      if (name.startsWith("on")) el.removeAttribute(attr.name);
-      else if ((name === "href" || name === "src") && attr.value.trim().toLowerCase().startsWith("javascript:")) el.removeAttribute(attr.name);
-    }
-  });
-  return tpl.innerHTML;
 }
 
 // Collect the CURRENTLY-RESOLVED values of every CSS custom property used by

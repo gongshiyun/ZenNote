@@ -11,6 +11,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 import {
+  getLastWritten,
   readFile,
   writeFile,
   createFile,
@@ -19,6 +20,7 @@ import {
   deleteFile,
   openWorkspace,
   readDir,
+  listMarkdownFiles,
   saveImage,
   resolveImageUrl,
 } from '../services';
@@ -40,6 +42,17 @@ describe('fileService IPC wrappers', () => {
     expect(invokeMock).toHaveBeenCalledWith('write_file', { path: 'C:\\note.md', content: '# hello' });
   });
 
+  it('records a write before IPC completes so watcher echoes are suppressed', async () => {
+    let resolveWrite!: () => void;
+    invokeMock.mockImplementationOnce(() => new Promise<void>((resolve) => { resolveWrite = resolve; }));
+    const path = 'C:\\note-race.md';
+    const saving = writeFile(path, 'content');
+    expect(getLastWritten(path)).toBe('content');
+    await vi.waitFor(() => expect(resolveWrite).toBeTypeOf('function'));
+    resolveWrite();
+    await saving;
+  });
+
   it('createFile/createFolder/renameFile/deleteFile use the expected commands', async () => {
     await createFile('C:\\note.md');
     await createFolder('C:\\folder');
@@ -59,8 +72,27 @@ describe('fileService IPC wrappers', () => {
 
     await expect(openWorkspace('/ws')).resolves.toEqual([{ name: 'a.md', path: '/ws/a.md', isDir: false }]);
     await expect(readDir('/ws/dir')).resolves.toEqual([{ name: 'dir', path: '/ws/dir', isDir: true }]);
-    expect(invokeMock).toHaveBeenCalledWith('open_workspace', { path: '/ws' });
-    expect(invokeMock).toHaveBeenCalledWith('read_dir', { path: '/ws/dir' });
+    expect(invokeMock).toHaveBeenCalledWith('open_workspace', { path: '/ws', includeHidden: false });
+    expect(invokeMock).toHaveBeenCalledWith('read_dir', { path: '/ws/dir', includeHidden: false });
+  });
+
+  it('passes the hidden-files setting to workspace listing commands', async () => {
+    invokeMock.mockResolvedValue([]);
+    await openWorkspace('/ws', true);
+    await readDir('/ws/dir', true);
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'open_workspace', { path: '/ws', includeHidden: true });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'read_dir', { path: '/ws/dir', includeHidden: true });
+  });
+
+  it('lists all markdown files for quick open', async () => {
+    invokeMock.mockResolvedValueOnce([{ name: 'a.md', path: '/ws/a.md', isDir: false }]);
+    await expect(listMarkdownFiles('/ws', true)).resolves.toEqual([
+      { name: 'a.md', path: '/ws/a.md', isDir: false },
+    ]);
+    expect(invokeMock).toHaveBeenCalledWith('list_markdown_files', {
+      path: '/ws',
+      includeHidden: true,
+    });
   });
 });
 

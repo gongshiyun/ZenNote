@@ -10,8 +10,28 @@ import type { Heading } from "./types";
 export function parseHeadings(markdown: string): Heading[] {
   const lines = markdown.split(/\r?\n/);
   const result: Heading[] = [];
+  let fence: { marker: string; length: number } | null = null;
+  let inFrontmatter = lines[0]?.trim() === "---";
   for (let i = 0; i < lines.length; i++) {
-    const match = lines[i].match(/^(#{1,6})\s+(.+)/);
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (inFrontmatter) {
+      if (i > 0 && trimmed === "---") inFrontmatter = false;
+      continue;
+    }
+
+    const fenceMatch = trimmed.match(/^(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0];
+      const length = fenceMatch[1].length;
+      if (!fence) fence = { marker, length };
+      else if (marker === fence.marker && length >= fence.length) fence = null;
+      continue;
+    }
+    if (fence) continue;
+
+    const match = line.match(/^(#{1,6})\s+(.+)/);
     if (match) {
       result.push({ level: match[1].length, text: match[2].trim(), pos: i });
     }
@@ -41,8 +61,9 @@ export interface WordCount {
  * Chinese characters are counted individually; English words by whitespace split.
  */
 export function computeWordCount(content: string): WordCount {
-  const chineseChars = (content.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length;
-  const englishWords = content
+  const plain = markdownToPlainText(content);
+  const chineseChars = (plain.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length;
+  const englishWords = plain
     .replace(/[\u4e00-\u9fff\u3400-\u4dbf]/g, " ")
     .split(/\s+/)
     .filter(Boolean).length;
@@ -53,6 +74,26 @@ export function computeWordCount(content: string): WordCount {
     totalChars: content.length,
     lineCount: content ? content.split(/\r?\n/).length : 0,
   };
+}
+
+function markdownToPlainText(markdown: string): string {
+  const withoutFrontmatter = markdown.replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, "");
+  const withoutFences = withoutFrontmatter.replace(
+    /^```[^\n]*\n[\s\S]*?^```\s*$/gm,
+    "",
+  );
+  return withoutFences
+    .split(/\r?\n/)
+    .map(line => line
+      .replace(/^\s{0,3}#{1,6}\s+/, "")
+      .replace(/^\s*>+\s?/, "")
+      .replace(/^\s*(?:[-+*]|\d+\.)\s+/, "")
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/[*_~]{1,3}/g, ""))
+    .filter(line => !/^\s*(?:---+|\*\*\*+|___+)\s*$/.test(line))
+    .join("\n");
 }
 
 /** Average reading speed used for the estimate (mixed CJK/latin content). */

@@ -15,7 +15,11 @@ vi.mock('../services', () => ({
   openWorkspace: vi.fn(),
 }));
 
-import { searchWorkspace, clearWorkspaceSearchCache } from '../lib/workspaceSearch';
+import {
+  clearWorkspaceSearchCache,
+  invalidateWorkspaceSearchCache,
+  searchWorkspace,
+} from '../lib/workspaceSearch';
 import * as fs from '../services';
 
 const mockedInvoke = invokeMock;
@@ -64,6 +68,14 @@ describe('workspaceSearch', () => {
     // Back to the FIRST workspace: cache was dropped when /ws2 was used.
     await searchWorkspace('/ws1', 'x');
     expect(mockedInvoke).toHaveBeenCalledTimes(3);
+  });
+
+  it('invalidates cached results when a workspace file changes', async () => {
+    mockedInvoke.mockResolvedValue([]);
+    await searchWorkspace('/ws', 'x');
+    invalidateWorkspaceSearchCache('/ws/a.md');
+    await searchWorkspace('/ws', 'x');
+    expect(mockedInvoke).toHaveBeenCalledTimes(2);
   });
 
   it('falls back to the JS traversal when the Rust command is unavailable', async () => {
