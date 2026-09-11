@@ -1507,7 +1507,10 @@ export function Editor() {
         // diagram never reverts to its raw state.
         const ZOOM_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35M11 8v6M8 11h6"/></svg>';
         const ensureCodeBlockExtras = () => {
-          if (tokenRef.current !== token) return;
+          // The Crepe instance is reused across file switches while this
+          // observer stays attached. Check the CURRENT lifecycle rather than
+          // the token captured when the instance was first created.
+          if (tokenRef.current === null) return;
           container.querySelectorAll(".milkdown-code-block .preview-panel").forEach((panel) => {
             if (!panel.querySelector(".preview svg")) return; // only mermaid previews have an svg
             if (!panel.querySelector(".zn-mermaid-zoom-btn")) {
