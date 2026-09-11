@@ -15,6 +15,7 @@ import { currentFontStack } from "../../lib/fontStack";
 import { saveCurrentDocument } from "../../lib/saveCoordinator";
 import { keepExternalConflict, reloadExternalConflict } from "../../lib/workspaceWatcher";
 import { sanitizeHtmlFragment, sanitizeSvg } from "../../lib/sanitize";
+import { runMermaidRenderTask } from "../../lib/mermaidRender";
 import { lineColAtProseMirrorDoc, posAtLineColProseMirrorDoc } from "../../lib/textPosition";
 import { computeWordCount } from "../../domain";
 import { prepareImageUpload } from "../../lib/imageUpload";
@@ -623,9 +624,13 @@ export function Editor() {
                 // Register this block so we can re-render it on theme/font changes.
                 mermaidApplyPreviews.current.set(applyPreview, content.trim());
                 void (async () => {
-                  try {
+                  // Capture the CURRENT token at invocation time. This callback
+                  // lives for the lifetime of the Crepe instance, which is reused
+                  // across file switches; the init-time token becomes stale.
+                  const requestToken = tokenRef.current;
+                  const outcome = await runMermaidRenderTask(async () => {
                     const mermaidMod = await import("mermaid");
-                    if (tokenRef.current !== token) return;
+                    if (tokenRef.current !== requestToken) return null;
                     const isDark = useStore.getState().resolvedMode === "dark";
                     mermaidMod.default.initialize({
                       startOnLoad: false,
@@ -636,12 +641,16 @@ export function Editor() {
                     });
                     const id = "m-" + Math.random().toString(36).slice(2, 8);
                     const { svg } = await mermaidMod.default.render(id, content.trim());
-                    if (tokenRef.current !== token) return;
-                    applyPreview(sanitizeSvg(svg));
-                  } catch (err) {
-                    console.warn("mermaid-render-failed", err);
-                    if (tokenRef.current === token) applyPreview(null);
+                    return svg;
+                  }, () => requestToken !== null && tokenRef.current === requestToken);
+
+                  if (outcome.status === "stale") return;
+                  if (outcome.status === "failed") {
+                    console.warn("mermaid-render-failed", outcome.error);
+                    applyPreview(null);
+                    return;
                   }
+                  applyPreview(sanitizeSvg(outcome.svg));
                 })();
                 // Returning undefined signals async preview (shows "Loading..." meanwhile)
                 return undefined;
