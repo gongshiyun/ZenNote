@@ -1,7 +1,7 @@
 ﻿import { useEffect } from 'react';
 import { useStore } from './store';
 import { AppShell } from './components/layout/AppShell';
-import { applyEditorFontSize } from './lib/editorAppearance';
+import { applyEditorFontSize, applyEditorPadding } from './lib/editorAppearance';
 
 function App() {
   const mode = useStore(s => s.mode);
@@ -9,6 +9,7 @@ function App() {
   const themeId = useStore(s => s.themeId);
   const fontFamily = useStore(s => s.fontFamily);
   const fontSize = useStore(s => s.fontSize);
+  const editorPadding = useStore(s => s.editorPadding);
 
   // Resolve theme (system / light / dark)
   useEffect(() => {
@@ -42,6 +43,10 @@ function App() {
   useEffect(() => {
     applyEditorFontSize(fontSize);
   }, [fontSize]);
+
+  useEffect(() => {
+    applyEditorPadding(editorPadding);
+  }, [editorPadding]);
 
   return <AppShell />;
 }
