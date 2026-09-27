@@ -1239,24 +1239,36 @@ export function Editor() {
         // IME commits land as beforeinput/insertText; insert the matching
         // closing bracket and keep the caret between the pair.
         const CN_PAIRS: Record<string, string> = { "（": "）", "【": "】", "「": "」", "『": "』" };
+        const insertPendingInlineCodeText = (data: string): boolean => {
+          const pendingCode = inlineCodeInsertRef.current;
+          if (!pendingCode || !data) return false;
+          inlineCodeInsertRef.current = null;
+          try {
+            const value = pendingCode.text.textContent || "";
+            const pos = pmView.posAtDOM(pendingCode.text, pendingCode.side === "start" ? 0 : value.length);
+            const inlineCode = pmView.state.schema.marks.inlineCode;
+            const textNode = pendingCode.side === "start" && inlineCode
+              ? pmView.state.schema.text(data, [inlineCode.create()])
+              : pmView.state.schema.text(data);
+            const tr = pmView.state.tr.insert(pos, textNode);
+            tr.setSelection(TextSelection.create(tr.doc, pos + textNode.nodeSize));
+            pmView.dispatch(tr);
+            return true;
+          } catch {
+            return false;
+          }
+        };
         const onBeforeInput = (e: Event) => {
           const ie = e as InputEvent;
-          const pendingCode = inlineCodeInsertRef.current;
-          if (pendingCode && ie.inputType === "insertText" && ie.data) {
-            inlineCodeInsertRef.current = null;
-            try {
-              const value = pendingCode.text.textContent || "";
-              const pos = pmView.posAtDOM(pendingCode.text, pendingCode.side === "start" ? 0 : value.length);
-              const inlineCode = pmView.state.schema.marks.inlineCode;
-              const textNode = pendingCode.side === "start" && inlineCode
-                ? pmView.state.schema.text(ie.data, [inlineCode.create()])
-                : pmView.state.schema.text(ie.data);
-              const tr = pmView.state.tr.insert(pos, textNode);
-              tr.setSelection(TextSelection.create(tr.doc, pos + textNode.nodeSize));
-              ie.preventDefault();
-              pmView.dispatch(tr);
-              return;
-            } catch { /* fall through to normal input */ }
+          if (inlineCodeInsertRef.current && ie.inputType === "insertCompositionText" && ie.data) {
+            // Suppress browser/ProseMirror insertion at the normalized mark
+            // boundary; the final text is committed on compositionend.
+            ie.preventDefault();
+            return;
+          }
+          if (ie.inputType === "insertText" && ie.data && insertPendingInlineCodeText(ie.data)) {
+            ie.preventDefault();
+            return;
           }
           if (ie.inputType !== "insertText" || !ie.data) return;
           const closing = CN_PAIRS[ie.data];
@@ -1272,7 +1284,14 @@ export function Editor() {
             pmView.dispatch(tr);
           } catch { /* never break typing on a pairing error */ }
         };
-        container.addEventListener("beforeinput", onBeforeInput);
+        const onCompositionEnd = (e: CompositionEvent) => {
+          if (!inlineCodeInsertRef.current || !e.data) return;
+          e.preventDefault();
+          e.stopPropagation();
+          insertPendingInlineCodeText(e.data);
+        };
+        container.addEventListener("beforeinput", onBeforeInput, true);
+        container.addEventListener("compositionend", onCompositionEnd, true);
 
         safeRef.current = true;
         editorReadyRef.current = true;
@@ -1669,7 +1688,8 @@ export function Editor() {
           container.removeEventListener("pointerdown", markInteracted, { capture: true });
           container.removeEventListener("keydown", markInteracted, { capture: true });
           container.removeEventListener("mousedown", onInlineCodePointerDown, true);
-          container.removeEventListener("beforeinput", onBeforeInput);
+          container.removeEventListener("beforeinput", onBeforeInput, true);
+          container.removeEventListener("compositionend", onCompositionEnd, true);
           inlineCodeInsertRef.current = null;
           document.removeEventListener("selectionchange", onSelChange);
           zoomBtnObserver.disconnect();
