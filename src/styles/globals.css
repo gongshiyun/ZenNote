@@ -956,9 +956,13 @@
 .ProseMirror .zn-block-focused em::after,
 .ProseMirror .zn-block-focused i::after { content: "*"; color: var(--text-markdown-mark) !important; }
 
-/* Inline code: show backticks */
-.ProseMirror .zn-block-focused code::before { content: "`"; color: var(--text-markdown-mark) !important; }
-.ProseMirror .zn-block-focused code::after { content: "`"; color: var(--text-markdown-mark) !important; }
+/* Inline code: backticks are ProseMirror widgets so both sides are real
+   caret hit targets instead of CSS pseudo-element boxes. */
+.ProseMirror .zn-markdown-inline-mark {
+  color: var(--text-markdown-mark) !important;
+  font-weight: 400;
+  user-select: none;
+}
 
 /* Strikethrough: show ~~ marks */
 .ProseMirror .zn-block-focused del::before,

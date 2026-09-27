@@ -19,6 +19,7 @@ import { runMermaidRenderTask } from "../../lib/mermaidRender";
 import { lineColAtProseMirrorDoc, posAtLineColProseMirrorDoc } from "../../lib/textPosition";
 import { computeWordCount } from "../../domain";
 import { prepareImageUpload } from "../../lib/imageUpload";
+import { copyImageToClipboard } from "../../services/imageService";
 import "@milkdown/crepe/theme/common/style.css";
 // KaTeX 字体/排版样式：Crepe 的 Latex feature 已启用，但公式渲染依赖此 CSS。
 import "katex/dist/katex.min.css";
@@ -370,7 +371,8 @@ export function Editor() {
   const [copyMenuVisible, setCopyMenuVisible] = useState(false);
   const [copyMenuPos, setCopyMenuPos] = useState({ x: 0, y: 0 });
   // Image alignment toolbar state (click an image to align it)
-  const [imgAlignMenu, setImgAlignMenu] = useState<{ visible: boolean; x: number; y: number; pos: number; align: string }>({ visible: false, x: 0, y: 0, pos: -1, align: "center" });
+  const [imgAlignMenu, setImgAlignMenu] = useState<{ visible: boolean; x: number; y: number; pos: number; align: string; src: string }>({ visible: false, x: 0, y: 0, pos: -1, align: "center", src: "" });
+  const [copyingImage, setCopyingImage] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const crepeRef = useRef<any>(null);
@@ -383,6 +385,7 @@ export function Editor() {
   const editorReadyRef = useRef(false);
   // ProseMirror view ref (set after editor init) so effects can dispatch transactions.
   const pmViewRef = useRef<any>(null);
+  const inlineCodeInsertRef = useRef<{ text: Text; side: "start" | "end" } | null>(null);
   // Preset query for the find bar (set when jumping in from global search).
   const [findPreset, setFindPreset] = useState<{
     query: string;
@@ -893,21 +896,76 @@ export function Editor() {
           // (preferring the enclosing list_item / blockquote so the whole
           // item/quote is highlighted).
           const seen = new Set<number>();
+          const markWidget = (value: string) => {
+            const span = document.createElement("span");
+            span.className = "zn-markdown-inline-mark";
+            span.textContent = value;
+            span.setAttribute("aria-hidden", "true");
+            return span;
+          };
+          const addInlineCodeWidgets = (node: any, contentStart: number) => {
+            let rangeStart = -1;
+            let rangeEnd = -1;
+            const flush = () => {
+              if (rangeStart < 0) return;
+              decos.push(Decoration.widget(
+                rangeStart,
+                () => markWidget("`"),
+                { side: -1, key: "inline-code-open-" + rangeStart },
+              ));
+              decos.push(Decoration.widget(
+                rangeEnd,
+                () => markWidget("`"),
+                { side: 1, key: "inline-code-close-" + rangeEnd },
+              ));
+              rangeStart = -1;
+              rangeEnd = -1;
+            };
+            node.descendants((child: any, relPos: number) => {
+              const isCode = child.isText && child.marks.some((mark: any) => mark.type.name === "inlineCode");
+              if (!isCode) {
+                if (rangeStart >= 0) flush();
+                return;
+              }
+              const start = contentStart + relPos;
+              const end = start + child.nodeSize;
+              if (rangeStart < 0) {
+                rangeStart = start;
+                rangeEnd = end;
+              } else if (start === rangeEnd) {
+                rangeEnd = end;
+              } else {
+                flush();
+                rangeStart = start;
+                rangeEnd = end;
+              }
+            });
+            flush();
+          };
           const revealBlockAt = ($pos: any) => {
-            let from = -1, nodeSize = 0;
+            let from = -1, nodeSize = 0, focusedNode: any = null;
             for (let d = $pos.depth; d >= 1 && from < 0; d--) {
               const name = $pos.node(d).type.name;
-              if (name === "list_item" || name === "blockquote") { from = $pos.before(d); nodeSize = $pos.node(d).nodeSize; }
+              if (name === "list_item" || name === "blockquote") {
+                from = $pos.before(d);
+                nodeSize = $pos.node(d).nodeSize;
+                focusedNode = $pos.node(d);
+              }
             }
             if (from < 0) {
               for (let d = $pos.depth; d >= 1 && from < 0; d--) {
                 const name = $pos.node(d).type.name;
-                if (FOCUS_TYPES.has(name)) { from = $pos.before(d); nodeSize = $pos.node(d).nodeSize; }
+                if (FOCUS_TYPES.has(name)) {
+                  from = $pos.before(d);
+                  nodeSize = $pos.node(d).nodeSize;
+                  focusedNode = $pos.node(d);
+                }
               }
             }
             if (from >= 0 && !seen.has(from)) {
               seen.add(from);
               decos.push(Decoration.node(from, from + nodeSize, { class: "zn-block-focused" }));
+              addInlineCodeWidgets(focusedNode, from + 1);
             }
           };
 
@@ -1136,12 +1194,70 @@ export function Editor() {
         container.addEventListener("pointerdown", markInteracted, { capture: true, passive: true });
         container.addEventListener("keydown", markInteracted, { capture: true, passive: true });
 
+        const onInlineCodePointerDown = (e: MouseEvent) => {
+          if (e.button !== 0) return;
+          inlineCodeInsertRef.current = null;
+          const target = e.target as HTMLElement | null;
+          const block = target?.closest(".zn-block-focused");
+          if (!block) return;
+          for (const code of Array.from(block.querySelectorAll("code")) as HTMLElement[]) {
+            const text = code.firstChild;
+            if (!text || text.nodeType !== 3) continue;
+            const rect = code.getBoundingClientRect();
+            if (e.clientY < rect.top || e.clientY > rect.bottom) continue;
+            if (e.clientX < rect.left - 8 || e.clientX > rect.right + 8) continue;
+            const side = e.clientX < rect.left ? "start" : e.clientX > rect.right ? "end" : null;
+            if (!side) return;
+            inlineCodeInsertRef.current = { text: text as Text, side };
+            try {
+              const value = text.textContent || "";
+              const pos = pmView.posAtDOM(text, side === "start" ? 0 : value.length);
+              pmView.dispatch(pmView.state.tr.setSelection(TextSelection.create(pmView.state.doc, pos)));
+              pmView.focus();
+              const domSelection = window.getSelection();
+              if (domSelection) {
+                const range = document.createRange();
+                if (side === "start") {
+                  range.setStart(text, 0);
+                  range.collapse(true);
+                } else {
+                  range.setStartAfter(code.nextElementSibling || code);
+                  range.collapse(true);
+                }
+                domSelection.removeAllRanges();
+                domSelection.addRange(range);
+              }
+              e.preventDefault();
+              e.stopPropagation();
+            } catch { /* fall back to ProseMirror hit-testing */ }
+            return;
+          }
+        };
+        container.addEventListener("mousedown", onInlineCodePointerDown, true);
+
         // ---- Fullwidth Chinese punctuation auto-pairing ----
         // IME commits land as beforeinput/insertText; insert the matching
         // closing bracket and keep the caret between the pair.
         const CN_PAIRS: Record<string, string> = { "（": "）", "【": "】", "「": "」", "『": "』" };
         const onBeforeInput = (e: Event) => {
           const ie = e as InputEvent;
+          const pendingCode = inlineCodeInsertRef.current;
+          if (pendingCode && ie.inputType === "insertText" && ie.data) {
+            inlineCodeInsertRef.current = null;
+            try {
+              const value = pendingCode.text.textContent || "";
+              const pos = pmView.posAtDOM(pendingCode.text, pendingCode.side === "start" ? 0 : value.length);
+              const inlineCode = pmView.state.schema.marks.inlineCode;
+              const textNode = pendingCode.side === "start" && inlineCode
+                ? pmView.state.schema.text(ie.data, [inlineCode.create()])
+                : pmView.state.schema.text(ie.data);
+              const tr = pmView.state.tr.insert(pos, textNode);
+              tr.setSelection(TextSelection.create(tr.doc, pos + textNode.nodeSize));
+              ie.preventDefault();
+              pmView.dispatch(tr);
+              return;
+            } catch { /* fall through to normal input */ }
+          }
           if (ie.inputType !== "insertText" || !ie.data) return;
           const closing = CN_PAIRS[ie.data];
           if (!closing) return;
@@ -1552,7 +1668,9 @@ export function Editor() {
           if (fnFlashTimer !== null) window.clearTimeout(fnFlashTimer);
           container.removeEventListener("pointerdown", markInteracted, { capture: true });
           container.removeEventListener("keydown", markInteracted, { capture: true });
+          container.removeEventListener("mousedown", onInlineCodePointerDown, true);
           container.removeEventListener("beforeinput", onBeforeInput);
+          inlineCodeInsertRef.current = null;
           document.removeEventListener("selectionchange", onSelChange);
           zoomBtnObserver.disconnect();
           if (zoomBtnTimer) clearTimeout(zoomBtnTimer);
@@ -1593,18 +1711,43 @@ export function Editor() {
   }, [currentFilePath, sourceMode, reuseFailTick, reloadTick, setCursorPosition, setEditorRef, setPmSelection, setSelectionStats]);
 
   // Locate the enclosing image-block node of an <img> (position + alignment).
-  const readImageBlockAt = useCallback((img: HTMLElement): { pos: number; align: string } => {
+  const readImageBlockAt = useCallback((img: HTMLElement): { pos: number; align: string; src: string } => {
     const pm = pmViewRef.current;
-    if (!pm) return { pos: -1, align: "center" };
+    if (!pm) return { pos: -1, align: "center", src: "" };
     try {
       const pos = pm.posAtDOM(img, 0);
-      const $pos = pm.state.doc.resolve(pos);
-      for (let d = $pos.depth; d >= 0; d--) {
-        const n = $pos.node(d);
-        if (n.type.name === "image-block") return { pos: $pos.before(d), align: n.attrs.align || "center" };
+      for (const candidate of [pos, Math.max(0, pos - 1)]) {
+        const node = pm.state.doc.nodeAt(candidate);
+        if (node?.type.name === "image-block") {
+          return {
+            pos: candidate,
+            align: node.attrs.align || "center",
+            src: node.attrs.src || img.getAttribute("src") || "",
+          };
+        }
+        const $candidate = pm.state.doc.resolve(candidate);
+        for (const nearby of [$candidate.nodeAfter, $candidate.nodeBefore]) {
+          if (nearby?.type.name === "image-block") {
+            return {
+              pos: candidate,
+              align: nearby.attrs.align || "center",
+              src: nearby.attrs.src || img.getAttribute("src") || "",
+            };
+          }
+        }
+        for (let d = $candidate.depth; d >= 0; d--) {
+          const n = $candidate.node(d);
+          if (n.type.name === "image-block") {
+            return {
+              pos: $candidate.before(d),
+              align: n.attrs.align || "center",
+              src: n.attrs.src || img.getAttribute("src") || "",
+            };
+          }
+        }
       }
-      return { pos, align: "center" };
-    } catch { return { pos: -1, align: "center" }; }
+      return { pos, align: "center", src: img.getAttribute("src") || "" };
+    } catch { return { pos: -1, align: "center", src: img.getAttribute("src") || "" }; }
   }, []);
 
   // Table-cell drag selection: Crepe's tableBlock node view stops ProseMirror
@@ -1656,13 +1799,15 @@ export function Editor() {
         return;
       }
       // Image block: right-click opens the alignment toolbar.
-      const img = target.closest('img[data-type="image-block"]') as HTMLElement | null;
+      const imageBlock = target.closest(".milkdown-image-block") as HTMLElement | null;
+      const img = (imageBlock?.querySelector('img[data-type="image-block"]')
+        ?? target.closest('img[data-type="image-block"]')) as HTMLElement | null;
       if (img) {
         e.preventDefault();
         const info = readImageBlockAt(img);
         setCopyMenuVisible(false);
         setTableMenuVisible(false);
-        setImgAlignMenu({ visible: true, x: e.clientX, y: e.clientY, pos: info.pos, align: info.align });
+        setImgAlignMenu({ visible: true, x: e.clientX, y: e.clientY, pos: info.pos, align: info.align, src: info.src });
         return;
       }
       // Non-table area: offer copy menu when there is a text selection
@@ -1690,7 +1835,9 @@ export function Editor() {
     if (!container || sourceMode || !editorReady) return;
     const onClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      const img = target.closest('img[data-type="image-block"]') as HTMLImageElement | null;
+      const imageBlock = target.closest(".milkdown-image-block");
+      const img = (imageBlock?.querySelector('img[data-type="image-block"]')
+        ?? target.closest('img[data-type="image-block"]')) as HTMLImageElement | null;
       if (!img) { setImgAlignMenu(m => (m.visible ? { ...m, visible: false } : m)); return; }
       openZoomRef.current(img);
     };
@@ -1711,6 +1858,21 @@ export function Editor() {
     } catch (err) { console.warn("image-align-apply-failed", err); }
     setImgAlignMenu(m => ({ ...m, visible: false }));
   }, [imgAlignMenu.pos]);
+
+  const copyCurrentImage = useCallback(async () => {
+    const src = imgAlignMenu.src;
+    if (!src || copyingImage) return;
+    setCopyingImage(true);
+    setImgAlignMenu(m => ({ ...m, visible: false }));
+    try {
+      await copyImageToClipboard(src, currentFilePath);
+    } catch (err) {
+      console.warn("image-copy-failed", err);
+      window.alert(t().editor.imageCopyFailed);
+    } finally {
+      setCopyingImage(false);
+    }
+  }, [copyingImage, currentFilePath, imgAlignMenu.src]);
 
   // Re-render already-drawn mermaid diagrams when the theme or font changes.
   // Milkdown only re-runs renderPreview on text/language edits, so a theme/font
@@ -1983,6 +2145,21 @@ export function Editor() {
           background: "var(--bg-toolbar)", border: "1px solid var(--border)",
           borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.18)", padding: 4,
         }} onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+          <button
+            onClick={() => void copyCurrentImage()}
+            title={copyingImage ? t().editor.copyingImage : t().editor.copyImage}
+            disabled={copyingImage}
+            style={{
+              height: 26, display: "flex", alignItems: "center", gap: 5,
+              padding: "0 8px", border: "none", borderRadius: 6,
+              cursor: copyingImage ? "default" : "pointer",
+              background: "transparent", color: "var(--text-secondary)",
+              fontSize: 12, whiteSpace: "nowrap",
+            }}>
+            <CopyImageIcon />
+            <span>{copyingImage ? t().editor.copyingImage : t().editor.copyImage}</span>
+          </button>
+          <div style={{ width: 1, height: 18, background: "var(--border)", margin: "0 2px" }} />
           {(["left", "center", "right"] as const).map(a => (
             <button key={a} onClick={() => applyImageAlign(a)} title={t().editor["align_" + a as "align_left"]}
               style={{
@@ -2019,6 +2196,15 @@ function AlignIcon({ dir }: { dir: "left" | "center" | "right" }) {
       <line x1="2" y1="3.5" x2="14" y2="3.5" />
       <line x1={x} y1="8" x2={x + 6} y2="8" />
       <line x1="2" y1="12.5" x2="14" y2="12.5" />
+    </svg>
+  );
+}
+
+function CopyImageIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="5" y="5" width="8" height="8" rx="1.5" />
+      <path d="M3 10.5V4.5A1.5 1.5 0 0 1 4.5 3h6" />
     </svg>
   );
 }

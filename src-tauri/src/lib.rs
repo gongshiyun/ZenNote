@@ -42,6 +42,11 @@ fn read_file(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn read_file_binary(path: String) -> Result<Vec<u8>, String> {
+    fs::read(&path).map_err(|e| format!("读取文件失败: {}", e))
+}
+
+#[tauri::command]
 fn path_exists(path: String) -> bool {
     Path::new(&path).exists()
 }
@@ -144,6 +149,32 @@ fn write_file_binary(path: String, bytes: Vec<u8>) -> Result<(), String> {
         fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
     }
     atomic_write(Path::new(&path), &bytes).map_err(|e| format!("保存图片失败: {}", e))
+}
+
+#[cfg(windows)]
+#[tauri::command]
+fn copy_image_rgba(width: usize, height: usize, rgba: Vec<u8>) -> Result<(), String> {
+    let expected = width
+        .checked_mul(height)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| "图片尺寸无效".to_string())?;
+    if width == 0 || height == 0 || rgba.len() != expected {
+        return Err("图片像素数据无效".to_string());
+    }
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("打开剪贴板失败: {}", e))?;
+    clipboard
+        .set_image(arboard::ImageData {
+            width,
+            height,
+            bytes: std::borrow::Cow::Owned(rgba),
+        })
+        .map_err(|e| format!("写入剪贴板失败: {}", e))
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+fn copy_image_rgba(_width: usize, _height: usize, _rgba: Vec<u8>) -> Result<(), String> {
+    Err("当前平台暂不支持复制图片".to_string())
 }
 
 // ---- Tree builder ----
@@ -795,6 +826,7 @@ pub fn run() {
             read_dir,
             list_markdown_files,
             read_file,
+            read_file_binary,
             path_exists,
             write_file,
             create_file,
@@ -803,6 +835,7 @@ pub fn run() {
             delete_file,
             move_file,
             write_file_binary,
+            copy_image_rgba,
             search_workspace,
             watch_workspace,
             unwatch_workspace,

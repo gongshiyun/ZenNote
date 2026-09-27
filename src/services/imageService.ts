@@ -47,3 +47,48 @@ export function resolveImageUrl(src: string, notePath: string | null): string {
   }
   return convertFileSrc(abs.replace(/\\/g, "/"));
 }
+
+/** Resolve a local image reference to an absolute filesystem path. */
+export function resolveImagePath(src: string, notePath: string | null): string | null {
+  if (!src || /^(https?|data|blob|asset):/i.test(src) || src.includes("asset.localhost")) {
+    return null;
+  }
+  if (/^([a-zA-Z]:[\\/]|\\\\|\/)/.test(src)) return src;
+  return notePath ? parentDir(notePath) + "/" + src : null;
+}
+
+async function readImageBytes(src: string, notePath: string | null): Promise<Uint8Array> {
+  const path = resolveImagePath(src, notePath);
+  if (path) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const bytes = await invoke<number[] | Uint8Array>("read_file_binary", { path });
+    return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  }
+
+  const response = await fetch(src);
+  if (!response.ok) throw new Error("image-fetch-failed");
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+/** Copy an image to the native system clipboard as RGBA pixels. */
+export async function copyImageToClipboard(src: string, notePath: string | null): Promise<void> {
+  const bytes = await readImageBytes(src, notePath);
+  const bitmap = await createImageBitmap(new Blob([bytes.slice().buffer as ArrayBuffer]));
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("image-canvas-unavailable");
+    context.drawImage(bitmap, 0, 0);
+    const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("copy_image_rgba", {
+      width: bitmap.width,
+      height: bitmap.height,
+      rgba: new Uint8Array(data),
+    });
+  } finally {
+    bitmap.close();
+  }
+}

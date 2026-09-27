@@ -1,6 +1,6 @@
 [package]
 name = "zennote"
-version = "0.8.17"
+version = "0.8.18"
 description = "ZenNote - 极简本地 Markdown 笔记"
 authors = ["ZenNote"]
 license = "MIT"
@@ -31,5 +31,6 @@ notify = "6"
 
 # Windows-only: direct WebView2 PrintToPdf for Typora-style PDF export (no print dialog)
 [target.'cfg(windows)'.dependencies]
+arboard = "3.6"
 webview2-com = "0.38"
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
