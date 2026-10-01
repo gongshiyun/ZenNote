@@ -40,6 +40,7 @@ import {
   FootnoteRefWidget,
   footnoteScanOf,
   FrontmatterWidget,
+  HtmlBlockWidget,
   ImageWidget,
   MathWidget,
   MermaidWidget,
@@ -49,6 +50,7 @@ import {
   TocWidget,
 } from "./widgets";
 import { footnoteNumbers } from "./footnotes";
+import { renderHtmlValue } from "../../../lib/htmlRender";
 
 /* ------------------------------------------------------------ async refresh */
 
@@ -306,7 +308,43 @@ export function parseTable(lines: string[]): ParsedTable | null {
   };
 }
 
+/* ------------------------------------------------------------ footnote utils */
+
+/**
+ * Resolve an image reference to a loadable URL.
+ *
+ * `resolveImageUrl` reaches `convertFileSrc`, a Tauri-only API. It throws
+ * outside a Tauri context (and could throw for other reasons in one), and a
+ * throw here happens INSIDE the decoration pass — which makes CodeMirror tear
+ * down the whole plugin, taking every heading, mark and table with it. Failure
+ * therefore degrades to the raw reference: a broken image instead of a
+ * decoration-less editor.
+ */
+function safeResolveImageUrl(src: string, notePath: string | null): string {
+  try {
+    return resolveImageUrl(src, notePath);
+  } catch {
+    return src;
+  }
+}
+
 /* ---------------------------------------------------------- block line class */
+
+/** Inline HTML tags that have a meaningful visual treatment. */
+const INLINE_HTML_CLASS: Record<string, string> = {
+  kbd: "cm-zn-html-kbd",
+  mark: "cm-zn-html-mark",
+  code: "cm-zn-inline-code",
+  strong: "cm-zn-inline-strong",
+  b: "cm-zn-inline-strong",
+  em: "cm-zn-inline-em",
+  i: "cm-zn-inline-em",
+  del: "cm-zn-inline-strike",
+  s: "cm-zn-inline-strike",
+  a: "cm-zn-inline-link",
+  sup: "cm-zn-html-sup",
+  sub: "cm-zn-html-sub",
+};
 
 const HEADING_CLASS: Record<string, string> = {
   ATXHeading1: "cm-zn-h1",
@@ -441,6 +479,26 @@ export function buildBlockDecorations(state: EditorState): DecorationSet {
     },
   });
 
+  // Raw HTML blocks render (sanitized), matching the previous editor. The
+  // caret inside the block shows the source instead, so it stays editable.
+  tree.iterate({
+    from: 0,
+    to: doc.length,
+    enter: (node) => {
+      if (node.name !== "HTMLBlock") return;
+      if (fm && node.from <= fm.to) return;
+      const raw = doc.sliceString(node.from, node.to);
+      // Ignore an HTML block that is really just the frontmatter fence.
+      if (/^\s*---/.test(raw)) return;
+      ranges.push(
+        Decoration.replace({
+          widget: new HtmlBlockWidget(renderHtmlValue(raw)),
+          block: true,
+        }).range(node.from, node.to),
+      );
+    },
+  });
+
   // Display math spans lines, so it is a block replacement too.
   for (const m of findMath(doc)) {
     if (!m.display) continue;
@@ -517,11 +575,19 @@ export function buildDecorations(view: EditorView): {
   /** True when the selection touches [from, to] — i.e. it is being edited. */
   const touched = (from: number, to: number) => sel.from <= to && sel.to >= from;
 
+  /** True when a real range (not just a caret) is selected. */
+  const hasSelection = () => state.selection.main.from !== state.selection.main.to;
+
   /** Hide a syntax range, or reveal (dim) it when the caret is inside. */
   const markRange = (from: number, to: number, widget?: WidgetType) => {
     if (from >= to) return;
     if (touched(from, to)) {
-      decos.push(Decoration.mark({ class: "cm-zn-mark" }).range(from, to));
+      // The dim mark colour sits at ~2:1 against a selection background, which
+      // is what made selected text unreadable. Revealed marks therefore switch
+      // to full contrast whenever a range is selected, and stay dim when the
+      // caret is merely resting in the block.
+      const cls = hasSelection() ? "cm-zn-mark cm-zn-mark-on" : "cm-zn-mark";
+      decos.push(Decoration.mark({ class: cls }).range(from, to));
       return;
     }
     const deco = Decoration.replace(widget ? { widget } : {});
@@ -530,7 +596,10 @@ export function buildDecorations(view: EditorView): {
   };
 
   const styleRange = (from: number, to: number, cls: string) => {
-    if (from < to) decos.push(Decoration.mark({ class: cls }).range(from, to));
+    // Append the "-on" variant while a range is selected so every dim colour
+    // (link, muted prose) clears contrast against the selection background.
+    // Without this the low-contrast colours stayed at ~3:1 when selected.
+    if (from < to) decos.push(Decoration.mark({ class: hasSelection() ? `${cls} ${cls}-on` : cls }).range(from, to));
   };
 
   const styledLines = new Set<number>();
@@ -538,7 +607,9 @@ export function buildDecorations(view: EditorView): {
     const line = doc.lineAt(pos);
     if (styledLines.has(line.from)) return;
     styledLines.add(line.from);
-    decos.push(Decoration.line({ class: cls }).range(line.from));
+    decos.push(
+      Decoration.line({ class: hasSelection() ? `${cls} ${cls}-on` : cls }).range(line.from),
+    );
   };
 
   /** Every line a range covers, inclusive. */
@@ -644,7 +715,10 @@ export function buildDecorations(view: EditorView): {
           markRange(
             nFrom,
             nTo,
-            new ImageWidget(resolveImageUrl(url, useStore.getState().currentFilePath), alt),
+            new ImageWidget(
+              safeResolveImageUrl(url, useStore.getState().currentFilePath),
+              alt,
+            ),
           );
           return;
         }
@@ -702,6 +776,45 @@ export function buildDecorations(view: EditorView): {
       },
     });
   }
+
+  /* ---- inline raw HTML ---- */
+  // `<kbd>Ctrl</kbd>` arrives as two separate HTMLTag nodes with the content
+  // between them, so the tags are paired here and the content is classified by
+  // tag name. Without this, inline HTML showed as literal `<kbd>` text while
+  // block HTML rendered — an inconsistency the previous editor did not have.
+  const openTags: Array<{ name: string; from: number; to: number }> = [];
+  tree.iterate({
+    from: 0,
+    to: doc.length,
+    enter: (node) => {
+      if (node.name !== "HTMLTag") return;
+      if (fm && node.from <= fm.to) return;
+      const raw = doc.sliceString(node.from, node.to);
+      const closing = /^<\s*\//.test(raw);
+      const name = /^<\s*\/?\s*([a-zA-Z][\w-]*)/.exec(raw)?.[1]?.toLowerCase();
+      if (!name) return;
+      if (closing) {
+        // Close the nearest unclosed tag with the same name on this line.
+        const lineFrom = doc.lineAt(node.from).from;
+        for (let i = openTags.length - 1; i >= 0; i--) {
+          const open = openTags[i];
+          if (open.name !== name) continue;
+          if (doc.lineAt(open.from).from !== lineFrom) break;
+          openTags.splice(i, 1);
+          const cls = INLINE_HTML_CLASS[name];
+          if (cls) styleRange(open.to, node.from, cls);
+          markRange(open.from, open.to);
+          markRange(node.from, node.to);
+          break;
+        }
+        return;
+      }
+      openTags.push({ name, from: node.from, to: node.to });
+    },
+  });
+  // Any tag left unpaired (a void tag like <br>, or malformed HTML): hide it
+  // rather than leaving angle brackets in the prose.
+  for (const open of openTags) markRange(open.from, open.to);
 
   /* ---- footnotes ---- */
   // Refs render as numbered chips; a definition's `[^id]:` marker is hidden and

@@ -489,6 +489,37 @@ export class TocWidget extends WidgetType {
   }
 }
 
+/**
+ * Raw HTML block, rendered and sanitized.
+ *
+ * Uses the shared renderer so a `<cite>` holding a markdown list looks exactly
+ * as it did in the previous editor — including the inner-markdown pass, which
+ * is what turns `- [x](y)` inside block HTML into a real list.
+ */
+export class HtmlBlockWidget extends WidgetType {
+  private readonly html: string;
+
+  constructor(html: string) {
+    super();
+    this.html = html;
+  }
+
+  eq(other: HtmlBlockWidget): boolean {
+    return other.html === this.html;
+  }
+
+  toDOM(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "cm-zn-html-block";
+    el.innerHTML = this.html;
+    return el;
+  }
+
+  ignoreEvent(): boolean {
+    return false;
+  }
+}
+
 /** Renders a YAML frontmatter block as a labelled, bordered panel. */export class FrontmatterWidget extends WidgetType {
   private readonly yaml: string;
 

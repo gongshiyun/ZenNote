@@ -340,12 +340,18 @@ export const livePreviewTheme = EditorView.theme({  "&": {
 
   /* ---- revealed syntax marks (the line the caret is on) ---- */
   ".cm-zn-mark": { color: "var(--text-markdown-mark)" },
+  // While a range is selected the marks must clear contrast against the
+  // selection background, which the dim token does not (~2:1).
+  ".cm-zn-mark-on": { color: "var(--text-primary)" },
 
   /* ---- inline marks ---- */
   ".cm-zn-inline-strong": { fontWeight: "700", color: "var(--zn-editor-heading)" },
   ".cm-zn-inline-em": { fontStyle: "italic" },
   ".cm-zn-inline-strike": { textDecoration: "line-through", color: "var(--zn-editor-muted)" },
   ".cm-zn-inline-mark": {
+    // Translucent so the selection layer behind stays visible: an opaque inline
+    // background completely hides the selection, making it impossible to tell
+    // what is selected.
     backgroundColor: "color-mix(in srgb, var(--text-accent) 26%, transparent)",
     borderRadius: "3px",
     padding: "0 2px",
@@ -354,7 +360,7 @@ export const livePreviewTheme = EditorView.theme({  "&": {
     fontFamily: LIVE_PREVIEW_MONO,
     fontSize: "0.88em",
     color: "var(--zn-editor-code-fg)",
-    backgroundColor: "var(--zn-editor-code-bg)",
+    backgroundColor: "color-mix(in srgb, var(--zn-editor-code-bg) 72%, transparent)",
     borderRadius: "4px",
     padding: "0 4px",
   },
@@ -363,6 +369,10 @@ export const livePreviewTheme = EditorView.theme({  "&": {
     textDecoration: "underline",
     textDecorationColor: "color-mix(in srgb, var(--zn-editor-link) 40%, transparent)",
   },
+  // Selected variants: restore full contrast so nothing dims into the selection.
+  ".cm-zn-inline-link-on": { color: "var(--text-primary)" },
+  ".cm-zn-inline-code-on": { color: "var(--text-primary)" },
+  ".cm-zn-inline-strike-on": { color: "var(--zn-editor-text)" },
 
   /* ---- task list ---- */
   ".cm-zn-task": { marginRight: "0.45em" },
@@ -428,6 +438,65 @@ export const livePreviewTheme = EditorView.theme({  "&": {
   },
   ".cm-zn-table td, .cm-zn-table th": { cursor: "text" },
 
+  /* ---- raw HTML blocks ---- */
+  // Mirrors the Crepe editor's `.zn-html-render` rules so the same document
+  // looks the same in both. The list/paragraph rules matter because the editor
+  // resets default list styling, so rendered HTML would otherwise lose bullets.
+  ".cm-zn-html-block": { display: "block", margin: "0.5em 0", color: "inherit" },
+  ".cm-zn-html-block cite": {
+    display: "block",
+    fontStyle: "normal",
+    padding: "10px 16px",
+    borderLeft: "3px solid var(--border)",
+    background: "var(--bg-code)",
+    borderRadius: "0 6px 6px 0",
+    color: "var(--text-secondary)",
+    fontSize: "0.92em",
+  },
+  ".cm-zn-html-block kbd": {
+    padding: "2px 6px",
+    border: "1px solid var(--border)",
+    borderBottomWidth: "2px",
+    borderRadius: "4px",
+    background: "var(--bg-code)",
+    fontFamily: LIVE_PREVIEW_MONO,
+    fontSize: "0.85em",
+  },
+  ".cm-zn-html-block mark": { background: "#FEF08A", padding: "0 2px", borderRadius: "2px" },
+  /* Inline HTML that got a direct visual treatment. */
+  ".cm-zn-html-kbd": {
+    padding: "2px 6px",
+    border: "1px solid var(--border)",
+    borderBottomWidth: "2px",
+    borderRadius: "4px",
+    background: "var(--bg-code)",
+    fontFamily: LIVE_PREVIEW_MONO,
+    fontSize: "0.85em",
+  },
+  ".cm-zn-html-mark": { background: "#FEF08A", color: "#141413", padding: "0 2px", borderRadius: "2px" },
+  ".cm-zn-html-sup": { verticalAlign: "super", fontSize: "0.75em" },
+  ".cm-zn-html-sub": { verticalAlign: "sub", fontSize: "0.75em" },
+  ".cm-zn-html-block ul, .cm-zn-html-block ol": {
+    paddingLeft: "1.6em",
+    margin: "0.3em 0",
+    listStyle: "revert",
+  },
+  ".cm-zn-html-block li": { listStyle: "revert", margin: "0.15em 0" },
+  ".cm-zn-html-block p": { margin: "0.35em 0" },
+  ".cm-zn-html-block a": { color: "var(--zn-editor-link)", textDecoration: "underline" },
+  ".cm-zn-html-block code": {
+    fontFamily: LIVE_PREVIEW_MONO,
+    fontSize: "0.88em",
+    background: "color-mix(in srgb, var(--zn-editor-code-bg) 72%, transparent)",
+    borderRadius: "4px",
+    padding: "0 4px",
+  },
+  ".cm-zn-html-block table": { borderCollapse: "collapse", margin: "0.4em 0" },
+  ".cm-zn-html-block th, .cm-zn-html-block td": {
+    border: "1px solid var(--zn-editor-rule)",
+    padding: "4px 10px",
+  },
+
   /* ---- math ---- */
   ".cm-zn-math-inline": { display: "inline-block", verticalAlign: "middle" },
   ".cm-zn-math-display": { display: "block", margin: "0.6em 0", textAlign: "center", overflowX: "auto" },
@@ -488,11 +557,16 @@ export const livePreviewTheme = EditorView.theme({  "&": {
     padding: "0.3em 0 0.1em",
   },
 
-  ".cm-zn-quote": {    borderLeft: "3px solid var(--zn-float-handle)",
+  ".cm-zn-quote": {
+    borderLeft: "3px solid var(--zn-float-handle)",
     paddingLeft: "0.9em",
     marginLeft: "0",
     color: "var(--zn-editor-muted)",
   },
+  // Muted prose sits at ~3:1 against a selection; restore full contrast when a
+  // range is selected so it does not grey out.
+  ".cm-zn-quote-on": { color: "var(--zn-editor-text)" },
+  ".cm-zn-footnote-def-on": { color: "var(--zn-editor-text)" },
 
   ".cm-zn-li": {},
 

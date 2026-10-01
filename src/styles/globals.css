@@ -240,7 +240,13 @@
   --border: #E1DED2;
   --border-light: #EBE8DD;
 
-  --selection-bg: #F0D5C6;
+  /* Selection is a dusty blue rather than a clay tint, and deliberately so:
+     selecting text REVEALS the markdown marks, which are clay (#C08A6E). A
+     clay-tinted selection put clay marks on a clay background and the marks
+     became unreadable. Any hue sharing the text palette would collide with one
+     of the mark, link or inline-code colours; blue collides with none of them.
+     (Anthropic's own secondary accent is this same dusty blue.) */
+  --selection-bg: #CFDFEE;
   --scrollbar-thumb: #CFCBBE;
 
   --titlebar-btn-hover: #EDEBE1;
@@ -323,7 +329,9 @@
   --border: #3A3A36;
   --border-light: #2E2E2B;
 
-  --selection-bg: #4A3730;
+  /* Dusty blue, matching the light variant's reasoning: it shares no hue with
+     the warm mark / link / code colours, so nothing blends into it. */
+  --selection-bg: #2F4A61;
   --scrollbar-thumb: #4A4A45;
 
   --titlebar-btn-hover: #323230;

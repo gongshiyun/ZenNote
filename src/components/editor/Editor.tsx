@@ -14,7 +14,8 @@ import { resolveImageUrl } from "../../services";
 import { currentFontStack } from "../../lib/fontStack";
 import { saveCurrentDocument } from "../../lib/saveCoordinator";
 import { keepExternalConflict, reloadExternalConflict } from "../../lib/workspaceWatcher";
-import { sanitizeHtmlFragment, sanitizeSvg } from "../../lib/sanitize";
+import { sanitizeSvg } from "../../lib/sanitize";
+import { isBlockHtml, renderHtmlValue } from "../../lib/htmlRender";
 import { runMermaidRenderTask } from "../../lib/mermaidRender";
 import { lineColAtProseMirrorDoc, posAtLineColProseMirrorDoc } from "../../lib/textPosition";
 import { computeWordCount } from "../../domain";
@@ -48,46 +49,8 @@ if (!codeMirrorLanguages.some((l) => l.name === "mermaid")) {
   codeMirrorLanguages.unshift(mermaidLanguage);
 }
 
-// Render simple markdown (links/bold/italic/code/lists) inside an HTML block's
-// inner text — Typora also processes markdown within block-level HTML tags.
-function renderInnerMarkdown(text: string): string {
-  let s = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
-  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
-  s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
-  const lines = s.split("\n");
-  let out = "", inList = false;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (/^[-*]\s+/.test(trimmed)) {
-      if (!inList) { out += "<ul>"; inList = true; }
-      out += "<li>" + trimmed.replace(/^[-*]\s+/, "") + "</li>";
-    } else {
-      if (inList) { out += "</ul>"; inList = false; }
-      if (trimmed) out += "<p>" + trimmed + "</p>";
-    }
-  }
-  if (inList) out += "</ul>";
-  return out;
-}
-
-// Whether a raw-HTML value is block-level (multi-line or starts with a block tag).
-function isBlockHtml(value: string): boolean {
-  return /\n/.test(value) || /^<(div|p|h[1-6]|ul|ol|dl|table|blockquote|pre|section|article|cite|figure|details|header|footer|nav|aside|hr|form|fieldset|address|center)/i.test(value.trim());
-}
-
-// Produce the innerHTML for a rendered raw-HTML node. If the block is a single
-// tag pair whose inner content is pure markdown (no nested HTML), render the
-// inner markdown too (Typora processes markdown inside block-level HTML).
-function renderHtmlValue(value: string): string {
-  const block = isBlockHtml(value);
-  const m = block ? value.trim().match(/^<(\w+)([^>]*)>([\s\S]*)<\/\1>\s*$/) : null;
-  if (m && !m[3].includes("<")) {
-    return sanitizeHtmlFragment("<" + m[1] + m[2] + ">" + renderInnerMarkdown(m[3]) + "</" + m[1] + ">");
-  }
-  return sanitizeHtmlFragment(value);
-}
+// Raw-HTML rendering lives in src/lib/htmlRender.ts so the Crepe editor and the
+// Live Preview editor cannot drift apart. Behaviour is unchanged.
 
 /**
  * Focus a <textarea> and put the caret at the character nearest a click point.
