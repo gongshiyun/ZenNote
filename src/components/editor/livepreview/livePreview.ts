@@ -33,6 +33,7 @@ import { syntaxTree } from "@codemirror/language";
 import { useStore } from "../../../store";
 import { resolveImageUrl } from "../../../services";
 import {
+  BLOCK_ESTIMATE,
   BulletWidget,
   type CellSegment,
   CodeToolsWidget,
@@ -896,10 +897,20 @@ export function buildDecorations(view: EditorView): {
   return { decos, atomic };
 }
 
-/** Shown for the frame or two before Mermaid finishes rendering. */
-class MermaidPlaceholder extends WidgetType {
+/**
+ * Shown for the frame or two before Mermaid finishes rendering.
+ *
+ * Exported for tests, which assert that every block widget reports an
+ * estimated height.
+ */
+export class MermaidPlaceholder extends WidgetType {
   eq(): boolean {
     return true;
+  }
+  get estimatedHeight(): number {
+    // The placeholder is a block replacement too, so without this the height map
+    // counts one line where a diagram will be.
+    return BLOCK_ESTIMATE.mermaidPending;
   }
   toDOM(): HTMLElement {
     const el = document.createElement("div");

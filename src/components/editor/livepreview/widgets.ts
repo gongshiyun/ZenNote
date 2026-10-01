@@ -48,6 +48,57 @@ export interface CellSegment {
   href: string | null;
 }
 
+/* ------------------------------------------------------ block heights */
+
+/**
+ * Estimated heights, in pixels, for blocks that are currently off screen.
+ *
+ * CodeMirror renders only the viewport. Every block widget outside it is stood
+ * in for by filler of `estimatedHeight` pixels, and the WidgetType default is
+ * "no idea". In a note made of tables, diagrams and formulas that means the
+ * height of everything above the viewport is estimated at roughly one line per
+ * block, and the correction lands in one go when those blocks are finally
+ * measured and the height map is rebuilt — which moves the scroll position. The
+ * symptom is the view jumping *backwards* while scrolling *down*, at the same
+ * place every time, because it depends on which large blocks sit above.
+ *
+ * The numbers follow the sizes in `livePreviewThemeSpec` (base 16px,
+ * `lineHeight` 1.75, so a 28px line): a table cell is `padding: 6px 10px` around
+ * a 0.95em line, `.cm-zn-table-wrap` adds `0.5em` top and bottom, and the image,
+ * diagram and display-maths containers add `0.6em`.
+ *
+ * These are estimates, not measurements: a table row whose cells wrap onto more
+ * lines, or an unusually large image, will be taller than the figure here. That
+ * is tolerable — only off-screen blocks use these, and a real measured height
+ * always wins once the block is drawn. What matters is that they are in the
+ * right neighbourhood, because being one line out for every block is precisely
+ * the bug this exists to prevent.
+ */
+export const BLOCK_ESTIMATE = {
+  /** `0.5em` top and bottom around the table. */
+  tableChrome: 16,
+  /** 0.95em line (26.6px) + 12px padding + its share of the collapsed border. */
+  tableRow: 40,
+  /** `0.6em` top and bottom around a centred display formula. */
+  mathBlock: 64,
+  /** `0.6em` top and bottom around a typical flowchart. */
+  mermaid: 250,
+  /** The one-line "rendering diagram…" strip. */
+  mermaidPending: 44,
+  /** `0.6em` top and bottom around an image of unknown intrinsic size. */
+  image: 220,
+  /** An image with no source renders one line of alt text, not a picture. */
+  imageMissing: 30,
+  /** Sanitized HTML blocks are arbitrary; assume a short paragraph. */
+  html: 64,
+  /** Frontmatter panel chrome, plus 0.85em/1.6 lines. */
+  frontmatterChrome: 44,
+  frontmatterLine: 22,
+  /** `[TOC]` heading plus panel padding, then one 0.9em/1.9 row each. */
+  tocChrome: 52,
+  tocItem: 27,
+} as const;
+
 /* ------------------------------------------------------------------- markers */
 
 /** Stands in for a hidden `- ` / `* ` / `+ ` list marker. */
@@ -177,6 +228,10 @@ export class TableWidget extends WidgetType {
     return other.key === this.key;
   }
 
+  get estimatedHeight(): number {
+    return BLOCK_ESTIMATE.tableChrome + (this.rows.length + 1) * BLOCK_ESTIMATE.tableRow;
+  }
+
   toDOM(): HTMLElement {
     const wrap = document.createElement("div");
     wrap.className = "cm-zn-table-wrap";
@@ -264,6 +319,15 @@ export class ImageWidget extends WidgetType {
     return other.src === this.src && other.alt === this.alt;
   }
 
+  get estimatedHeight(): number {
+    // No source means the widget renders one line of alt text instead of an
+    // image, so the image estimate would overstate it.
+    if (!this.src) return BLOCK_ESTIMATE.imageMissing;
+    // The intrinsic size is unknowable until the file loads, so this is the
+    // typical height of a note image rather than a computed one.
+    return BLOCK_ESTIMATE.image;
+  }
+
   toDOM(): HTMLElement {
     const wrap = document.createElement("span");
     wrap.className = "cm-zn-image";
@@ -313,6 +377,13 @@ export class MathWidget extends WidgetType {
 
   eq(other: MathWidget): boolean {
     return other.html === this.html && other.display === this.display;
+  }
+
+  get estimatedHeight(): number {
+    // Only a display formula is a block replacement; an inline one sits inside a
+    // line whose height the line itself already accounts for, so `-1` keeps
+    // CodeMirror's default for it.
+    return this.display ? BLOCK_ESTIMATE.mathBlock : -1;
   }
 
   toDOM(): HTMLElement {
@@ -554,6 +625,10 @@ export class TocWidget extends WidgetType {
     return other.key === this.key;
   }
 
+  get estimatedHeight(): number {
+    return BLOCK_ESTIMATE.tocChrome + Math.max(1, this.entries.length) * BLOCK_ESTIMATE.tocItem;
+  }
+
   toDOM(): HTMLElement {
     const wrap = document.createElement("div");
     wrap.className = "cm-zn-toc";
@@ -620,6 +695,10 @@ export class HtmlBlockWidget extends WidgetType {
     return other.html === this.html;
   }
 
+  get estimatedHeight(): number {
+    return BLOCK_ESTIMATE.html;
+  }
+
   toDOM(): HTMLElement {
     const el = document.createElement("div");
     el.className = "cm-zn-html-block";
@@ -632,16 +711,24 @@ export class HtmlBlockWidget extends WidgetType {
   }
 }
 
-/** Renders a YAML frontmatter block as a labelled, bordered panel. */export class FrontmatterWidget extends WidgetType {
+/** Renders a YAML frontmatter block as a labelled, bordered panel. */
+export class FrontmatterWidget extends WidgetType {
   private readonly yaml: string;
+  /** Counted up front: `estimatedHeight` must not depend on live layout. */
+  private readonly lines: number;
 
   constructor(yaml: string) {
     super();
     this.yaml = yaml;
+    this.lines = yaml ? yaml.split("\n").length : 0;
   }
 
   eq(other: FrontmatterWidget): boolean {
     return other.yaml === this.yaml;
+  }
+
+  get estimatedHeight(): number {
+    return BLOCK_ESTIMATE.frontmatterChrome + this.lines * BLOCK_ESTIMATE.frontmatterLine;
   }
 
   toDOM(): HTMLElement {
@@ -676,6 +763,10 @@ export class MermaidWidget extends WidgetType {
 
   eq(other: MermaidWidget): boolean {
     return other.key === this.key;
+  }
+
+  get estimatedHeight(): number {
+    return BLOCK_ESTIMATE.mermaid;
   }
 
   toDOM(): HTMLElement {
