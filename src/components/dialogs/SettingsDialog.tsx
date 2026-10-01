@@ -4,6 +4,7 @@ import { useRef, useEffect } from "react";
 import { checkAndDownloadUpdate, installUpdate } from "../../lib/updater";
 
 const SETTINGS_THEMES = [
+  { id: "claude", label: "Claude", colors: ["#C2603F", "#FAF9F5", "#262624"] },
   { id: "zen", label: "Zen", colors: ["#3B82F6", "#FFFFFF", "#1E1E1E"] },
   { id: "github", label: "GitHub", colors: ["#0969DA", "#F6F8FA", "#0D1117"] },
   { id: "notion", label: "Notion", colors: ["#2383E2", "#F7F7F5", "#191919"] },
@@ -14,6 +15,7 @@ const SETTINGS_THEMES = [
 // Curated font styles. `stack` is a representative preview stack (the full stack
 // lives in globals.css under :root[data-font="..."]).
 const FONT_OPTIONS = [
+  { value: "claude", labelKey: "fontClaude", stack: '"Anthropic Sans", "Inter", "Segoe UI", sans-serif' },
   { value: "sans", labelKey: "fontSans", stack: '"Microsoft YaHei", "Segoe UI", sans-serif' },
   { value: "serif", labelKey: "fontSerif", stack: 'Georgia, "Noto Serif SC", serif' },
   { value: "mono", labelKey: "fontMono", stack: '"Cascadia Code", Consolas, monospace' },
@@ -43,6 +45,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const setShowFileExtensions = useStore(s => s.setShowFileExtensions);
   const defaultSourceMode = useStore(s => s.defaultSourceMode);
   const setDefaultSourceMode = useStore(s => s.setDefaultSourceMode);
+  const livePreview = useStore(s => s.livePreview);
+  const setLivePreview = useStore(s => s.setLivePreview);
   const mode = useStore(s => s.mode);
   const setMode = useStore(s => s.setMode);
   const themeId = useStore(s => s.themeId);
@@ -89,13 +93,13 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
     <div style={{
       position: "fixed", inset: 0, zIndex: 950,
       display: "flex", alignItems: "center", justifyContent: "center",
-      background: "rgba(0,0,0,0.35)",
+      background: "var(--zn-scrim)",
     }}>
       <div ref={dialogRef} style={{
         width: 480, maxHeight: "80vh", overflow: "auto",
-        background: "var(--bg-toolbar)", borderRadius: 10,
-        boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
-        border: "1px solid var(--border)",
+        background: "var(--zn-float-bg)", borderRadius: "var(--zn-radius-menu)",
+        boxShadow: "var(--shadow-popover)",
+        border: "1px solid var(--zn-float-border)",
       }}>
         {/* Header */}
         <div style={{
@@ -202,7 +206,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             </Row>
             <Row label={t().settings.editorPadding}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <input type="range" min={16} max={500} step={4} value={editorPadding}
+                <input type="range" min={0} max={500} step={4} value={editorPadding}
                   onChange={e => setEditorPadding(Number(e.target.value))}
                   style={{ width: 100, accentColor: "var(--text-accent)" }} />
                 <span style={{ fontSize: 12, color: "var(--text-secondary)", minWidth: 36, textAlign: "center" }}>{editorPadding}px</span>
@@ -220,6 +224,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             </Row>
             <Row label={t().settings.defaultSourceMode}>
               <Toggle checked={defaultSourceMode} onChange={setDefaultSourceMode} />
+            </Row>
+            <Row label={t().settings.livePreview}>
+              <Toggle checked={livePreview} onChange={setLivePreview} />
             </Row>
           </Section>
 
@@ -298,7 +305,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             </Row>
             {updateError && (
               <div title={updateError} style={{
-                margin: "-4px 0 8px", fontSize: 12, color: "#DC2626",
+                margin: "-4px 0 8px", fontSize: 12, color: "var(--text-danger)",
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               }}>
                 {t().settings.updateFailed}: {updateError}

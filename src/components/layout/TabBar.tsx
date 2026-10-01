@@ -164,9 +164,9 @@ function TabContextMenu({ state, tabs, onClose, actions }: {
   return (
     <div ref={menuRef} style={{
       position: "fixed", left: adjustedX, top: adjustedY, zIndex: 1200,
-      background: "var(--bg-toolbar)", border: "1px solid var(--border)",
-      borderRadius: 8, padding: "4px 0", minWidth: 190,
-      boxShadow: "0 4px 16px rgba(0,0,0,0.18)", fontSize: 13,
+      background: "var(--zn-float-bg)", border: "1px solid var(--zn-float-border)",
+      borderRadius: "var(--zn-radius-menu)", padding: "4px 0", minWidth: 190,
+      boxShadow: "var(--shadow-popover)", fontSize: 12.5,
     }}>
       {items.map((item, i) => {
         if ("divider" in item) {
@@ -178,7 +178,7 @@ function TabContextMenu({ state, tabs, onClose, actions }: {
             style={{
               padding: "6px 14px",
               cursor: item.disabled ? "default" : "pointer",
-              color: item.disabled ? "var(--text-tertiary)" : (item.danger ? "#E81123" : "var(--text-primary)"),
+              color: item.disabled ? "var(--text-tertiary)" : (item.danger ? "var(--text-danger)" : "var(--text-primary)"),
               opacity: item.disabled ? 0.5 : 1,
               background: "transparent",
             }}

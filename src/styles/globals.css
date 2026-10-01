@@ -48,6 +48,68 @@
 
   --titlebar-btn-hover: #F0F0F0;
   --titlebar-close-hover: #E81123;
+
+  /* ---- Semantic / component tokens ----
+     These were hardcoded hex values scattered across components and CSS.
+     Defaults here reproduce the pre-existing "zen" look exactly so legacy
+     themes are pixel-identical; the claude theme overrides them below. */
+  --text-danger: #E81123;
+  --text-warning: #F59E0B;
+  --text-success: #4F8A3D;
+
+  /* Primary action button. Defaults to the accent fill (legacy look); the
+     claude theme inverts this to an ink fill, because terracotta is reserved
+     for marks and focus, never for button backgrounds. */
+  --btn-primary-bg: var(--text-accent);
+  --btn-primary-fg: #FFFFFF;
+  --titlebar-close-fg: #FFFFFF;
+
+  /* Prose typography. Kept separate from --text-primary: long-form reading
+     should not run at maximum UI contrast. */
+  --zn-editor-text: #1A1A1A;
+  --zn-editor-heading: #1A1A1A;
+  --zn-editor-muted: #8A8A8A;
+  --zn-editor-rule: #E5E5E5;
+  /* Heading rules read as a three-step hierarchy: strong (h1) > soft (h2) >
+     rule (hr). Kept as separate tokens so that ordering survives a theme. */
+  --zn-editor-rule-strong: #D5D5D5;
+  --zn-editor-rule-soft: #E8E8E8;
+  --zn-editor-surface: #F5F5F5;
+  --zn-editor-link: #3B82F6;
+
+  /* Popover elevation (menus, dropdowns, context menus). */
+  --shadow-popover: 0 6px 20px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --zn-radius-menu: 8px;
+  /* Modal scrim. Warm rather than neutral black: a pure rgba(0,0,0,…) veil
+     over a bone/clay canvas reads cold and flattens the whole surface. */
+  --zn-scrim: rgba(58, 46, 34, 0.26);
+
+  /* Inline code. Kept separate from --zn-code-* (which is the fenced-block
+     palette) because inline code is a chip on the page background, not a
+     block: it needs a soft surface and only a slightly deepened text colour. */
+  --zn-editor-code-bg: #F0F0F0;
+  --zn-editor-code-fg: #1A1A1A;
+
+  /* Crepe floating UI (slash menu, bubble toolbar, link tooltip) */
+  --zn-float-bg: #FFFFFF;
+  --zn-float-fg: #1A1A1A;
+  --zn-float-fg-dim: #888888;
+  --zn-float-border: #E5E5E5;
+  --zn-float-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  --zn-float-input-bg: #FFFFFF;
+  --zn-float-input-border: #E5E5E5;
+  --zn-float-hover: #F0F0F0;
+  --zn-float-selected: #E8E8E8;
+  --zn-float-accent: #3B82F6;
+  --zn-float-accent-bg: #E8F0FE;
+  --zn-float-muted: #B0B0B0;
+  --zn-float-handle: #C4C4C4;
+
+  /* Mermaid diagram surfaces */
+  --zn-mermaid-bg: #FFFFFF;
+  --zn-mermaid-fill: #F5F5F5;
+  --zn-mermaid-stroke: #C4C4C4;
+  --zn-mermaid-line: #888888;
 }
 
 /* ---- Dark Theme ---- */
@@ -87,13 +149,229 @@
 
   --titlebar-btn-hover: #383838;
   --titlebar-close-hover: #E81123;
+
+  /* ---- Semantic / component tokens (dark) ----
+     Values are the hex codes these blocks used to hardcode, hoisted to
+     tokens so themes can reach them. */
+  --text-danger: #E81123;
+  --text-warning: #F59E0B;
+  --text-success: #7AB648;
+
+  --btn-primary-bg: var(--text-accent);
+  --btn-primary-fg: #FFFFFF;
+  --titlebar-close-fg: #FFFFFF;
+
+  --zn-editor-text: #E0E0E0;
+  --zn-editor-heading: #F0F0F0;
+  --zn-editor-muted: #B0B0B0;
+  --zn-editor-rule: #404040;
+  --zn-editor-rule-strong: #505050;
+  --zn-editor-rule-soft: #454545;
+  --zn-editor-surface: #2A2A2A;
+  --zn-editor-link: #6DB3F8;
+
+  --shadow-popover: 0 8px 26px rgba(0, 0, 0, 0.5);
+  --zn-radius-menu: 8px;
+  --zn-scrim: rgba(16, 15, 13, 0.52);
+
+  --zn-editor-code-bg: #2F2F2F;
+  --zn-editor-code-fg: #D4D4D4;
+
+  --zn-float-bg: #2D2D2D;
+  --zn-float-fg: #E0E0E0;
+  --zn-float-fg-dim: #A0A0A0;
+  --zn-float-border: #444444;
+  --zn-float-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --zn-float-input-bg: #1E1E1E;
+  --zn-float-input-border: #555555;
+  --zn-float-hover: #3A3A3A;
+  --zn-float-selected: #454545;
+  --zn-float-accent: #60A5FA;
+  --zn-float-accent-bg: #1E3A5F;
+  --zn-float-muted: #666666;
+  --zn-float-handle: #555555;
+
+  --zn-mermaid-bg: #2A2A2A;
+  --zn-mermaid-fill: #2D2D2D;
+  --zn-mermaid-stroke: #666666;
+  --zn-mermaid-line: #999999;
 }
 
 /* ========================================
    Additional Color Themes (light + dark variants)
    Applied via data-theme attribute on <html>
-   "zen" is the default (variables above).
+   "claude" is the default (see store/slices/appearanceSlice.ts).
    ======================================== */
+
+/* ---- Claude Theme (warm bone / clay) ----
+   Modelled on Anthropic's published design tokens. The canvas is warm bone,
+   never pure white; the only chromatic colour is clay #D97757 and it is
+   reserved for marks, focus and selection — never for large fills.
+   SIGNATURE: --text-markdown-mark is clay-tinted, so focusing a block makes
+   its markdown syntax glow terracotta instead of grey. */
+:root[data-theme="claude"] {
+  --bg-editor: #FAF9F5;
+  --bg-sidebar: #F5F4ED;
+  --bg-statusbar: #F5F4ED;
+  --bg-toolbar: #FAF9F5;
+  --bg-hover: #EDEBE1;
+  --bg-sidebar-hover: #EAE7DB;
+  --bg-sidebar-active: #E3E0D3;
+  --bg-code: #F0EEE4;
+  --bg-drop-overlay: rgba(217, 119, 87, 0.10);
+
+  /* Warm syntax palette: clay keywords, sage strings, dusty blue functions. */
+  --zn-code-plain: #2E2C26;
+  --zn-code-keyword: #B4573A;
+  --zn-code-string: #66794A;
+  --zn-code-comment: #98948A;
+  --zn-code-constant: #8F6A26;
+  --zn-code-function: #4E7595;
+  --zn-code-type: #8A6440;
+  --zn-code-ident: #2E2C26;
+  --zn-code-punct: #6A665C;
+
+  --text-primary: #141413;
+  --text-secondary: #5F5D57;
+  --text-tertiary: #918E84;
+  --text-accent: #C2603F;
+  --text-markdown-mark: #C08A6E;
+
+  --border: #E1DED2;
+  --border-light: #EBE8DD;
+
+  --selection-bg: #F0D5C6;
+  --scrollbar-thumb: #CFCBBE;
+
+  --titlebar-btn-hover: #EDEBE1;
+  --titlebar-close-hover: #A8402A;
+
+  --text-danger: #A8402A;
+  --text-warning: #8A6318;
+  --text-success: #5C7A3C;
+
+  /* SIGNATURE: primary buttons are ink, not clay. Anthropic reserves
+     #D97757 for marks and focus; a terracotta button fill would spend the
+     one chromatic note in the palette on the least interesting element. */
+  --btn-primary-bg: #26241F;
+  --btn-primary-fg: #FAF9F5;
+  --titlebar-close-fg: #FFFFFF;
+
+  --zn-editor-text: #2A2823;
+  --zn-editor-heading: #141413;
+  --zn-editor-muted: #7C7A72;
+  --zn-editor-rule: #E1DED2;
+  --zn-editor-rule-strong: #CFC9B8;
+  --zn-editor-rule-soft: #E1DED2;
+  --zn-editor-surface: #F0EEE4;
+  --zn-editor-link: #A85234;
+
+  /* Warm, low-contrast elevation — a neutral black shadow reads cold on bone. */
+  --shadow-popover: 0 8px 26px rgba(74, 60, 46, 0.12), 0 1px 2px rgba(74, 60, 46, 0.08);
+  --zn-radius-menu: 8px;
+  --zn-scrim: rgba(58, 46, 34, 0.24);
+
+  --zn-editor-code-bg: #EFEBDF;
+  --zn-editor-code-fg: #7A4526;
+
+  --zn-float-bg: #FFFDF8;
+  --zn-float-fg: #2A2823;
+  --zn-float-fg-dim: #7C7A72;
+  --zn-float-border: #DED9CB;
+  --zn-float-shadow: 0 10px 30px rgba(74, 60, 46, 0.16), 0 1px 2px rgba(74, 60, 46, 0.10);
+  --zn-float-input-bg: #FAF9F5;
+  --zn-float-input-border: #DED9CB;
+  --zn-float-hover: #F0EEE4;
+  --zn-float-selected: #E7E2D4;
+  --zn-float-accent: #C2603F;
+  --zn-float-accent-bg: #F6E3D9;
+  --zn-float-muted: #A9A499;
+  --zn-float-handle: #CFC9B8;
+
+  --zn-mermaid-bg: #FAF9F5;
+  --zn-mermaid-fill: #F0EEE4;
+  --zn-mermaid-stroke: #CFC9B8;
+  --zn-mermaid-line: #8A867A;
+}
+:root[data-theme="claude"].dark {
+  --bg-editor: #262624;
+  --bg-sidebar: #1F1F1D;
+  --bg-statusbar: #1F1F1D;
+  --bg-toolbar: #262624;
+  --bg-hover: #323230;
+  --bg-sidebar-hover: #2B2B29;
+  --bg-sidebar-active: #3B3B37;
+  --bg-code: #30302E;
+  --bg-drop-overlay: rgba(217, 119, 87, 0.14);
+
+  --zn-code-plain: #D6D2C6;
+  --zn-code-keyword: #D97757;
+  --zn-code-string: #8FA874;
+  --zn-code-comment: #6F6D64;
+  --zn-code-constant: #C99A4E;
+  --zn-code-function: #6A9BCC;
+  --zn-code-type: #C08A5E;
+  --zn-code-ident: #D6D2C6;
+  --zn-code-punct: #A8A59A;
+
+  --text-primary: #FAF9F5;
+  --text-secondary: #C2C0B6;
+  --text-tertiary: #8A887F;
+  --text-accent: #D97757;
+  --text-markdown-mark: #8F6E5E;
+
+  --border: #3A3A36;
+  --border-light: #2E2E2B;
+
+  --selection-bg: #4A3730;
+  --scrollbar-thumb: #4A4A45;
+
+  --titlebar-btn-hover: #323230;
+  --titlebar-close-hover: #8C3A22;
+
+  --text-danger: #D2705A;
+  --text-warning: #C79A47;
+  --text-success: #8FA86A;
+
+  --btn-primary-bg: #F0EDE3;
+  --btn-primary-fg: #1F1E1B;
+  --titlebar-close-fg: #FFFFFF;
+
+  --zn-editor-text: #E4E1D6;
+  --zn-editor-heading: #F5F2E8;
+  --zn-editor-muted: #A5A297;
+  --zn-editor-rule: #3A3A36;
+  --zn-editor-rule-strong: #4E4E48;
+  --zn-editor-rule-soft: #3F3F3A;
+  --zn-editor-surface: #30302E;
+  --zn-editor-link: #D97757;
+
+  --shadow-popover: 0 10px 32px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.4);
+  --zn-radius-menu: 8px;
+  --zn-scrim: rgba(14, 13, 12, 0.55);
+
+  --zn-editor-code-bg: #33322E;
+  --zn-editor-code-fg: #D9A882;
+
+  --zn-float-bg: #2E2E2B;
+  --zn-float-fg: #E4E1D6;
+  --zn-float-fg-dim: #A5A297;
+  --zn-float-border: #43433E;
+  --zn-float-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
+  --zn-float-input-bg: #242422;
+  --zn-float-input-border: #4A4A45;
+  --zn-float-hover: #383834;
+  --zn-float-selected: #444440;
+  --zn-float-accent: #D97757;
+  --zn-float-accent-bg: #4A322A;
+  --zn-float-muted: #6F6D64;
+  --zn-float-handle: #4A4A45;
+
+  --zn-mermaid-bg: #2A2A28;
+  --zn-mermaid-fill: #30302E;
+  --zn-mermaid-stroke: #4A4A45;
+  --zn-mermaid-line: #A5A297;
+}
 
 /* ---- GitHub Theme ---- */
 :root[data-theme="github"] {
@@ -281,8 +559,21 @@
 
 /* ========================================
    Font System (data-font attribute on <html>)
+   "claude" is the default (Anthropic Sans stack).
+   NOTE: Anthropic Sans / Anthropic Serif are licensed typefaces and are NOT
+   bundled with the app. They are listed first so anyone who has them
+   installed (e.g. alongside Claude Desktop) gets them; everyone else falls
+   through to the free substitutes below.
    ======================================== */
 :root {
+  --zn-font-stack: "Microsoft YaHei", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+}
+:root[data-font="claude"] {
+  --zn-font-stack: "Anthropic Sans", "AnthropicSans", "Styrene", "Inter", -apple-system,
+    BlinkMacSystemFont, "Segoe UI", "PingFang SC", "HarmonyOS Sans SC", "Source Han Sans SC",
+    "Noto Sans SC", "Microsoft YaHei", sans-serif;
+}
+:root[data-font="sans"] {
   --zn-font-stack: "Microsoft YaHei", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
 }
 :root[data-font="serif"] {
@@ -339,7 +630,7 @@
   --crepe-color-on-secondary: var(--text-accent);
   --crepe-color-inverse: var(--text-primary);
   --crepe-color-on-inverse: var(--bg-editor);
-  --crepe-color-inline-code: #D92A2A;
+  --crepe-color-inline-code: var(--zn-editor-code-fg);
   --crepe-color-error: #D92A2A;
   --crepe-color-hover: var(--bg-hover);
   --crepe-color-selected: var(--bg-sidebar-active);
@@ -365,7 +656,7 @@
   --crepe-color-on-secondary: var(--text-accent);
   --crepe-color-inverse: var(--text-primary);
   --crepe-color-on-inverse: var(--bg-editor);
-  --crepe-color-inline-code: #FF8A80;
+  --crepe-color-inline-code: var(--zn-editor-code-fg);
   --crepe-color-error: #FF8A80;
   --crepe-color-hover: var(--bg-hover);
   --crepe-color-selected: var(--bg-sidebar-active);
@@ -375,6 +666,29 @@
   --crepe-font-code: "Cascadia Code", "Fira Code", Consolas, "Microsoft YaHei", monospace;
   --crepe-shadow-1: 0px 1px 3px 1px rgba(0,0,0,0.5), 0px 1px 2px 0px rgba(0,0,0,0.4);
   --crepe-shadow-2: 0px 2px 6px 2px rgba(0,0,0,0.5), 0px 1px 2px 0px rgba(0,0,0,0.4);
+}
+
+/* ---- Claude theme: Crepe typography & inline accents ----
+   Serif headings are the strongest single cue that this is the Claude look
+   (Claude pairs a serif display face with a sans UI). Inline code / error
+   move off fire-engine red onto the theme's warm danger token. */
+:root[data-theme="claude"] .milkdown,
+:root[data-theme="claude"].dark .milkdown {
+  --crepe-font-title: "Anthropic Serif", "AnthropicSerif", "Tiempos", "Source Serif 4",
+    "Noto Serif SC", "Songti SC", Georgia, Cambria, "Times New Roman", serif;
+  --crepe-color-error: var(--text-danger);
+  /* --bg-toolbar equals --bg-editor in this theme, so Crepe's floating UI
+     (slash menu, bubble toolbar) would sit at exactly the canvas colour.
+     --zn-float-bg is a step brighter so the surface reads as raised. */
+  --crepe-color-surface: var(--zn-float-bg);
+  --crepe-color-surface-low: var(--zn-float-bg);
+  --crepe-color-inline-area: var(--zn-editor-code-bg);
+  --crepe-shadow-1: 0 1px 2px rgba(74, 60, 46, 0.10);
+  --crepe-shadow-2: 0 4px 16px rgba(74, 60, 46, 0.14);
+}
+:root[data-theme="claude"].dark .milkdown {
+  --crepe-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --crepe-shadow-2: 0 4px 18px rgba(0, 0, 0, 0.55);
 }
 
 /* ---- Milkdown editor dark overrides ---- */
@@ -393,139 +707,177 @@
 }
 
 /* ========================================
-   Global dark-mode overrides for Milkdown Crepe
-   floating elements rendered outside .milkdown (portals)
+   Milkdown Crepe floating UI (step 4)
+
+   Crepe 7 renders ALL of its floating UI *inside* .milkdown and drives it
+   entirely from the --crepe-* custom properties — there are no portals. The
+   previous version of this section targeted Crepe 5/6 markup
+   ([class*="crepe-toolbar"], [class*="crepe-menu"], [class*="crepe-slash"],
+   [class*="link-tooltip"], [data-crepe-menu-item] …) which matches nothing in
+   Crepe 7, so it was ~120 lines of dead !important. It has been replaced by
+   (a) the real class names from @milkdown/crepe/lib/theme/common/*.css, and
+   (b) --crepe-* token plumbing in the blocks above.
+
+   Real class inventory used below:
+     .milkdown-toolbar (+ .toolbar-item, .divider)   bubble menu
+     .milkdown-block-handle (+ .operation-item)     block handle
+     .milkdown-slash-menu (+ .tab-group, .menu-group) slash menu
+     .milkdown-link-preview / .milkdown-link-edit   link tooltip + editor
+     .milkdown-table-block (.handle/.cell-handle/.line-handle)
+     .crepe-placeholder
+
+   ⚠ IMPORT ORDER IS load-bearing. Every rule below is written at exactly the
+   same specificity as Crepe's own rules, so it only wins because main.tsx
+   imports ./styles/globals.css AFTER ./App (which is what pulls in Crepe's
+   stylesheets). If those two imports are ever reordered, every override in
+   this section silently stops applying. Keep globals.css last.
    ======================================== */
 
-/* Selection toolbar / bubble menu */
-.dark .milkdown-crepe-toolbar,
-.dark [data-crepe-toolbar],
-.dark [data-crepe-menu],
-.dark [class*="crepe-toolbar"],
-.dark [class*="crepe-menu"],
-.dark [class*="crepe-popup"],
-.dark [class*="crepe-dropdown"] {
-  --crepe-color-surface: #2D2D2D;
-  --crepe-color-on-surface: #E0E0E0;
-  --crepe-color-on-surface-variant: #A0A0A0;
-  --crepe-color-outline: #555555;
-  --crepe-color-primary: #60A5FA;
-  --crepe-color-hover: #3A3A3A;
-  --crepe-color-selected: #454545;
-  background: #2D2D2D !important;
-  color: #E0E0E0 !important;
-  border-color: #444444 !important;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.5) !important;
+/* Crepe gives floating surfaces a shadow but no border. On the light bone
+   canvas a shadow alone is too weak to read as "raised", so every floating
+   surface gets the theme's hairline too. */
+.milkdown .milkdown-toolbar,
+.milkdown .milkdown-slash-menu,
+.milkdown .milkdown-link-preview > .link-preview,
+.milkdown .milkdown-link-edit > .link-edit {
+  border: 1px solid var(--zn-float-border);
 }
 
-/* Slash menu and dropdown items */
-.dark [class*="crepe-menu"] [class*="item"],
-.dark [class*="crepe-dropdown"] [class*="item"],
-.dark [data-crepe-menu-item] {
-  color: #E0E0E0 !important;
+/* Crepe's 12px slash-menu radius is heavier than the rest of the chrome.
+   Pull it down to the popover radius so menus, dropdowns and the slash menu
+   share one corner language. */
+.milkdown .milkdown-slash-menu {
+  border-radius: var(--zn-radius-menu);
+}
+.milkdown .milkdown-slash-menu ul li {
+  border-radius: 6px;
 }
 
-.dark [class*="crepe-menu"] [class*="item"]:hover,
-.dark [class*="crepe-dropdown"] [class*="item"]:hover,
-.dark [data-crepe-menu-item]:hover {
-  background: #3A3A3A !important;
+/* Bubble toolbar sits flush against the text; nudge it off the caret. */
+.milkdown .milkdown-toolbar .toolbar-item {
+  width: 30px;
+  height: 30px;
+  margin: 5px;
+  border-radius: 5px;
+}
+.milkdown .milkdown-toolbar .toolbar-item svg {
+  height: 22px;
+  width: 22px;
+}
+.milkdown .milkdown-toolbar .divider {
+  margin: 8px;
+  height: 20px;
+  background: var(--zn-float-border);
 }
 
-.dark [class*="crepe-menu"] [class*="item"][aria-selected="true"],
-.dark [data-crepe-menu-item][aria-selected="true"],
-.dark [class*="crepe-menu"] [class*="selected"],
-.dark [class*="crepe-dropdown"] [class*="selected"] {
-  background: #454545 !important;
+/* Block handle: Crepe draws its icons with --crepe-color-outline, which is a
+   mid grey and reads cold. Use the dim text token instead. */
+.milkdown .milkdown-block-handle .operation-item,
+.milkdown .milkdown-toolbar .toolbar-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.milkdown .milkdown-block-handle .operation-item {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 5px;
+  /* Crepe's 32px circles with 24px glyphs read as chunky buttons next to the
+     hairline chrome; 26px with an 18px glyph is the same weight as the app's
+     own 28px titlebar icons. */
+  color: var(--text-tertiary);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.milkdown .milkdown-block-handle .operation-item:hover {
+  background: var(--zn-float-hover);
+  color: var(--text-primary);
+}
+.milkdown .milkdown-block-handle .operation-item svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+.milkdown .milkdown-slash-menu .menu-groups .menu-group li svg,
+.milkdown .milkdown-link-preview .link-icon svg,
+.milkdown .milkdown-link-edit .button svg {
+  width: 18px;
+  height: 18px;
+  fill: var(--text-tertiary);
+  color: var(--text-tertiary);
+}
+.milkdown .milkdown-toolbar .toolbar-item svg {
+  fill: var(--text-tertiary);
+  color: var(--text-tertiary);
+}
+/* Active toolbar button keeps the accent so the current format is legible. */
+.milkdown .milkdown-toolbar .toolbar-item.active svg {
+  fill: var(--text-accent);
+  color: var(--text-accent);
 }
 
-/* Icon buttons in floating toolbars */
-.dark [class*="crepe-toolbar"] button,
-.dark [class*="crepe-menu"] button,
-.dark [class*="crepe-popup"] button {
-  color: #E0E0E0 !important;
+/* Slash-menu group headings: Crepe uppercases them at 14px/600, which is loud
+   for what is only a category label. */
+.milkdown .milkdown-slash-menu .menu-groups .menu-group h6 {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+}
+.milkdown .milkdown-slash-menu .menu-groups .menu-group li > span {
+  font-weight: 500;
+}
+.milkdown .milkdown-slash-menu .tab-group ul li {
+  font-weight: 500;
+}
+.milkdown .milkdown-slash-menu .tab-group,
+.milkdown .milkdown-slash-menu .menu-group + .menu-group::before {
+  border-color: var(--zn-float-border);
+  background: var(--zn-float-border);
 }
 
-.dark [class*="crepe-toolbar"] button:hover,
-.dark [class*="crepe-menu"] button:hover,
-.dark [class*="crepe-popup"] button:hover {
-  background: #3A3A3A !important;
+/* Link editor input: Crepe leaves it transparent on --crepe-color-surface,
+   which is fine, but the focus ring is a browser default. Match the theme. */
+.milkdown .milkdown-link-edit > .link-edit > .input-area:focus-visible {
+  outline: 2px solid var(--text-accent);
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 
-.dark [class*="crepe-toolbar"] button.active,
-.dark [class*="crepe-menu"] button.active {
-  color: #60A5FA !important;
-  background: #1E3A5F !important;
+/* Table drag handles. */
+.milkdown .milkdown-table-block .handle,
+.milkdown .milkdown-table-block .cell-handle,
+.milkdown .milkdown-table-block .line-handle {
+  background: var(--text-tertiary);
+  opacity: 0.5;
+  transition: opacity 120ms ease;
+}
+.milkdown .milkdown-table-block .handle:hover,
+.milkdown .milkdown-table-block .cell-handle:hover,
+.milkdown .milkdown-table-block .line-handle:hover {
+  background: var(--text-accent);
+  opacity: 1;
 }
 
-/* Link tooltip */
-.dark [class*="crepe-link-tooltip"],
-.dark [class*="link-tooltip"] {
-  background: #2D2D2D !important;
-  color: #E0E0E0 !important;
-  border-color: #444444 !important;
+/* Placeholder text ("Type '/' for commands"). */
+.milkdown .crepe-placeholder::before {
+  color: var(--text-tertiary);
 }
 
-.dark [class*="crepe-link-tooltip"] input,
-.dark [class*="link-tooltip"] input {
-  background: #1E1E1E !important;
-  color: #E0E0E0 !important;
-  border-color: #555555 !important;
-}
-
-/* Slash menu input */
-.dark [class*="crepe-slash"] input,
-.dark [class*="slash-menu"] input {
-  background: #1E1E1E !important;
-  color: #E0E0E0 !important;
-  border-color: #555555 !important;
-}
-
-/* Block edit handle */
-.dark [class*="block-edit"],
-.dark [class*="crepe-block"] button {
-  color: #999999 !important;
-}
-
-.dark [class*="block-edit"]:hover,
-.dark [class*="crepe-block"] button:hover {
-  color: #E0E0E0 !important;
-  background: #3A3A3A !important;
-}
-
-/* Table column/row handles */
-.dark .tableWrapper [class*="handle"],
-.dark [class*="column-handle"],
-.dark [class*="row-handle"] {
-  background: #555555 !important;
-}
-
-.dark .tableWrapper [class*="handle"]:hover,
-.dark [class*="column-handle"]:hover,
-.dark [class*="row-handle"]:hover {
-  background: #60A5FA !important;
-}
-
-/* Divider lines in menus */
-.dark [class*="crepe-menu"] hr,
-.dark [class*="crepe-menu"] [class*="divider"],
-.dark [class*="crepe-dropdown"] hr,
-.dark [class*="crepe-dropdown"] [class*="divider"] {
-  border-color: #444444 !important;
-}
-
-/* Placeholder text */
-.dark [class*="placeholder"] {
-  color: #666666 !important;
-}
+/* Inline code. Crepe paints it from --crepe-color-inline-code over
+   --crepe-color-inline-area (see reset.css). Both are wired to the
+   --zn-editor-code-* tokens in the Crepe variable blocks above, so this needs
+   no rule of its own — inline code is a warm chip, never the danger red that
+   made every `foo` look like an error. */
 
 /* Mermaid dark override */
 .dark [id^="mermaid-"] svg {
-  background: #2A2A2A;
+  background: var(--zn-mermaid-bg);
   border-radius: 8px;
 }
 
 .dark [id^="mermaid-"] svg text {
-  fill: #E0E0E0 !important;
+  fill: var(--zn-editor-text) !important;
 }
 
 .dark [id^="mermaid-"] svg .edgeLabel rect,
@@ -533,16 +885,16 @@
 .dark [id^="mermaid-"] svg .node circle,
 .dark [id^="mermaid-"] svg .node ellipse,
 .dark [id^="mermaid-"] svg .node polygon {
-  fill: #2D2D2D !important;
-  stroke: #666666 !important;
+  fill: var(--zn-mermaid-fill) !important;
+  stroke: var(--zn-mermaid-stroke) !important;
 }
 
 .dark [id^="mermaid-"] svg .edgePath .path {
-  stroke: #999999 !important;
+  stroke: var(--zn-mermaid-line) !important;
 }
 
 .dark [id^="mermaid-"] svg .arrowheadPath {
-  fill: #999999 !important;
+  fill: var(--zn-mermaid-line) !important;
 }
 
 /* ===== Mermaid zoom (enlarged floating view) ===== */
@@ -782,8 +1134,8 @@
 }
 
 .dark .milkdown .ProseMirror {
-  color: #E0E0E0 !important;
-  caret-color: #E0E0E0 !important;
+  color: var(--zn-editor-text) !important;
+  caret-color: var(--zn-editor-text) !important;
 }
 .dark .milkdown .ProseMirror h1,
 .dark .milkdown .ProseMirror h2,
@@ -791,55 +1143,58 @@
 .dark .milkdown .ProseMirror h4,
 .dark .milkdown .ProseMirror h5,
 .dark .milkdown .ProseMirror h6 {
-  color: #F0F0F0 !important;
+  color: var(--zn-editor-heading) !important;
 }
-.dark .milkdown .ProseMirror h1 { border-color: #505050 !important; }
-.dark .milkdown .ProseMirror h2 { border-color: #454545 !important; }
-.dark .milkdown pre,
-.dark .milkdown code {
-  background: #2A2A2A !important;
-  color: #D4D4D4 !important;
-  border-color: #3A3A3A !important;
+.dark .milkdown .ProseMirror h1 { border-color: var(--zn-editor-rule-strong) !important; }
+.dark .milkdown .ProseMirror h2 { border-color: var(--zn-editor-rule-soft) !important; }
+/* Fenced blocks get the block surface. Inline `code` is deliberately NOT in
+   this rule: it is a chip on the page, and forcing --zn-editor-surface on it
+   made every inline code span look like a miniature code block. Crepe's own
+   inline styling (driven by --crepe-color-inline-code) is left intact. */
+.dark .milkdown pre {
+  background: var(--zn-editor-surface) !important;
+  color: var(--zn-editor-text) !important;
+  border-color: var(--zn-editor-rule) !important;
 }
 .dark .milkdown blockquote {
-  border-left-color: #555555 !important;
-  color: #B0B0B0 !important;
-  background: rgba(255,255,255,0.03) !important;
+  border-left-color: var(--zn-float-handle) !important;
+  color: var(--zn-editor-muted) !important;
+  background: color-mix(in srgb, var(--zn-editor-text) 3%, transparent) !important;
 }
 .dark .milkdown table th,
 .dark .milkdown table td {
-  border-color: #444444 !important;
+  border-color: var(--zn-editor-rule) !important;
 }
 .dark .milkdown table th {
-  background: #2A2A2A !important;
-  color: #E0E0E0 !important;
+  background: var(--zn-editor-surface) !important;
+  color: var(--zn-editor-text) !important;
 }
 .dark .milkdown table td {
-  color: #D0D0D0 !important;
+  color: var(--zn-editor-text) !important;
 }
 .dark .milkdown hr {
-  border-color: #404040 !important;
+  border-color: var(--zn-editor-rule) !important;
 }
 .dark .milkdown a {
-  color: #6DB3F8 !important;
+  color: var(--zn-editor-link) !important;
 }
 .dark .milkdown ul,
 .dark .milkdown ol {
-  color: #D0D0D0 !important;
+  color: var(--zn-editor-text) !important;
 }
 .dark .milkdown li::marker {
-  color: #888888 !important;
+  color: var(--zn-editor-muted) !important;
 }
 .dark .milkdown p {
-  color: #D0D0D0 !important;
+  color: var(--zn-editor-text) !important;
 }
 .dark .milkdown .ProseMirror strong,
 .dark .milkdown .ProseMirror b {
-  color: #F0F0F0 !important;
+  color: var(--zn-editor-heading) !important;
 }
 .dark .milkdown .ProseMirror em,
 .dark .milkdown .ProseMirror i {
-  color: #D8D8D8 !important;
+  color: var(--zn-editor-text) !important;
 }
 
 
@@ -1103,7 +1458,7 @@ html, body, #root {
 .zn-tabbar {
   display: flex;
   align-items: stretch;
-  height: 34px;
+  height: 32px;
   flex-shrink: 0;
   background: var(--bg-sidebar);
   border-bottom: 1px solid var(--border);
@@ -1116,23 +1471,29 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 10px 0 14px;
-  max-width: 220px;
-  min-width: 90px;
+  padding: 0 8px 0 12px;
+  max-width: 200px;
+  min-width: 84px;
   font-size: 12.5px;
   color: var(--text-secondary);
-  border-right: 1px solid var(--border);
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
   background: transparent;
+  /* Hairline between inactive tabs only. The active tab drops its separator
+     (it merges into the editor canvas below) and is marked with an underline
+     instead — Claude marks the current view at the bottom edge, which leaves
+     the top of the tab strip clean for the drag region. */
+  border-right: 1px solid var(--border);
   transition: background-color 120ms ease, color 120ms ease;
 }
+.zn-tab:last-child { border-right: none; }
 .zn-tab:hover { background: var(--bg-hover); }
 .zn-tab-active {
   background: var(--bg-editor);
   color: var(--text-primary);
-  box-shadow: inset 0 2px 0 var(--text-accent);
+  border-right-color: transparent;
+  box-shadow: inset 0 -2px 0 var(--text-accent);
 }
 .zn-tab-active:hover { background: var(--bg-editor); }
 .zn-tab-name {
@@ -1180,12 +1541,14 @@ html, body, #root {
   line-height: 1.6;
   border-radius: 4px;
   color: var(--text-accent);
-  background: color-mix(in srgb, var(--text-accent) 12%, transparent);
+  /* Warm neutral chip, not a tint of the accent: a 12% coral wash on the bone
+     canvas reads as candy pink and pulls the eye off the prose. */
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   cursor: pointer;
   vertical-align: super;
 }
 .milkdown .ProseMirror sup[data-type="footnote_reference"]:hover {
-  background: color-mix(in srgb, var(--text-accent) 24%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 14%, transparent);
 }
 .milkdown .ProseMirror dl[data-type="footnote_definition"] {
   display: flex;

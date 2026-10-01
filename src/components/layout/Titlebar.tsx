@@ -86,8 +86,8 @@ export function Titlebar() {
 
   return (
     <div className="titlebar-drag" onDoubleClick={handleDoubleClick}
-      style={{ height: 36, display: "flex", alignItems: "center", background: "var(--bg-toolbar)", borderBottom: "1px solid var(--border)", flexShrink: 0, userSelect: "none" }}>
-      <div className="titlebar-no-drag" style={{ display: "flex", alignItems: "center", paddingLeft: 8, gap: 2 }}>
+      style={{ height: 34, display: "flex", alignItems: "center", background: "var(--bg-toolbar)", borderBottom: "1px solid var(--border)", flexShrink: 0, userSelect: "none" }}>
+      <div className="titlebar-no-drag" style={{ display: "flex", alignItems: "center", paddingLeft: 6, gap: 1 }}>
         <TB tn={t().titlebar.toggleSidebar} onClick={toggleSidebar}><SidebarIcon /></TB>
         <TB tn={t().titlebar.toggleOutline} onClick={toggleOutline}><OutlineIcon /></TB>
         <div ref={exportMenuRef} style={{ position: "relative" }}>
@@ -113,7 +113,7 @@ export function Titlebar() {
             style={{
               display: "flex", alignItems: "center", gap: 5, height: 24, padding: "0 10px",
               border: "none", borderRadius: 12, cursor: "pointer", marginRight: 6,
-              background: "var(--text-accent)", color: "#fff", fontSize: 11, fontWeight: 600,
+              background: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)", fontSize: 11, fontWeight: 600,
               transition: "opacity 120ms ease",
             }}
             onMouseEnter={e => { e.currentTarget.style.opacity = "0.85"; }}
@@ -151,15 +151,15 @@ export function Titlebar() {
 
 function TB(p: { children: React.ReactNode; onClick: () => void; tn?: string; active?: boolean }) {
   return <button onClick={p.onClick} title={p.tn}
-    style={{ width: 32, height: 28, display: "flex", alignItems: "center", justifyContent: "center", border: "none", borderRadius: 6, background: p.active ? "var(--bg-sidebar-hover)" : "transparent", color: p.active ? "var(--text-accent)" : "var(--text-secondary)", cursor: "pointer", transition: "background-color 150ms ease, color 150ms ease" }}
+    style={{ width: 28, height: 26, display: "flex", alignItems: "center", justifyContent: "center", border: "none", borderRadius: 5, background: p.active ? "var(--bg-sidebar-hover)" : "transparent", color: p.active ? "var(--text-accent)" : "var(--text-secondary)", cursor: "pointer", transition: "background-color 150ms ease, color 150ms ease" }}
     onMouseEnter={e => { if (!p.active) e.currentTarget.style.background = "var(--bg-hover)"; }}
     onMouseLeave={e => { if (!p.active) e.currentTarget.style.background = "transparent"; }}>{p.children}</button>;
 }
 
 function WB(p: { children: React.ReactNode; onClick: () => void; tn?: string; isClose?: boolean }) {
   return <button onClick={p.onClick} title={p.tn}
-    style={{ width: 46, height: 32, display: "flex", alignItems: "center", justifyContent: "center", border: "none", borderRadius: 0, background: "transparent", color: "var(--text-secondary)", cursor: "pointer", transition: "background-color 150ms ease" }}
-    onMouseEnter={e => { e.currentTarget.style.background = p.isClose ? "var(--titlebar-close-hover)" : "var(--titlebar-btn-hover)"; if (p.isClose) e.currentTarget.style.color = "#fff"; }}
+    style={{ width: 44, height: 30, display: "flex", alignItems: "center", justifyContent: "center", border: "none", borderRadius: 0, background: "transparent", color: "var(--text-secondary)", cursor: "pointer", transition: "background-color 150ms ease" }}
+    onMouseEnter={e => { e.currentTarget.style.background = p.isClose ? "var(--titlebar-close-hover)" : "var(--titlebar-btn-hover)"; if (p.isClose) e.currentTarget.style.color = "var(--titlebar-close-fg)"; }}
     onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-secondary)"; }}>{p.children}</button>;
 }
 
@@ -188,8 +188,8 @@ function ExportDropdown({ onSelect }: { onSelect: (kind: "html" | "pdf") => void
   return (
     <div style={{
       position: "absolute", top: "100%", left: 0, marginTop: 6, width: 210,
-      background: "var(--bg-toolbar)", border: "1px solid var(--border)",
-      borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", padding: "6px 0",
+      background: "var(--zn-float-bg)", border: "1px solid var(--zn-float-border)",
+      borderRadius: "var(--zn-radius-menu)", boxShadow: "var(--shadow-popover)", padding: "5px 0",
       zIndex: 1000,
     }}>
       <div style={{ padding: "4px 12px 6px", fontSize: 11, fontWeight: 500, color: "var(--text-tertiary)" }}>{t().titlebar.export}</div>
@@ -201,6 +201,7 @@ function ExportDropdown({ onSelect }: { onSelect: (kind: "html" | "pdf") => void
 
 // ---- Theme Dropdown ----
 const THEMES = [
+  { id: "claude", colors: ["#C2603F", "#FAF9F5", "#262624"] },
   { id: "zen", colors: ["#3B82F6", "#FFFFFF", "#1E1E1E"] },
   { id: "github", colors: ["#0969DA", "#F6F8FA", "#0D1117"] },
   { id: "notion", colors: ["#2383E2", "#F7F7F5", "#191919"] },
@@ -224,8 +225,8 @@ function ThemeDropdown({ themeId, mode, onSelectTheme, onSelectMode }: {
   return (
     <div style={{
       position: "absolute", top: "100%", right: 0, marginTop: 6, width: 200,
-      background: "var(--bg-toolbar)", border: "1px solid var(--border)",
-      borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", padding: "6px 0",
+      background: "var(--zn-float-bg)", border: "1px solid var(--zn-float-border)",
+      borderRadius: "var(--zn-radius-menu)", boxShadow: "var(--shadow-popover)", padding: "5px 0",
       zIndex: 1000,
     }}>
       {/* Theme list */}

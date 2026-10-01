@@ -75,12 +75,12 @@ export function ShortcutsPanel({ onClose }: { onClose: () => void }) {
     <div style={{
       position: "fixed", inset: 0, zIndex: 950,
       display: "flex", justifyContent: "center", paddingTop: "10vh",
-      background: "rgba(0,0,0,0.3)",
+      background: "var(--zn-scrim)",
     }} onClick={onClose}>
       <div style={{
-        width: 620, maxHeight: "74vh", background: "var(--bg-toolbar)",
-        borderRadius: 10, boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
-        border: "1px solid var(--border)", overflow: "auto", padding: "16px 20px",
+        width: 620, maxHeight: "74vh", background: "var(--zn-float-bg)",
+        borderRadius: "var(--zn-radius-menu)", boxShadow: "var(--shadow-popover)",
+        border: "1px solid var(--zn-float-border)", overflow: "auto", padding: "16px 20px",
       }} onClick={e => e.stopPropagation()}>
         <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-primary)", marginBottom: 12 }}>
           {sc.title}

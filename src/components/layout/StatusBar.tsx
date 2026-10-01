@@ -38,10 +38,10 @@ export function StatusBar() {
 
   return (
     <div style={{
-      height: 28, display: "flex", alignItems: "center",
-      padding: "0 12px", background: "var(--bg-statusbar)",
-      borderTop: "1px solid var(--border)", fontSize: 12,
-      color: "var(--text-secondary)", flexShrink: 0, gap: 8,
+      height: 24, display: "flex", alignItems: "center",
+      padding: "0 10px", background: "var(--bg-statusbar)",
+      borderTop: "1px solid var(--border)", fontSize: 11.5,
+      color: "var(--text-tertiary)", flexShrink: 0, gap: 14,
       userSelect: "none",
     }}>
       {/* Source mode toggle (Typora-style, bottom-left) */}
@@ -50,33 +50,31 @@ export function StatusBar() {
         title={t().titlebar.toggleSource}
         style={{
           border: "none", background: sourceMode ? "var(--bg-sidebar-active)" : "transparent",
-          color: sourceMode ? "#F59E0B" : "var(--text-secondary)",
-          cursor: "pointer", fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 4,
+          color: sourceMode ? "var(--text-warning)" : "var(--text-secondary)",
+          cursor: "pointer", fontSize: 11, fontWeight: 500, padding: "2px 7px", borderRadius: 4,
           display: "flex", alignItems: "center", gap: 4, transition: "all 120ms ease",
         }}
         onMouseEnter={e => { if (!sourceMode) e.currentTarget.style.background = "var(--bg-hover)"; }}
         onMouseLeave={e => { if (!sourceMode) e.currentTarget.style.background = "transparent"; }}>
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="3,6 1,8 3,10"/><polyline points="13,6 15,8 13,10"/><line x1="6" y1="3" x2="10" y2="13"/></svg>
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="3,6 1,8 3,10"/><polyline points="13,6 15,8 13,10"/><line x1="6" y1="3" x2="10" y2="13"/></svg>
         {sourceMode ? t().statusbar.source : t().statusbar.preview}
       </button>
-      <span style={{ color: "var(--border)" }}>|</span>
 
-      <span style={{ minWidth: 90 }}>Ln {cursorLine}, Col {cursorCol}</span>
-      <span style={{ color: "var(--border)" }}>|</span>
+      {/* Fields are separated by the flex `gap` above rather than by "|" glyphs.
+          Pipe separators are the most dated thing in the old chrome and read as
+          an IDE from 2008; Claude's status strip relies on spacing alone. */}
+      <span style={{ minWidth: 80 }}>Ln {cursorLine}, Col {cursorCol}</span>
 
       {currentFilePath && (
-        <>
-          <span style={{ color: isDirty ? "#F59E0B" : "var(--text-tertiary)", fontWeight: isDirty ? 600 : 400 }}>
-            {isDirty
-              ? "● " + t().statusbar.unsaved
-              : "✓ " + t().statusbar.saved + (savedTimeLabel ? " " + savedTimeLabel : "")}
-          </span>
-          <span style={{ color: "var(--border)" }}>|</span>
-        </>
+        <span style={{ color: isDirty ? "var(--text-warning)" : "var(--text-tertiary)", fontWeight: isDirty ? 500 : 400 }}>
+          {isDirty
+            ? "● " + t().statusbar.unsaved
+            : "✓ " + t().statusbar.saved + (savedTimeLabel ? " " + savedTimeLabel : "")}
+        </span>
       )}
 
       {saveError && (
-        <span title={saveError} style={{ color: "#DC2626", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <span title={saveError} style={{ color: "var(--text-danger)", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {t().statusbar.saveFailed}: {saveError}
         </span>
       )}

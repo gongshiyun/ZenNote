@@ -1,6 +1,17 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { createStore } from 'zustand';
 import { useStore } from '../store';
-import { DEFAULT_AUTO_SAVE_DELAY } from '../store/slices/appearanceSlice';
+import { createThemeSlice, createConfigSlice, DEFAULT_AUTO_SAVE_DELAY } from '../store/slices/appearanceSlice';
+import { migrateAppearance } from '../lib/appearanceMigration';
+
+// A minimal store carrying only the appearance slices, so tests can read the
+// real initial values instead of whatever a previous test left behind.
+const appearanceInitial = (
+  ...a: Parameters<typeof createThemeSlice>
+): ReturnType<typeof createThemeSlice> & ReturnType<typeof createConfigSlice> => ({
+  ...createThemeSlice(...a),
+  ...createConfigSlice(...(a as Parameters<typeof createConfigSlice>)),
+});
 
 describe('Appearance slices', () => {
   beforeEach(() => {
@@ -20,11 +31,14 @@ describe('Appearance slices', () => {
   });
 
   it('exposes theme defaults', () => {
-    const s = useStore.getState();
+    // Build a fresh store so this asserts the REAL slice defaults rather than
+    // whatever beforeEach injected.
+    const fresh = createStore()((...a) => appearanceInitial(...a));
+    const s = fresh.getState();
     expect(s.mode).toBe('system');
     expect(s.resolvedMode).toBe('light');
-    expect(s.themeId).toBe('zen');
-    expect(s.fontFamily).toBe('sans');
+    expect(s.themeId).toBe('claude');
+    expect(s.fontFamily).toBe('claude');
   });
 
   it('uses the documented 500ms auto-save default', () => {
@@ -43,6 +57,43 @@ describe('Appearance slices', () => {
     expect(next.resolvedMode).toBe('dark');
     expect(next.themeId).toBe('ocean');
     expect(next.fontFamily).toBe('serif');
+  });
+
+  // Regression guard for the one-time zen/sans -> claude migration. It must
+  // fire for pre-v2 sessions and then stop firing, otherwise a user who
+  // deliberately picks "zen" is reverted to "claude" on every relaunch.
+  describe('appearance migration', () => {
+    it('moves a pre-v2 session off the old defaults', () => {
+      expect(migrateAppearance({ themeId: 'zen', fontFamily: 'sans' })).toEqual({
+        themeId: 'claude',
+        fontFamily: 'claude',
+      });
+    });
+
+    it('treats a missing version marker as pre-v2', () => {
+      expect(migrateAppearance({ themeId: 'zen', fontFamily: 'serif' })).toEqual({
+        themeId: 'claude',
+        fontFamily: 'serif',
+      });
+    });
+
+    it('leaves an already-migrated session untouched', () => {
+      expect(
+        migrateAppearance({ themeId: 'zen', fontFamily: 'sans', appearanceVersion: 2 }),
+      ).toEqual({ themeId: 'zen', fontFamily: 'sans' });
+    });
+
+    it('never touches non-default values on a pre-v2 session', () => {
+      expect(
+        migrateAppearance({ themeId: 'github', fontFamily: 'mono', appearanceVersion: 1 }),
+      ).toEqual({ themeId: 'github', fontFamily: 'mono' });
+    });
+
+    it('is idempotent', () => {
+      const once = migrateAppearance({ themeId: 'zen', fontFamily: 'sans' });
+      const twice = migrateAppearance({ ...once, appearanceVersion: 2 });
+      expect(twice).toEqual(once);
+    });
   });
 
   it('updates editor configuration', () => {

@@ -89,6 +89,42 @@ function renderHtmlValue(value: string): string {
   return sanitizeHtmlFragment(value);
 }
 
+/**
+ * Focus a <textarea> and put the caret at the character nearest a click point.
+ *
+ * The click that swaps a node view into source mode is preventDefault()ed (so
+ * ProseMirror does not replace the node), which means the browser never gets to
+ * apply the click's own caret placement — focus() drops the caret wherever it
+ * likes. Without this the user opens the source, gets an arbitrary caret, and
+ * has to hunt for the position they clicked. Measuring after layout (rAF) is
+ * required because the textarea is empty until the value is assigned.
+ */
+function focusTextareaAtPoint(ta: HTMLTextAreaElement, clientX?: number, clientY?: number): void {
+  ta.focus();
+  if (clientX === undefined || clientY === undefined) {
+    // No coordinates (keyboard/programmatic open): leave the caret at the start.
+    ta.setSelectionRange(0, 0);
+    return;
+  }
+  requestAnimationFrame(() => {
+    // Mirror for a textarea is a 1:1 rect copy; the origin is its top-left.
+    const style = window.getComputedStyle(ta);
+    const rect = ta.getBoundingClientRect();
+    const x = clientX - rect.left - ta.scrollLeft;
+    const y = clientY - rect.top - ta.scrollTop;
+    const lineHeight =
+      parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.5 || 20;
+    const line = Math.max(0, Math.floor(y / lineHeight));
+    const col = Math.max(0, Math.round(x / Math.max(1, parseFloat(style.fontSize) * 0.6)));
+    const lines = ta.value.split("\n");
+    const clampedLine = Math.min(line, lines.length - 1);
+    let offset = 0;
+    for (let i = 0; i < clampedLine; i++) offset += lines[i].length + 1;
+    const caret = offset + Math.min(col, lines[clampedLine]?.length ?? 0);
+    ta.setSelectionRange(caret, caret);
+  });
+}
+
 // Typora-style node view for the raw-HTML node: shows the RENDERED html by
 // default; clicking it swaps in an editable <textarea> of the raw source;
 // blurring the textarea saves the edited source back to the node and re-renders.
@@ -106,7 +142,7 @@ function createHtmlNodeView(node: any, view: any, getPos: any) {
     dom.innerHTML = renderHtmlValue(currentNode.attrs.value);
   };
 
-  const enterEdit = () => {
+  const enterEdit = (clientX?: number, clientY?: number) => {
     editing = true;
     dom.className = "zn-html-node zn-html-source" + (isBlockHtml(currentNode.attrs.value) ? " zn-html-block" : "");
     dom.innerHTML = "";
@@ -127,16 +163,17 @@ function createHtmlNodeView(node: any, view: any, getPos: any) {
       }
     });
     dom.appendChild(ta);
-    ta.focus();
+    focusTextareaAtPoint(ta, clientX, clientY);
   };
 
   dom.addEventListener("mousedown", (e) => {
-    if (!editing) {
-      // Stop ProseMirror from selecting/replacing the atom; we handle the click.
-      e.stopPropagation();
-      e.preventDefault();
-      enterEdit();
-    }
+    // Clicks that land inside the textarea belong to the textarea, not to us —
+    // swallowing them here would break caret placement on the second click.
+    if (editing) return;
+    // Stop ProseMirror from selecting/replacing the atom; we handle the click.
+    e.stopPropagation();
+    e.preventDefault();
+    enterEdit(e.clientX, e.clientY);
   });
 
   renderPreview();
@@ -285,7 +322,7 @@ function createFrontmatterNodeView(node: any, view: any, getPos: any) {
     dom.appendChild(pre);
   };
 
-  const enterEdit = () => {
+  const enterEdit = (clientX?: number, clientY?: number) => {
     editing = true;
     dom.className = "zn-fm-node zn-fm-source";
     dom.innerHTML = "";
@@ -305,15 +342,14 @@ function createFrontmatterNodeView(node: any, view: any, getPos: any) {
       }
     });
     dom.appendChild(ta);
-    ta.focus();
+    focusTextareaAtPoint(ta, clientX, clientY);
   };
 
   dom.addEventListener("mousedown", (e) => {
-    if (!editing) {
-      e.stopPropagation();
-      e.preventDefault();
-      enterEdit();
-    }
+    if (editing) return;
+    e.stopPropagation();
+    e.preventDefault();
+    enterEdit(e.clientX, e.clientY);
   });
 
   renderPreview();
@@ -371,7 +407,10 @@ export function Editor() {
   const [copyMenuVisible, setCopyMenuVisible] = useState(false);
   const [copyMenuPos, setCopyMenuPos] = useState({ x: 0, y: 0 });
   // Image alignment toolbar state (click an image to align it)
-  const [imgAlignMenu, setImgAlignMenu] = useState<{ visible: boolean; x: number; y: number; pos: number; align: string; src: string }>({ visible: false, x: 0, y: 0, pos: -1, align: "center", src: "" });
+  // Image action bar (align / copy / delete). Anchored above the image for a
+  // left-click and at the cursor for a right-click, so `rect` is set only in the
+  // former case and x/y are used as the fallback anchor.
+  const [imgAlignMenu, setImgAlignMenu] = useState<{ visible: boolean; x: number; y: number; pos: number; align: string; src: string; anchored: boolean }>({ visible: false, x: 0, y: 0, pos: -1, align: "center", src: "", anchored: false });
   const [copyingImage, setCopyingImage] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1827,7 +1866,7 @@ export function Editor() {
         const info = readImageBlockAt(img);
         setCopyMenuVisible(false);
         setTableMenuVisible(false);
-        setImgAlignMenu({ visible: true, x: e.clientX, y: e.clientY, pos: info.pos, align: info.align, src: info.src });
+        setImgAlignMenu({ visible: true, x: e.clientX, y: e.clientY, pos: info.pos, align: info.align, src: info.src, anchored: false });
         return;
       }
       // Non-table area: offer copy menu when there is a text selection
@@ -1840,7 +1879,10 @@ export function Editor() {
       }
     };
 
-    const closeAll = () => { setCopyMenuVisible(false); };
+    const closeAll = () => {
+      setCopyMenuVisible(false);
+      setImgAlignMenu(m => (m.visible ? { ...m, visible: false } : m));
+    };
     container.addEventListener("contextmenu", handler);
     document.addEventListener("mousedown", closeAll);
     return () => {
@@ -1859,11 +1901,56 @@ export function Editor() {
       const img = (imageBlock?.querySelector('img[data-type="image-block"]')
         ?? target.closest('img[data-type="image-block"]')) as HTMLImageElement | null;
       if (!img) { setImgAlignMenu(m => (m.visible ? { ...m, visible: false } : m)); return; }
-      openZoomRef.current(img);
+      // Left-click opens the action bar anchored above the image. Zoom moved to
+      // double-click: with no action bar, a single click had nowhere to reveal
+      // align/copy/delete, and Crepe 7 ships no delete affordance of its own.
+      const info = readImageBlockAt(img);
+      const r = img.getBoundingClientRect();
+      setImgAlignMenu({
+        visible: true,
+        x: r.left + r.width / 2,
+        y: r.top,
+        pos: info.pos,
+        align: info.align,
+        src: info.src,
+        anchored: true,
+      });
     };
     container.addEventListener("click", onClick);
     return () => container.removeEventListener("click", onClick);
+  }, [sourceMode, editorReady, readImageBlockAt]);
+
+  // Double-click an image to open the zoom viewer.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || sourceMode || !editorReady) return;
+    const onDoubleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const img = target.closest('img[data-type="image-block"]') as HTMLImageElement | null;
+      if (!img) return;
+      e.preventDefault();
+      setImgAlignMenu(m => ({ ...m, visible: false }));
+      openZoomRef.current(img);
+    };
+    container.addEventListener("dblclick", onDoubleClick);
+    return () => container.removeEventListener("dblclick", onDoubleClick);
   }, [sourceMode, editorReady]);
+
+  // Delete the image-block node the action bar is currently pointing at.
+  const deleteCurrentImage = useCallback(() => {
+    const pm = pmViewRef.current;
+    const pos = imgAlignMenu.pos;
+    if (!pm || pos < 0) return;
+    try {
+      const node = pm.state.doc.nodeAt(pos);
+      if (!node || node.type.name !== "image-block") return;
+      pm.dispatch(pm.state.tr.delete(pos, pos + node.nodeSize));
+      pm.focus();
+    } catch (err) {
+      console.warn("image-delete-failed", err);
+    }
+    setImgAlignMenu(m => ({ ...m, visible: false }));
+  }, [imgAlignMenu.pos]);
 
   // Apply an alignment to the image-block node at the given position.
   const applyImageAlign = useCallback((align: string) => {
@@ -2002,6 +2089,54 @@ export function Editor() {
     if (e.key === "s") {
       e.preventDefault();
       saveCurrentDocument().catch((err) => { console.error("file-write-failed", err); });
+    }
+    // Ctrl+1..6 -> H1..H6, Ctrl+0 -> paragraph. The F1 help panel has always
+    // advertised these, but they were never implemented.
+    //
+    // Why this exists: the "###" the editor paints next to a heading is a CSS
+    // pseudo-element, NOT document text — the heading's DOM holds only its
+    // words, so there is no caret slot anywhere inside "###" and the level can
+    // never be changed by clicking it. Without a shortcut the only way to go
+    // from ### to ## is to retype the whole block in source mode.
+    // Ctrl+` is deliberately NOT bound here: it already toggles source mode.
+    const isHeadingKey = /^[1-6]$/.test(e.key) || e.key === "0";
+    if (!isHeadingKey) return;
+    const pm = pmViewRef.current;
+    if (!pm) return;
+    const schema = pm.state.schema;
+    const level = e.key === "0" ? 0 : Number(e.key);
+    const target = level === 0 ? schema.nodes.paragraph : schema.nodes.heading;
+    if (!target) return;
+    const { $from, $to } = pm.state.selection;
+    // Widen a bare caret out to its enclosing top-level block: nodesBetween(a, a)
+    // visits nothing, so without this the shortcut silently does nothing when no
+    // text is selected — which is the common case.
+    const startPos = $from.depth >= 1 ? $from.before(1) : $from.pos;
+    const endPos = $to.depth >= 1 ? $to.after(1) : $to.pos;
+    // Only convert blocks that can actually take the target type, otherwise
+    // setBlockType throws on the first list item / table cell in the range and
+    // the whole command becomes a silent no-op.
+    const canConvert = (node: any) =>
+      node.type.name === "heading" || node.type.name === "paragraph";
+    let needsChange = false;
+    pm.state.doc.nodesBetween(startPos, endPos, (node: any) => {
+      if (!canConvert(node)) return;
+      if (target === schema.nodes.heading && node.attrs.level === level) return;
+      if (target === schema.nodes.paragraph && node.type.name === "paragraph") return;
+      needsChange = true;
+    });
+    if (!needsChange) return;
+    e.preventDefault();
+    try {
+      const tr = pm.state.tr;
+      pm.state.doc.nodesBetween(startPos, endPos, (node: any, pos: number) => {
+        if (!canConvert(node)) return;
+        tr.setBlockType(pos, pos + node.nodeSize, target, level === 0 ? undefined : { level });
+      });
+      pm.dispatch(tr);
+      pm.focus();
+    } catch (err) {
+      console.warn("heading-level-shortcut-failed", err);
     }
   }, [currentFilePath]);
 
@@ -2149,48 +2284,64 @@ export function Editor() {
       {copyMenuVisible && (
         <div style={{
           position: "fixed", left: copyMenuPos.x, top: copyMenuPos.y, zIndex: 1100,
-          background: "var(--bg-toolbar)", border: "1px solid var(--border)",
-          borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.18)", padding: "4px 0",
+          background: "var(--zn-float-bg)", border: "1px solid var(--zn-float-border)",
+          borderRadius: "var(--zn-radius-menu)", boxShadow: "var(--shadow-popover)", padding: "4px 0",
           minWidth: 160,
         }} onMouseDown={e => e.stopPropagation()}>
           <CopyMenuItem label={t().editor.copyPlainText} onClick={copyPlainText} />
           <CopyMenuItem label={t().editor.copyMarkdown} onClick={copyMarkdown} />
         </div>
       )}
-      {/* Image alignment toolbar (right-click an image) */}
+      {/* Image action bar: left-click anchors it above the image, right-click at
+          the cursor. Carries align / copy / delete. */}
       {imgAlignMenu.visible && (
         <div style={{
-          position: "fixed", left: imgAlignMenu.x, top: imgAlignMenu.y, zIndex: 1100,
-          display: "flex", gap: 2,
-          background: "var(--bg-toolbar)", border: "1px solid var(--border)",
-          borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.18)", padding: 4,
+          position: "fixed",
+          left: imgAlignMenu.anchored ? imgAlignMenu.x : imgAlignMenu.x,
+          top: imgAlignMenu.y,
+          transform: imgAlignMenu.anchored ? "translate(-50%, calc(-100% - 8px))" : "translate(4px, 4px)",
+          zIndex: 1100,
+          display: "flex", gap: 2, alignItems: "center",
+          background: "var(--zn-float-bg)", border: "1px solid var(--zn-float-border)",
+          borderRadius: "var(--zn-radius-menu)", boxShadow: "var(--shadow-popover)", padding: 4,
         }} onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
-          <button
-            onClick={() => void copyCurrentImage()}
-            title={copyingImage ? t().editor.copyingImage : t().editor.copyImage}
-            disabled={copyingImage}
-            style={{
-              height: 26, display: "flex", alignItems: "center", gap: 5,
-              padding: "0 8px", border: "none", borderRadius: 6,
-              cursor: copyingImage ? "default" : "pointer",
-              background: "transparent", color: "var(--text-secondary)",
-              fontSize: 12, whiteSpace: "nowrap",
-            }}>
-            <CopyImageIcon />
-            <span>{copyingImage ? t().editor.copyingImage : t().editor.copyImage}</span>
-          </button>
-          <div style={{ width: 1, height: 18, background: "var(--border)", margin: "0 2px" }} />
           {(["left", "center", "right"] as const).map(a => (
             <button key={a} onClick={() => applyImageAlign(a)} title={t().editor["align_" + a as "align_left"]}
               style={{
-                width: 30, height: 26, display: "flex", alignItems: "center", justifyContent: "center",
-                border: "none", borderRadius: 6, cursor: "pointer",
+                width: 28, height: 26, display: "flex", alignItems: "center", justifyContent: "center",
+                border: "none", borderRadius: 5, cursor: "pointer",
                 background: imgAlignMenu.align === a ? "var(--bg-sidebar-active)" : "transparent",
                 color: imgAlignMenu.align === a ? "var(--text-accent)" : "var(--text-secondary)",
               }}>
               <AlignIcon dir={a} />
             </button>
           ))}
+          <div style={{ width: 1, height: 16, background: "var(--zn-float-border)", margin: "0 2px" }} />
+          <button
+            onClick={() => void copyCurrentImage()}
+            title={copyingImage ? t().editor.copyingImage : t().editor.copyImage}
+            disabled={copyingImage}
+            style={{
+              width: 28, height: 26, display: "flex", alignItems: "center", justifyContent: "center",
+              border: "none", borderRadius: 5,
+              cursor: copyingImage ? "default" : "pointer",
+              background: "transparent", color: "var(--text-secondary)",
+              opacity: copyingImage ? 0.5 : 1,
+            }}>
+            <CopyImageIcon />
+          </button>
+          <button
+            onClick={deleteCurrentImage}
+            title={t().editor.deleteImage}
+            style={{
+              width: 28, height: 26, display: "flex", alignItems: "center", justifyContent: "center",
+              border: "none", borderRadius: 5, cursor: "pointer",
+              background: "transparent", color: "var(--text-secondary)",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = "var(--text-danger)"; e.currentTarget.style.color = "var(--titlebar-close-fg)"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-secondary)"; }}>
+            <TrashIcon />
+          </button>
         </div>
       )}
     </div>
@@ -2205,6 +2356,17 @@ function CopyMenuItem({ label, onClick }: { label: string; onClick: () => void }
       onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
       {label}
     </div>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2.5 4h11" />
+      <path d="M6.5 4V2.75h3V4" />
+      <path d="M4 4l.6 8.2a1 1 0 0 0 1 .8h4.8a1 1 0 0 0 1-.8L12 4" />
+      <path d="M6.8 6.5v4M9.2 6.5v4" />
+    </svg>
   );
 }
 

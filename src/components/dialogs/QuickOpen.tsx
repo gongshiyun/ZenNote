@@ -82,15 +82,15 @@ export function QuickOpen({ onClose }: { onClose: () => void }) {
       style={{
         position: "fixed", inset: 0, zIndex: 940,
         display: "flex", justifyContent: "center", paddingTop: "12vh",
-        background: "rgba(0,0,0,0.3)",
+        background: "var(--zn-scrim)",
       }}
       onClick={onClose}
     >
       <div
         style={{
-          width: 580, maxHeight: "68vh", background: "var(--bg-toolbar)",
-          border: "1px solid var(--border)", borderRadius: 10,
-          boxShadow: "0 8px 32px rgba(0,0,0,0.22)", overflow: "hidden",
+          width: 580, maxHeight: "68vh", background: "var(--zn-float-bg)",
+          border: "1px solid var(--zn-float-border)", borderRadius: "var(--zn-radius-menu)",
+          boxShadow: "var(--shadow-popover)", overflow: "hidden",
           display: "flex", flexDirection: "column",
         }}
         onClick={event => event.stopPropagation()}

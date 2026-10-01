@@ -101,13 +101,13 @@ export function SearchPanel({ onClose }: { onClose: () => void }) {
     <div style={{
       position: "fixed", inset: 0, zIndex: 900,
       display: "flex", justifyContent: "center", paddingTop: "12vh",
-      background: "rgba(0,0,0,0.3)",
+      background: "var(--zn-scrim)",
     }} onClick={onClose}>
       <div style={{
-        width: 560, maxHeight: "70vh", background: "var(--bg-toolbar)",
-        borderRadius: 10, boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+        width: 560, maxHeight: "70vh", background: "var(--zn-float-bg)",
+        borderRadius: "var(--zn-radius-menu)", boxShadow: "var(--shadow-popover)",
         display: "flex", flexDirection: "column", overflow: "hidden",
-        border: "1px solid var(--border)",
+        border: "1px solid var(--zn-float-border)",
       }} onClick={e => e.stopPropagation()}>
         {/* Search input */}
         <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>

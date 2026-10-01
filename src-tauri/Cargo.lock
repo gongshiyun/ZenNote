@@ -5369,7 +5369,7 @@ dependencies = [
 
 [[package]]
 name = "zennote"
-version = "0.8.20"
+version = "0.8.21"
 dependencies = [
  "arboard",
  "log",

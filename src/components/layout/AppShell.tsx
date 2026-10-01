@@ -1,9 +1,11 @@
 import { useState, useCallback, useRef, useEffect, lazy, Suspense } from "react";
+import type { EditorView } from "@codemirror/view";
 import { Titlebar } from "./Titlebar";
 import { TabBar } from "./TabBar";
 import { StatusBar } from "./StatusBar";
 import { FileTree } from "../filetree/FileTree";
 import { Editor } from "../editor/Editor";
+import { LivePreviewEditor } from "../editor/livepreview/LivePreviewEditor";
 import { Outline } from "../outline/Outline";
 
 // Lazy-load heavy, rarely-visible panels
@@ -25,6 +27,11 @@ import { flushDirtyDocuments, hasDirtyDocuments, saveCurrentDocument } from "../
 import { isEditableTarget } from "../../lib/keyboard";
 import { openDocumentWithSave } from "../../lib/openDocument";
 import { createCloseRequestHandler } from "../../lib/windowClose";
+import { APPEARANCE_VERSION, migrateAppearance } from "../../lib/appearanceMigration";
+
+// ---- Appearance migration ----
+// Lives in lib/appearanceMigration so it is unit-testable without pulling in
+// the whole component tree.
 
 // ---- Auto-save ----
 function useAutoSave() {
@@ -149,6 +156,9 @@ function useWindowPersistence() {
           mode: s.mode,
           themeId: s.themeId,
           fontFamily: s.fontFamily,
+          // Bump when the meaning of a stored appearance value changes, so
+          // migrations below run exactly once instead of on every launch.
+          appearanceVersion: APPEARANCE_VERSION,
           editorPadding: s.editorPadding,
           autoCheckUpdate: s.autoCheckUpdate,
           updateCheckInterval: s.updateCheckInterval,
@@ -158,6 +168,7 @@ function useWindowPersistence() {
           showHiddenFiles: s.showHiddenFiles,
           showFileExtensions: s.showFileExtensions,
           defaultSourceMode: s.defaultSourceMode,
+          livePreview: s.livePreview,
           sidebarVisible: s.sidebarVisible,
           outlineVisible: s.outlineVisible,
           draft: s.currentFilePath && s.isDirty
@@ -183,8 +194,10 @@ function useWindowPersistence() {
         if (!raw || cancelled) return;
         const data = JSON.parse(raw);
         if (data.mode) useStore.getState().setMode(data.mode);
-        if (data.themeId) useStore.getState().setThemeId(data.themeId);
-        if (data.fontFamily) useStore.getState().setFontFamily(data.fontFamily);
+        // One-time appearance migration (see migrateAppearance above).
+        const { themeId, fontFamily } = migrateAppearance(data);
+        if (themeId) useStore.getState().setThemeId(themeId);
+        if (fontFamily) useStore.getState().setFontFamily(fontFamily);
         if (typeof data.editorPadding === "number") useStore.getState().setEditorPadding(data.editorPadding);
         if (typeof data.autoCheckUpdate === "boolean") useStore.getState().setAutoCheckUpdate(data.autoCheckUpdate);
         if (typeof data.updateCheckInterval === "number") useStore.getState().setUpdateCheckInterval(data.updateCheckInterval);
@@ -194,6 +207,7 @@ function useWindowPersistence() {
         if (typeof data.showHiddenFiles === "boolean") useStore.getState().setShowHiddenFiles(data.showHiddenFiles);
         if (typeof data.showFileExtensions === "boolean") useStore.getState().setShowFileExtensions(data.showFileExtensions);
         if (typeof data.defaultSourceMode === "boolean") useStore.getState().setDefaultSourceMode(data.defaultSourceMode);
+        if (typeof data.livePreview === "boolean") useStore.getState().setLivePreview(data.livePreview);
         if (typeof data.sidebarVisible === "boolean" && data.sidebarVisible !== useStore.getState().sidebarVisible) useStore.getState().toggleSidebar();
         if (typeof data.outlineVisible === "boolean" && data.outlineVisible !== useStore.getState().outlineVisible) useStore.getState().toggleOutline();
         // An OS-launched file ("Open with") wins over the persisted workspace
@@ -314,12 +328,17 @@ export function AppShell() {
   useCloseSaveGuard();
   useUpdater();
 
+  const livePreview = useStore(s => s.livePreview);
+
   const [sidebarWidth] = useState(240);
   const [outlineWidth] = useState(180);
   const isDraggingSidebar = useRef(false);
   const isDraggingOutline = useRef(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const outlineRef = useRef<HTMLDivElement>(null);
+  // Live Preview's CodeMirror view. Find & replace and the table/image menus
+  // are wired to the Crepe view today; they move onto this one in Phase 4.
+  const lpViewRef = useRef<EditorView | null>(null);
   const onSidebarMouseDown = useCallback(() => { isDraggingSidebar.current = true; }, []);
   const onOutlineMouseDown = useCallback(() => { isDraggingOutline.current = true; }, []);
 
@@ -491,7 +510,7 @@ export function AppShell() {
         )}
         {/* Editor */}
         <div style={{ flex: 1, minWidth: 360, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          <Editor />
+          {livePreview ? <LivePreviewEditor viewRef={lpViewRef} /> : <Editor />}
         </div>
       </div>
       <StatusBar />
@@ -544,7 +563,7 @@ function WelcomeScreen() {
       ) : (
         <button
           onClick={openFolder}
-          style={{ padding: "10px 32px", fontSize: 14, fontWeight: 500, border: "none", borderRadius: 8, background: "var(--text-accent)", color: "#FFFFFF", cursor: "pointer", transition: "opacity 150ms ease" }}
+          style={{ padding: "10px 32px", fontSize: 14, fontWeight: 500, border: "none", borderRadius: 8, background: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)", cursor: "pointer", transition: "opacity 150ms ease" }}
           onMouseEnter={e => { e.currentTarget.style.opacity = "0.85"; }}
           onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
           Open Folder

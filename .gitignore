@@ -33,3 +33,6 @@ src-tauri/icons/icon-source.png
 *.njsproj
 *.sln
 *.sw?
+
+# OpenChamber browser screenshots
+.openchamber/

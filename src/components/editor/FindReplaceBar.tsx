@@ -273,12 +273,12 @@ export function FindReplaceBar({ visible, onClose, preset, documentKey, getPmVie
       <input ref={findRef} value={findText} onChange={e => setFindText(e.target.value)}
         placeholder={t().find.find}
         style={{
-          width: 160, border: "1px solid " + (invalidRegex ? "#E81123" : "var(--border)"), borderRadius: 4,
+          width: 160, border: "1px solid " + (invalidRegex ? "var(--text-danger)" : "var(--border)"), borderRadius: 4,
           padding: "3px 8px", background: "var(--bg-editor)",
           color: "var(--text-primary)", fontSize: 13, outline: "none", fontFamily: "inherit",
         }}
       />
-      <span style={{ color: invalidRegex ? "#E81123" : "var(--text-tertiary)", minWidth: 40, fontSize: 12, textAlign: "center" }}>
+      <span style={{ color: invalidRegex ? "var(--text-danger)" : "var(--text-tertiary)", minWidth: 40, fontSize: 12, textAlign: "center" }}>
         {invalidRegex ? t().find.invalidRegex : (matchCount > 0 ? (Math.max(currentIdx, 0) + 1) + "/" + matchCount : findText ? "0" : "")}
       </span>
       <button onClick={findPrev} title={t().find.previous + " (Shift+Enter)"} style={btnStyle}>

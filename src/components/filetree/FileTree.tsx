@@ -43,9 +43,9 @@ function ContextMenu({ state, onClose, onNewFile, onNewFolder, onRename, onDelet
     { label: t().filetree.delete, action: () => { onDelete(state.node.path); onClose(); }, danger: true },
   ];
   return (
-    <div ref={menuRef} style={{ position: "fixed", left: state.x, top: state.y, zIndex: 1000, background: "var(--bg-toolbar)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 0", minWidth: 160, boxShadow: "0 4px 16px rgba(0,0,0,0.12)", fontSize: 13 }}>
+    <div ref={menuRef} style={{ position: "fixed", left: state.x, top: state.y, zIndex: 1000, background: "var(--zn-float-bg)", border: "1px solid var(--zn-float-border)", borderRadius: "var(--zn-radius-menu)", padding: "4px 0", minWidth: 160, boxShadow: "var(--shadow-popover)", fontSize: 12.5 }}>
       {items.map((item, i) => (
-        <div key={i} onClick={item.action} style={{ padding: "6px 16px", cursor: "pointer", color: item.danger ? "#E81123" : "var(--text-primary)", background: "transparent" }}
+        <div key={i} onClick={item.action} style={{ padding: "6px 16px", cursor: "pointer", color: item.danger ? "var(--text-danger)" : "var(--text-primary)", background: "transparent" }}
           onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
           onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>{item.label}</div>
       ))}
@@ -59,7 +59,7 @@ function RecentWorkspacesDropdown({ current, recents, onSelect, onRemove }: {
   onSelect: (p: string) => void; onRemove: (p: string) => void;
 }) {
   return (
-    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100, background: "var(--bg-toolbar)", borderBottom: "1px solid var(--border)", boxShadow: "0 4px 16px rgba(0,0,0,0.15)", maxHeight: 280, overflowY: "auto", padding: "4px 0" }}>
+    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100, background: "var(--zn-float-bg)", borderBottom: "1px solid var(--zn-float-border)", boxShadow: "var(--shadow-popover)", maxHeight: 280, overflowY: "auto", padding: "4px 0" }}>
       <div style={{ padding: "4px 12px 6px", fontSize: 11, fontWeight: 500, color: "var(--text-tertiary)" }}>{t().filetree.recentWorkspaces}</div>
       {recents.length === 0 ? (
         <div style={{ padding: "8px 12px", fontSize: 12, color: "var(--text-tertiary)" }}>{t().filetree.noNotes}</div>
@@ -78,7 +78,7 @@ function RecentWorkspacesDropdown({ current, recents, onSelect, onRemove }: {
                 onClick={(e) => { e.stopPropagation(); onRemove(p); }}
                 title={t().filetree.removeWorkspace}
                 style={{ marginLeft: 6, flexShrink: 0, width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, color: "var(--text-tertiary)", fontSize: 11 }}
-                onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "#E81123"; }}
+                onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text-danger)"; }}
                 onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-tertiary)"; }}>{"\u2715"}</span>
             </div>
           );
