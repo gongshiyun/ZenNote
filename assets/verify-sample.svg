@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="140" viewBox="0 0 320 140">
+  <rect width="320" height="140" rx="10" fill="#EFEBDF"/>
+  <circle cx="86" cy="70" r="38" fill="#C2603F"/>
+  <text x="150" y="64" font-family="system-ui, sans-serif" font-size="15" fill="#2A2823">图片渲染验证</text>
+  <text x="150" y="88" font-family="system-ui, sans-serif" font-size="12" fill="#7C7A72">assets/verify-sample.svg</text>
+</svg>

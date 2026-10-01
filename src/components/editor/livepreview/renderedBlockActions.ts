@@ -12,7 +12,7 @@
  * The last two write back into the markdown source, which is why the helpers in
  * ./renderedBlockHelpers are pure and separately tested.
  */
-import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
+import { EditorView, ViewPlugin } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import { openZoomOverlay } from "../zoomOverlay";
 import { t } from "../../../i18n";
@@ -518,34 +518,7 @@ function alignIcon(dir: ImageAlign): string {
   );
 }
 
-/* ---------------------------------------------------- zoom buttons + decoration */
-
-export function decorateRenderedBlocks(root: ParentNode): void {
-  for (const diagram of root.querySelectorAll<HTMLElement>(".cm-zn-mermaid")) {
-    if (diagram.classList.contains("cm-zn-mermaid-pending")) continue;
-    if (!diagram.querySelector("svg")) continue;
-    if (diagram.querySelector(".zn-mermaid-zoom-btn")) continue;
-    const btn = document.createElement("button");
-    btn.className = "zn-mermaid-zoom-btn";
-    btn.innerHTML = ZOOM_ICON;
-    asCommandButton(btn, t().editor.zoomOpen, () => {
-      const svg = diagram.querySelector("svg") as SVGElement | null;
-      if (svg) openZoomOverlay(svg);
-    });
-    diagram.appendChild(btn);
-  }
-
-  for (const image of root.querySelectorAll<HTMLElement>(".cm-zn-image")) {
-    if (image.querySelector(".zn-mermaid-zoom-btn")) continue;
-    const img = image.querySelector("img");
-    if (!img) continue;
-    const btn = document.createElement("button");
-    btn.className = "zn-mermaid-zoom-btn";
-    btn.innerHTML = ZOOM_ICON;
-    asCommandButton(btn, t().editor.zoomOpen, () => openZoomOverlay(img));
-    image.appendChild(btn);
-  }
-}
+/* ---------------------------------------------------- rendered-block manager */
 
 export const renderedBlockActions = ViewPlugin.fromClass(
   class {
@@ -553,13 +526,17 @@ export const renderedBlockActions = ViewPlugin.fromClass(
 
     constructor(view: EditorView) {
       this.manager = new RenderedBlockManager(view);
-      decorateRenderedBlocks(view.contentDOM);
     }
 
-    update(update: ViewUpdate): void {
-      if (!update.docChanged && !update.viewportChanged && !update.geometryChanged) return;
-      decorateRenderedBlocks(update.view.contentDOM);
-    }
+    // No `update` hook on purpose.
+    //
+    // An earlier version decorated the rendered blocks here, walking and
+    // MUTATING the DOM on every viewport change — i.e. on every scroll step,
+    // while CodeMirror was measuring. That is the classic way to make an editor
+    // jump while scrolling, and it also missed widgets that scrolled back into
+    // view after being destroyed. The zoom affordances are now built inside each
+    // widget's own `toDOM`, so they are always present and nothing is mutated
+    // after the fact.
 
     destroy(): void {
       this.manager.destroy();

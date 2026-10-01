@@ -12,9 +12,35 @@ import { StateEffect, StateField } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 import { t } from "../../../i18n";
 import { scanFootnotes, type FootnoteScan } from "./footnotes";
-import { frontmatterRange } from "./livePreview";
+import { frontmatterRange } from './livePreview';
+import { openZoomOverlay } from '../zoomOverlay';
 
-/** A run of table-cell content with the inline markdown already resolved. */
+const ZOOM_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">' +
+  '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35M11 8v6M8 11h6"/></svg>';
+
+/**
+ * The zoom affordance shared by diagrams and images.
+ *
+ * Built here rather than by walking the DOM after the fact: that walk mutated
+ * the DOM on every viewport change (i.e. during scrolling while CodeMirror was
+ * measuring) and it also missed widgets that scrolled back into view.
+ */
+export function zoomButton(onClick: () => void): HTMLButtonElement {
+  const btn = document.createElement("button");
+  btn.className = "zn-mermaid-zoom-btn";
+  btn.type = "button";
+  btn.title = t().editor.zoomOpen;
+  btn.innerHTML = ZOOM_ICON;
+  btn.addEventListener("mousedown", e => e.preventDefault());
+  btn.addEventListener("click", e => {
+    e.preventDefault();
+    e.stopPropagation();
+    onClick();
+  });
+  return btn;
+}
+
 export interface CellSegment {
   text: string;
   mark: string | null;
@@ -261,6 +287,11 @@ export class ImageWidget extends WidgetType {
       wrap.textContent = this.alt || t().editor.imageMissing;
     });
     wrap.appendChild(img);
+    // The zoom button is part of the widget, NOT added by a post-hoc DOM walk:
+    // a walk that runs on every viewport change mutates the DOM while
+    // CodeMirror is measuring, and it also missed widgets that scrolled back
+    // into view after being destroyed.
+    wrap.appendChild(zoomButton(() => openZoomOverlay(img)));
     return wrap;
   }
 
@@ -651,6 +682,10 @@ export class MermaidWidget extends WidgetType {
     const wrap = document.createElement("div");
     wrap.className = "cm-zn-mermaid";
     wrap.innerHTML = this.svg;
+    wrap.appendChild(zoomButton(() => {
+      const svg = wrap.querySelector("svg") as SVGElement | null;
+      if (svg) openZoomOverlay(svg);
+    }));
     return wrap;
   }
 
