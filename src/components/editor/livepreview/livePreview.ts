@@ -724,26 +724,10 @@ export function buildBlockDecorations(state: EditorState): DecorationSet {
     enter: (node) => {
       if (node.name !== "FencedCode" && node.name !== "Table") return;
       if (fm && node.from <= fm.to) return;
-      if (touched(node.from, node.to)) {
-        // Typora behaviour: while the fence is being edited, keep a rendered
-        // preview below it so the diagram can be watched changing rather than
-        // only seen after leaving the block.
-        const body = node.node.getChild("CodeText");
-        const source = (body ? doc.sliceString(body.from, body.to) : "").trim();
-        if (!source) return;
-        const key = mermaidKey(source);
-        const cached = mermaidCache.get(key);
-        ranges.push(
-          Decoration.widget({
-            widget: cached ? new MermaidWidget(cached, key) : new MermaidPlaceholder(),
-            block: true,
-            side: 1,
-          }).range(node.to),
-        );
-        return;
-      }
 
       if (node.name === "Table") {
+        // While a cell is being edited the table shows its source instead.
+        if (touched(node.from, node.to)) return;
         const lines: string[] = [];
         let pos = node.from;
         for (;;) {
@@ -763,7 +747,11 @@ export function buildBlockDecorations(state: EditorState): DecorationSet {
         return;
       }
 
-      // FencedCode: only ```mermaid renders as a block.
+      // FencedCode: only ```mermaid renders as a block, so the language decides
+      // everything that follows. It has to be checked FIRST: this branch used to
+      // be reached through a `touched` test that ran before the language check,
+      // which put a "rendering diagram…" placeholder underneath every code block
+      // being edited, whatever language it was.
       const info = node.node.getChild("CodeInfo");
       if (!info) return;
       if (doc.sliceString(info.from, info.to).trim().toLowerCase() !== "mermaid") return;
@@ -772,6 +760,21 @@ export function buildBlockDecorations(state: EditorState): DecorationSet {
       if (!source) return;
       const key = mermaidKey(source);
       const cached = mermaidCache.get(key);
+
+      if (touched(node.from, node.to)) {
+        // Typora behaviour: while the fence is being edited, keep a rendered
+        // preview below it so the diagram can be watched changing rather than
+        // only seen after leaving the block.
+        ranges.push(
+          Decoration.widget({
+            widget: cached ? new MermaidWidget(cached, key) : new MermaidPlaceholder(),
+            block: true,
+            side: 1,
+          }).range(node.to),
+        );
+        return;
+      }
+
       ranges.push(
         Decoration.replace({
           widget: cached ? new MermaidWidget(cached, key) : new MermaidPlaceholder(),
@@ -992,19 +995,27 @@ export function buildDecorations(view: EditorView): {
           }
           return;
         }
-        if (name === "CodeMark" && node.node.parent?.name === "FencedCode") {
-          // Only the fences; `CodeInfo` (the language chip) deliberately stays.
-          markRange(nFrom, nTo);
-          return;
-        }
-
-        if (name === "CodeInfo" && node.node.parent?.name === "FencedCode") {
-          // The tools widget shows the language name, so leaving the raw info
-          // string visible printed it twice on the same line (`text  text ⌄`).
-          // While the caret is inside the fence the widget is not drawn and the
-          // info string has to stay editable, so it is only hidden otherwise.
+        if (
+          (name === "CodeMark" || name === "CodeInfo") &&
+          node.node.parent?.name === "FencedCode"
+        ) {
           const fence = node.node.parent;
-          if (!touched(fence.from, fence.to)) markRange(nFrom, nTo);
+          // One decision for the whole fence line, not one per mark.
+          //
+          // Deciding per mark went wrong as soon as the caret sat on a different
+          // line of the same block: the backticks were judged "not touched" and
+          // hidden, while the info string was judged "touched" and shown, so the
+          // header read as a bare `ruby` with no fence and no way to edit it.
+          //
+          // Editing the block therefore reveals the whole source — backticks and
+          // info string together — and otherwise both are hidden, because the
+          // tools widget carries the language name.
+          if (touched(fence.from, fence.to)) {
+            const cls = hasSelection() ? "cm-zn-mark cm-zn-mark-on" : "cm-zn-mark";
+            decos.push(Decoration.mark({ class: cls }).range(nFrom, nTo));
+            return;
+          }
+          markRange(nFrom, nTo);
           return;
         }
 

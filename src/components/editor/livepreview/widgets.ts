@@ -522,8 +522,15 @@ function openLanguageMenu(
     const next = at < 0 ? 0 : (at + step + items.length) % items.length;
     items[next].focus();
   };
-  // A menu anchored to a line must not survive that line leaving the screen.
-  const onScroll = () => closeLangMenu();
+  // Dismiss when the EDITOR moves under the menu, not when the menu itself
+  // scrolls. The listener is on the document with capture, so it also sees the
+  // language list's own scrolling — and because opening the menu focuses the
+  // selected entry, a language far down the list scrolled it and closed the menu
+  // the instant it appeared. Clicking then did nothing.
+  const onScroll = (e: Event) => {
+    if (menu.contains(e.target as Node)) return;
+    closeLangMenu();
+  };
 
   document.addEventListener("mousedown", onPointerDown, true);
   document.addEventListener("keydown", onKeyDown, true);
@@ -539,7 +546,9 @@ function openLanguageMenu(
     },
   };
   trigger.classList.add("is-open");
-  menu.querySelector<HTMLButtonElement>(".is-selected")?.focus();
+  // preventScroll: focusing the selected entry must not scroll the list. A plain
+  // focus() scrolled it, which fired a scroll event that closed the menu.
+  menu.querySelector<HTMLButtonElement>(".is-selected")?.focus({ preventScroll: true });
 }
 
 export class CodeToolsWidget extends WidgetType {
