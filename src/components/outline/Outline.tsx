@@ -4,6 +4,23 @@ import { t } from "../../i18n";
 import { parseHeadings, displayableHeadings } from "../../domain";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 
+/**
+ * The rendered headings, as the Live Preview editor draws them.
+ *
+ * This used to query `.ProseMirror h1, h2, h3` — the Crepe editor's markup.
+ * Live Preview renders headings as styled lines rather than `h1`/`h2`/`h3`
+ * elements, so once it became the only editor those lookups found nothing and
+ * the outline silently did nothing: no row followed the scroll, and clicking a
+ * row did not move the document.
+ *
+ * `displayableHeadings` keeps levels 1-3 in document order, which is exactly the
+ * order these selectors return, so the row index and the element index line up.
+ */
+const HEADING_SELECTOR =
+  ".zn-live-preview .cm-zn-h1, .zn-live-preview .cm-zn-h2, .zn-live-preview .cm-zn-h3";
+/** CodeMirror's scroller, which is what actually scrolls the document. */
+const SCROLLER_SELECTOR = ".zn-live-preview .cm-scroller";
+
 export function Outline() {
   const content = useStore(s => s.content);
   const activeHeadingId = useStore(s => s.activeHeadingId);
@@ -27,23 +44,16 @@ export function Outline() {
   useEffect(() => {
     if (sourceMode || displayHeadings.length === 0) return;
 
-    const pm = document.querySelector(".ProseMirror");
-    if (!pm) return;
-    // Find the REAL scroll container: Crepe wraps .ProseMirror in non-scrolling
-    // divs (.milkdown), so parentElement is not scrollable and scroll events
-    // never fire on it. Walk up to the first scrollable ancestor.
-    let scrollEl: HTMLElement | null = pm as HTMLElement;
-    while (scrollEl && scrollEl !== document.body &&
-      !(scrollEl.scrollHeight > scrollEl.clientHeight && /(auto|scroll)/.test(getComputedStyle(scrollEl).overflowY))) {
-      scrollEl = scrollEl.parentElement;
-    }
+    // CodeMirror's scroller is what actually scrolls the document. This used to
+    // walk up from `.ProseMirror` looking for a scrollable ancestor, because
+    // Crepe wrapped the editable in non-scrolling divs.
+    const scrollEl = document.querySelector<HTMLElement>(SCROLLER_SELECTOR);
     if (!scrollEl) return;
 
     const handleScroll = () => {
       if (scrollTimer.current) clearTimeout(scrollTimer.current);
       scrollTimer.current = window.setTimeout(() => {
-        // Filter heading elements to only h1-h3 in the DOM
-        const headingEls = Array.from(pm.querySelectorAll("h1, h2, h3"));
+        const headingEls = Array.from(document.querySelectorAll<HTMLElement>(HEADING_SELECTOR));
         let activeIdx = -1;
         const scrollTop = scrollEl.scrollTop + 100;
 
@@ -73,11 +83,9 @@ export function Outline() {
 
     // Scroll to the heading inside the rendered (preview) editor.
     const scrollToHeading = (idx: number): boolean => {
-      const pm = document.querySelector(".ProseMirror");
-      if (!pm) return false;
-      const headingEls = pm.querySelectorAll("h1, h2, h3");
-      const target = headingEls[idx] as HTMLElement | undefined;
+      const target = document.querySelectorAll<HTMLElement>(HEADING_SELECTOR)[idx];
       if (!target) return false;
+      // The nearest scrollable ancestor is CodeMirror's scroller.
       target.scrollIntoView({ behavior: "smooth", block: "start" });
       return true;
     };

@@ -1,27 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { useState } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { useStore } from '../store';
 
-// ---- Mocks ----
-
-// Controlled znFind plugin state (what the bar reads after dispatching).
-const mocks = vi.hoisted(() => ({
-  getFindState: vi.fn(() => null as any),
-}));
-
-vi.mock('../components/editor/findState', () => ({
-  znFindKey: { getState: () => mocks.getFindState() },
-  emptyFindState: () => ({
-    query: '', opts: { caseSensitive: false, wholeWord: false, regex: false },
-    matches: [], current: -1, deco: null,
-  }),
-}));
-
-vi.mock('@milkdown/kit/prose/state', () => ({
-  TextSelection: { create: vi.fn(() => ({})) },
-  PluginKey: class { name: string; constructor(name?: string) { this.name = name ?? ''; } },
-}));
+// The bar has one backend. Both editing surfaces — Live Preview and source mode —
+// are CodeMirror, so matching runs against the document string and navigation and
+// replacement dispatch CodeMirror change specs.
+//
+// A second, ProseMirror backend used to live here beside it and drove decorations
+// through a `znFind` plugin for the Crepe editor. Live Preview was already passing
+// `getPmView={() => null}`, so that branch never ran even before the editor was
+// removed; these tests now cover the path that actually executes.
 
 vi.mock('../i18n', () => ({
   t: () => ({
@@ -39,34 +26,31 @@ vi.mock('../i18n', () => ({
 
 import { FindReplaceBar } from '../components/editor/FindReplaceBar';
 
-// ---- Fakes ----
-
-function makePmView() {
-  const tr = {
-    setMeta: vi.fn().mockReturnThis(),
-    setSelection: vi.fn().mockReturnThis(),
-    scrollIntoView: vi.fn().mockReturnThis(),
-    replaceWith: vi.fn().mockReturnThis(),
-  };
+/**
+ * A minimal stand-in for a CodeMirror document. `lineAt` is needed because the
+ * preset "jump to result line" path resolves each match to a line number.
+ */
+function makeCmDoc(text: string) {
+  const lines = text.split('\n');
+  const starts: number[] = [];
+  let offset = 0;
+  for (const line of lines) {
+    starts.push(offset);
+    offset += line.length + 1;
+  }
   return {
-    tr,
-    view: {
-      state: {
-        tr,
-        doc: {
-          content: { size: 20 },
-          textBetween: (_from: number, to: number) => (to >= 10 ? "a\nb" : "a"),
-        },
-        selection: {},
-      },
-      dispatch: vi.fn(),
+    toString: () => text,
+    lineAt: (pos: number) => {
+      let number = 1;
+      for (let i = 0; i < starts.length; i++) if (starts[i] <= pos) number = i + 1;
+      return { number };
     },
   };
 }
 
 function makeCmView(doc: string) {
   return {
-    state: { doc: { toString: () => doc }, selection: { main: { head: 0 } } },
+    state: { doc: makeCmDoc(doc), selection: { main: { head: 0 } } },
     dispatch: vi.fn(),
     focus: vi.fn(),
     hasFocus: false,
@@ -77,14 +61,18 @@ const baseProps = () => ({
   visible: true,
   onClose: vi.fn(),
   preset: null,
-  getPmView: () => null,
   getCmView: () => null,
 });
 
+/** Type a query into the bar and wait for the match counter to settle. */
+async function query(text: string, counter: string) {
+  fireEvent.change(screen.getByPlaceholderText('查找...'), { target: { value: text } });
+  await waitFor(() => expect(screen.getByText(counter)).toBeInTheDocument(), { timeout: 1500 });
+}
+
 describe('FindReplaceBar', () => {
   beforeEach(() => {
-    useStore.setState({ sourceMode: false, content: '' });
-    mocks.getFindState.mockReturnValue(null);
+    vi.restoreAllMocks();
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -103,131 +91,45 @@ describe('FindReplaceBar', () => {
     expect(screen.getByTitle('正则表达式')).toBeInTheDocument();
   });
 
-  it('WYSIWYG: typing dispatches the query meta and shows the match count', async () => {
-    const { view } = makePmView();
-    mocks.getFindState.mockReturnValue({
-      query: 'test', opts: {}, matches: [{ from: 0, to: 4 }, { from: 10, to: 14 }], current: 0, deco: null,
-    });
-    render(<FindReplaceBar {...baseProps()} getPmView={() => view} />);
-
-    fireEvent.change(screen.getByPlaceholderText('查找...'), { target: { value: 'test' } });
-
-    await waitFor(() => {
-      expect(view.dispatch).toHaveBeenCalled();
-      expect(screen.getByText('1/2')).toBeInTheDocument();
-    }, { timeout: 1500 });
-
-    // The dispatched transaction carries the znFind query meta.
-    const tr = view.state.tr;
-    expect(tr.setMeta).toHaveBeenCalled();
-    const metaCall = (tr.setMeta as any).mock.calls.find((c: any[]) => c[1]?.type === 'query');
-    expect(metaCall?.[1].query).toBe('test');
-  });
-
-  it('WYSIWYG: next/prev navigation dispatches goto metas', async () => {
-    const { view } = makePmView();
-    mocks.getFindState.mockReturnValue({
-      query: 'a', opts: {}, matches: [{ from: 0, to: 1 }, { from: 5, to: 6 }], current: 0, deco: null,
-    });
-    render(<FindReplaceBar {...baseProps()} getPmView={() => view} />);
-    fireEvent.change(screen.getByPlaceholderText('查找...'), { target: { value: 'a' } });
-    await waitFor(() => expect(screen.getByText('1/2')).toBeInTheDocument(), { timeout: 1500 });
-
-    fireEvent.click(screen.getByTitle('下一个 (Enter)'));
-    await waitFor(() => expect(screen.getByText('2/2')).toBeInTheDocument());
-
-    fireEvent.click(screen.getByTitle('上一个 (Shift+Enter)'));
-    await waitFor(() => expect(screen.getByText('1/2')).toBeInTheDocument());
-  });
-
-  it('WYSIWYG: replace-one dispatches a replaceWith transaction at the current match', async () => {
-    const { view, tr } = makePmView();
-    mocks.getFindState.mockReturnValue({
-      query: 'test', opts: {}, matches: [{ from: 3, to: 7 }, { from: 20, to: 24 }], current: 0, deco: null,
-    });
-    render(<FindReplaceBar {...baseProps()} getPmView={() => view} />);
-    fireEvent.change(screen.getByPlaceholderText('查找...'), { target: { value: 'test' } });
-    await waitFor(() => expect(screen.getByText('1/2')).toBeInTheDocument(), { timeout: 1500 });
-
-    fireEvent.click(screen.getByText('替换')); // expand the replace row
-    fireEvent.change(screen.getByPlaceholderText('替换为...'), { target: { value: 'XYZ' } });
-    fireEvent.click(screen.getByText('替换当前'));
-
-    // Replacement goes through a real ProseMirror transaction (not DOM mutation).
-    expect(tr.replaceWith).toHaveBeenCalledWith(3, 7, 'XYZ');
-    expect(view.dispatch).toHaveBeenCalledWith(tr);
-  });
-
-  it('WYSIWYG: replace-all replaces every match back-to-front in one transaction', async () => {
-    const { view, tr } = makePmView();
-    mocks.getFindState.mockReturnValue({
-      query: 'a', opts: {}, matches: [{ from: 1, to: 2 }, { from: 9, to: 10 }, { from: 15, to: 16 }], current: 0, deco: null,
-    });
-    render(<FindReplaceBar {...baseProps()} getPmView={() => view} />);
-    fireEvent.change(screen.getByPlaceholderText('查找...'), { target: { value: 'a' } });
-    await waitFor(() => expect(screen.getByText('1/3')).toBeInTheDocument(), { timeout: 1500 });
-
-    fireEvent.click(screen.getByText('替换'));
-    fireEvent.change(screen.getByPlaceholderText('替换为...'), { target: { value: 'B' } });
-    fireEvent.click(screen.getByText('全部替换'));
-
-    // Back-to-front keeps earlier ranges valid within a single transaction.
-    expect(tr.replaceWith).toHaveBeenNthCalledWith(1, 15, 16, 'B');
-    expect(tr.replaceWith).toHaveBeenNthCalledWith(2, 9, 10, 'B');
-    expect(tr.replaceWith).toHaveBeenNthCalledWith(3, 1, 2, 'B');
-    expect(view.dispatch).toHaveBeenCalledWith(tr);
-  });
-
-  it('closing the bar clears highlights via the clear meta', async () => {
-    const { view, tr } = makePmView();
-    const onClose = vi.fn();
-    // Controlled wrapper: Esc -> onClose -> visible=false -> clear dispatch.
-    function Host() {
-      const [visible, setVisible] = useState(true);
-      return (
-        <FindReplaceBar
-          {...baseProps()}
-          visible={visible}
-          getPmView={() => view}
-          onClose={() => { setVisible(false); onClose(); }}
-        />
-      );
-    }
-    render(<Host />);
-    fireEvent.keyDown(window, { key: 'Escape' });
-    expect(onClose).toHaveBeenCalled();
-    await waitFor(() => {
-      const clearCall = (tr.setMeta as any).mock.calls.find((c: any[]) => c[1]?.type === 'clear');
-      expect(clearCall).toBeTruthy();
-    });
-  });
-
-  it('source mode: counts matches against the CodeMirror document', async () => {
-    useStore.setState({ sourceMode: true });
+  it('counts matches against the document and walks them', async () => {
     const cm = makeCmView('test x test');
     render(<FindReplaceBar {...baseProps()} getCmView={() => cm} />);
-
-    fireEvent.change(screen.getByPlaceholderText('查找...'), { target: { value: 'test' } });
-    await waitFor(() => expect(screen.getByText('1/2')).toBeInTheDocument(), { timeout: 1500 });
+    await query('test', '1/2');
 
     fireEvent.click(screen.getByTitle('下一个 (Enter)'));
     await waitFor(() => {
-      // "next" moves from the first match (1/2) to the second (2/2).
       expect(cm.dispatch).toHaveBeenCalledWith(
         expect.objectContaining({ selection: expect.objectContaining({ anchor: 7, head: 11 }) }),
       );
     });
+
+    fireEvent.click(screen.getByTitle('上一个 (Shift+Enter)'));
+    await waitFor(() => {
+      expect(cm.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ selection: expect.objectContaining({ anchor: 0, head: 4 }) }),
+      );
+    });
   });
 
-  it('source mode: replace-all dispatches one change per match', async () => {
-    useStore.setState({ sourceMode: true });
+  it('replace-one rewrites the current match', async () => {
     const cm = makeCmView('a-b-a');
     render(<FindReplaceBar {...baseProps()} getCmView={() => cm} />);
+    await query('a', '1/2');
 
-    fireEvent.change(screen.getByPlaceholderText('查找...'), { target: { value: 'a' } });
-    await waitFor(() => expect(screen.getByText('1/2')).toBeInTheDocument(), { timeout: 1500 });
+    fireEvent.click(screen.getByText('替换')); // open the replace row
+    fireEvent.change(screen.getByPlaceholderText('替换为...'), { target: { value: 'Z' } });
+    fireEvent.click(screen.getByText('替换当前'));
+    await waitFor(() => {
+      expect(cm.dispatch).toHaveBeenCalledWith({ changes: { from: 0, to: 1, insert: 'Z' } });
+    });
+  });
 
-    fireEvent.click(screen.getByText('替换')); // open replace row
+  it('replace-all dispatches one change per match', async () => {
+    const cm = makeCmView('a-b-a');
+    render(<FindReplaceBar {...baseProps()} getCmView={() => cm} />);
+    await query('a', '1/2');
+
+    fireEvent.click(screen.getByText('替换'));
     fireEvent.change(screen.getByPlaceholderText('替换为...'), { target: { value: 'Z' } });
     fireEvent.click(screen.getByText('全部替换'));
     await waitFor(() => {
@@ -247,7 +149,7 @@ describe('FindReplaceBar', () => {
     await waitFor(() => expect(screen.getByText('无效的正则表达式')).toBeInTheDocument(), { timeout: 1500 });
   });
 
-  it('Esc closes the bar', async () => {
+  it('Esc closes the bar', () => {
     const onClose = vi.fn();
     render(<FindReplaceBar {...baseProps()} onClose={onClose} />);
     fireEvent.keyDown(window, { key: 'Escape' });
@@ -263,72 +165,69 @@ describe('FindReplaceBar', () => {
 
   it('preset can open directly in replace mode', async () => {
     render(
-      <FindReplaceBar
-        {...baseProps()}
-        preset={{ query: 'replace me', showReplace: true, ts: 1 }}
-      />,
+      <FindReplaceBar {...baseProps()} preset={{ query: 'replace me', showReplace: true, ts: 1 }} />,
     );
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText('替换为...')).toBeInTheDocument();
-    });
+    await waitFor(() => expect(screen.getByPlaceholderText('替换为...')).toBeInTheDocument());
   });
 
   it('jumps to the first match at or after the requested result line', async () => {
-    const { view, tr } = makePmView();
-    mocks.getFindState.mockReturnValue({
-      query: 'target',
-      opts: {},
-      matches: [{ from: 0, to: 6 }, { from: 10, to: 16 }],
-      current: 0,
-      deco: null,
-    });
+    // Line 2 is the second line, so the second match is the first one at or after
+    // it. The document is "target\ntarget".
+    const cm = makeCmView('target\ntarget');
     render(
       <FindReplaceBar
         {...baseProps()}
-        getPmView={() => view}
+        getCmView={() => cm}
         preset={{ query: 'target', line: 2, ts: 1 }}
       />,
     );
 
     await waitFor(() => {
-      const goto = (tr.setMeta as any).mock.calls.find((c: any[]) => c[1]?.type === 'goto');
-      expect(goto?.[1].index).toBe(1);
+      expect(cm.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ selection: expect.objectContaining({ anchor: 7 }) }),
+      );
     }, { timeout: 1500 });
   });
 
   it('re-runs an active query when the document changes', async () => {
-    const { view } = makePmView();
-    const getPmView = () => view;
-    const getCmView = () => null;
-    mocks.getFindState.mockReturnValue({
-      query: 'same',
-      opts: {},
-      matches: [{ from: 0, to: 4 }],
-      current: 0,
-      deco: null,
-    });
+    // The document grows between renders, so a re-run is observable as a changed
+    // match count. (An initial query only counts; it does not dispatch.)
+    let text = 'same';
+    const view = {
+      get state() {
+        return { doc: makeCmDoc(text), selection: { main: { head: 0 } } };
+      },
+      dispatch: vi.fn(),
+      focus: vi.fn(),
+    };
+
     const { rerender } = render(
       <FindReplaceBar
         {...baseProps()}
         documentKey="/notes/a.md"
-        getPmView={getPmView}
-        getCmView={getCmView}
+        getCmView={() => view}
         preset={{ query: 'same', ts: 1 }}
       />,
     );
-    await waitFor(() => expect(view.dispatch).toHaveBeenCalled());
-    view.dispatch.mockClear();
+    await waitFor(() => expect(screen.getByText('1/1')).toBeInTheDocument(), { timeout: 1500 });
 
+    text = 'same same';
     rerender(
       <FindReplaceBar
         {...baseProps()}
         documentKey="/notes/b.md"
-        getPmView={getPmView}
-        getCmView={getCmView}
+        getCmView={() => view}
         preset={{ query: 'same', ts: 1 }}
       />,
     );
 
-    await waitFor(() => expect(view.dispatch).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByText('1/2')).toBeInTheDocument(), { timeout: 1500 });
+  });
+
+  it('accepts a null view without throwing', async () => {
+    // Neither editor is mounted yet when the bar is first shown.
+    render(<FindReplaceBar {...baseProps()} />);
+    fireEvent.change(screen.getByPlaceholderText('查找...'), { target: { value: 'x' } });
+    await waitFor(() => expect(screen.getByPlaceholderText('查找...')).toBeInTheDocument());
   });
 });

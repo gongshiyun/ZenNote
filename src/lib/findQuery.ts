@@ -89,39 +89,3 @@ export function wrapIndex(idx: number, count: number): number {
 export function isHttpUrl(text: string): boolean {
   return /^https?:\/\/[^\s<>"']+$/i.test(text.trim());
 }
-
-/**
- * Minimal structural contract of a ProseMirror document node — enough for
- * match collection without importing ProseMirror here (keeps this module
- * dependency-free and unit-testable with fakes).
- */
-export interface DocLike {
-  descendants: (cb: (node: DocNodeLike, pos: number) => false | void) => void;
-}
-
-export interface DocNodeLike {
-  isText?: boolean;
-  text?: string;
-}
-
-/**
- * Collect all matches of `query` in DOCUMENT coordinates by scanning each text
- * node of a ProseMirror-like document. Matching per text node keeps positions
- * exact (no offset drift from inline atom nodes such as footnote refs or
- * images). Results are ordered by position and capped at MAX_MATCHES.
- */
-export function collectMatchesFromDoc(doc: DocLike, query: string, opts: FindOptions): FindMatch[] {
-  const out: FindMatch[] = [];
-  if (!query) return out;
-  doc.descendants((node, pos) => {
-    if (out.length >= MAX_MATCHES) return false;
-    if (node.isText && typeof node.text === "string" && node.text) {
-      for (const m of findAllMatches(node.text, query, opts)) {
-        out.push({ from: pos + m.from, to: pos + m.to });
-        if (out.length >= MAX_MATCHES) break;
-      }
-    }
-    return undefined;
-  });
-  return out;
-}

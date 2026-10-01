@@ -16,35 +16,3 @@ export function offsetAtLineCol(text: string, line: number, col: number): number
   for (let i = 1; i < targetLine; i++) offset += lines[i - 1].length + 1;
   return Math.min(text.length, offset + Math.max(0, col - 1));
 }
-
-export function lineColAtProseMirrorDoc(
-  doc: { textBetween: (from: number, to: number, blockSeparator?: string, leafText?: string) => string },
-  pos: number,
-): { line: number; col: number } {
-  const prefix = doc.textBetween(0, pos, "\n", "\n");
-  return lineColAtText(prefix, prefix.length);
-}
-
-export function posAtLineColProseMirrorDoc(
-  doc: {
-    content: { size: number };
-    forEach: (cb: (node: { nodeSize: number }, offset: number) => void) => void;
-  },
-  line: number,
-  col: number,
-): number {
-  const target = Math.max(1, line);
-  let index = 1;
-  let result = Math.min(doc.content.size, Math.max(1, col));
-  doc.forEach((node, offset) => {
-    if (index !== target) {
-      index++;
-      return;
-    }
-    const start = offset + 1;
-    const end = Math.max(start, offset + node.nodeSize - 1);
-    result = Math.min(end, start + Math.max(0, col - 1));
-    index++;
-  });
-  return result;
-}

@@ -280,7 +280,6 @@ export function LivePreviewEditor({ viewRef }: Props) {
         onClose={() => setFindVisible(false)}
         preset={findPreset}
         documentKey={currentFilePath + ":" + reloadTick}
-        getPmView={() => null}
         getCmView={() => viewRef.current}
       />
       <div

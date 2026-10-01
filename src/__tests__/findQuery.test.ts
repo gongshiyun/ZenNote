@@ -3,12 +3,9 @@ import {
   escapeRegExp,
   buildFindRegex,
   findAllMatches,
-  collectMatchesFromDoc,
   wrapIndex,
   isHttpUrl,
   defaultFindOptions,
-  MAX_MATCHES,
-  type DocLike,
 } from '../lib/findQuery';
 
 const ci = { ...defaultFindOptions }; // case-insensitive, literal
@@ -126,65 +123,5 @@ describe('isHttpUrl', () => {
     expect(isHttpUrl('not a url')).toBe(false);
     expect(isHttpUrl('ftp://example.com')).toBe(false);
     expect(isHttpUrl('https://a b')).toBe(false);
-  });
-});
-
-describe('collectMatchesFromDoc (ProseMirror-style document scan)', () => {
-  // Fake document: descendants() visits text nodes at given positions.
-  const makeDoc = (nodes: Array<{ text: string; pos: number } | { atom: boolean; pos: number }>): DocLike => ({
-    descendants: (cb) => {
-      for (const n of nodes) {
-        if ('atom' in n) {
-          if (cb({ isText: false }, n.pos) === false) return;
-        } else {
-          if (cb({ isText: true, text: n.text }, n.pos) === false) return;
-        }
-      }
-    },
-  });
-
-  it('offsets matches by the text node position (document coordinates)', () => {
-    const doc = makeDoc([
-      { text: 'hello world hello', pos: 5 },
-      { text: 'Hello again', pos: 40 },
-    ]);
-    const matches = collectMatchesFromDoc(doc, 'hello', ci);
-    expect(matches).toEqual([
-      { from: 5, to: 10 },
-      { from: 17, to: 22 },
-      { from: 40, to: 45 },
-    ]);
-  });
-
-  it('ignores non-text nodes (inline atoms do not shift positions)', () => {
-    const doc = makeDoc([
-      { text: 'a', pos: 1 },
-      { atom: true, pos: 2 },
-      { text: 'a', pos: 6 },
-    ]);
-    expect(collectMatchesFromDoc(doc, 'a', ci)).toEqual([
-      { from: 1, to: 2 },
-      { from: 6, to: 7 },
-    ]);
-  });
-
-  it('returns [] for empty query', () => {
-    const doc = makeDoc([{ text: 'anything', pos: 0 }]);
-    expect(collectMatchesFromDoc(doc, '', ci)).toEqual([]);
-  });
-
-  it('respects options (case sensitivity)', () => {
-    const doc = makeDoc([{ text: 'Hello hello', pos: 0 }]);
-    expect(collectMatchesFromDoc(doc, 'hello', cs)).toEqual([{ from: 6, to: 11 }]);
-    expect(collectMatchesFromDoc(doc, 'hello', ci)).toHaveLength(2);
-  });
-
-  it('stops collecting at MAX_MATCHES', () => {
-    const nodes = Array.from({ length: 20 }, (_, i) => ({
-      text: 'x '.repeat(600), // 600 matches per node
-      pos: i * 2000,
-    }));
-    const matches = collectMatchesFromDoc(makeDoc(nodes), 'x', ci);
-    expect(matches.length).toBe(MAX_MATCHES);
   });
 });

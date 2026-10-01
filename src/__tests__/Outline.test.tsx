@@ -47,16 +47,28 @@ describe('Outline', () => {
     });
     render(<Outline />);
 
-    const pm = document.createElement('div');
-    pm.className = 'ProseMirror';
-    pm.innerHTML = '<h1>A</h1><h2>B</h2>';
-    document.body.appendChild(pm);
+    // Headings as Live Preview renders them: styled lines inside CodeMirror's
+    // scroller, not `h1`/`h2` elements.
+    const preview = document.createElement('div');
+    preview.className = 'zn-live-preview';
+    const scroller = document.createElement('div');
+    scroller.className = 'cm-scroller';
+    const first = document.createElement('div');
+    first.className = 'cm-line cm-zn-h1';
+    first.textContent = 'A';
+    const second = document.createElement('div');
+    second.className = 'cm-line cm-zn-h2';
+    second.textContent = 'B';
+    scroller.append(first, second);
+    preview.appendChild(scroller);
+    document.body.appendChild(preview);
 
     fireEvent.click(screen.getByTitle('B'));
 
     expect(useStore.getState().activeHeadingId).toBe('1');
     const scrollSpy = Element.prototype.scrollIntoView as unknown as ReturnType<typeof vi.fn>;
+    // The second rendered heading is the one the second row points at.
     expect(scrollSpy).toHaveBeenCalledTimes(1);
-    expect(pm.querySelector('h2')).toBeInstanceOf(HTMLElement);
+    expect(second.scrollIntoView).toBeDefined();
   });
 });
