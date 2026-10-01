@@ -1421,10 +1421,37 @@ html, body, #root {
 }
 
 /* ---- Scrollbar ---- */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+/* The thumb used to be transparent until the pointer was already over the
+   element (`*:hover` below). In a long document that hides the scroll position
+   completely — you cannot see how far through you are, and the bar has to be
+   hunted for before it can be dragged.
+   It is now always drawn, and mixed with the theme's secondary text colour
+   rather than the raw `--scrollbar-thumb` token: that token is only ~1.5:1
+   against `--bg-editor` (e.g. #CFCBBE on #FAF9F5), which is invisible in
+   practice. The mix lands at roughly 3:1 — clear, but still reading as chrome
+   rather than content. The pointer darkens it further so it is obvious when it
+   can be grabbed. Derived from theme tokens, so every theme adapts.
+   Widened from 6px to 8px for the same reason: 6px is fiddly to catch. */
+::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; }
-*:hover::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); }
+::-webkit-scrollbar-thumb {
+  background: color-mix(
+    in srgb,
+    var(--scrollbar-thumb, #9a9a9a) 40%,
+    var(--text-secondary, #7a7a7a)
+  );
+  border-radius: 4px;
+}
+*:hover::-webkit-scrollbar-thumb {
+  background: color-mix(
+    in srgb,
+    var(--scrollbar-thumb, #9a9a9a) 15%,
+    var(--text-secondary, #7a7a7a)
+  );
+}
+/* Drawn where a vertical and a horizontal bar meet; transparent keeps the
+   corner from becoming a block of colour in a table with both. */
+::-webkit-scrollbar-corner { background: transparent; }
 
 /* ---- Drag region for custom titlebar ---- */
 .titlebar-drag { -webkit-app-region: drag; app-region: drag; }
