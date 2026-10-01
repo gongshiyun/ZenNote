@@ -18,6 +18,8 @@ import { frontmatterRange } from "./livePreview";
 export interface CellSegment {
   text: string;
   mark: string | null;
+  /** Present only for `mark === "link"`. */
+  href: string | null;
 }
 
 /* ------------------------------------------------------------------- markers */
@@ -53,14 +55,18 @@ export class BulletWidget extends WidgetType {
 /** Stands in for a hidden `[ ]` / `[x]` task marker. */
 export class TaskWidget extends WidgetType {
   private readonly checked: boolean;
+  private readonly id: string;
 
-  constructor(checked: boolean) {
+  constructor(checked: boolean, id = "") {
     super();
     this.checked = checked;
+    // Identity for `eq`: two boxes with the same state but different source
+    // text must not be treated as equal, or a toggle would not re-render.
+    this.id = id + (checked ? "1" : "0");
   }
 
   eq(other: TaskWidget): boolean {
-    return other.checked === this.checked;
+    return other.id === this.id;
   }
 
   toDOM(): HTMLElement {
@@ -70,6 +76,28 @@ export class TaskWidget extends WidgetType {
     box.className = "cm-zn-task-box" + (this.checked ? " cm-zn-task-on" : "");
     box.textContent = this.checked ? "✓" : "";
     wrap.appendChild(box);
+
+    // Clicking the box toggles the item in place. Without this the click fell
+    // through to the text, moved the caret into the line and swapped the whole
+    // line to source — which is not what a checkbox should do.
+    box.title = t().editor.taskToggle;
+    box.addEventListener("mousedown", e => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    box.addEventListener("click", e => {
+      e.preventDefault();
+      e.stopPropagation();
+      const view = EditorView.findFromDOM(wrap);
+      if (!view) return;
+      let pos: number;
+      try { pos = view.posAtDOM(wrap, 0); } catch { return; }
+      // The widget replaced the `[ ]` run; rewrite it in place.
+      const to = Math.min(pos + "[ ]".length, view.state.doc.length);
+      view.dispatch({
+        changes: { from: pos, to, insert: this.checked ? "[ ]" : "[x]" },
+      });
+    });
     return wrap;
   }
 
@@ -181,10 +209,17 @@ function appendInline(el: HTMLElement, segments: CellSegment[]): void {
       el.appendChild(document.createTextNode(seg.text));
       continue;
     }
-    const span = document.createElement("span");
-    span.className = `cm-zn-inline-${seg.mark}`;
-    span.textContent = seg.text;
-    el.appendChild(span);
+    // Links become real anchors so they are clickable and copyable as links.
+    const node = seg.mark === "link" && seg.href ? document.createElement("a") : document.createElement("span");
+    node.className = `cm-zn-inline-${seg.mark}`;
+    if (seg.mark === "link" && seg.href) {
+      node.setAttribute("href", seg.href);
+      node.setAttribute("title", seg.href);
+      // Keep the editor's own click handling from swallowing the navigation.
+      node.addEventListener("click", e => e.stopPropagation());
+    }
+    node.textContent = seg.text;
+    el.appendChild(node);
   }
 }
 
@@ -208,13 +243,23 @@ export class ImageWidget extends WidgetType {
     wrap.className = "cm-zn-image";
     if (!this.src) {
       wrap.classList.add("cm-zn-image-empty");
-      wrap.textContent = this.alt || "image";
+      wrap.textContent = this.alt || t().editor.imageMissing;
       return wrap;
     }
     const img = document.createElement("img");
     img.src = this.src;
     img.alt = this.alt;
     img.loading = "lazy";
+    // An image arriving changes the line's height AFTER CodeMirror measured it,
+    // which leaves hit-testing stale (clicks land a line off). Also show the alt
+    // text when the file is missing, instead of an invisible broken image.
+    img.addEventListener("load", () => {
+      try { EditorView.findFromDOM(wrap)?.requestMeasure(); } catch { /* torn down */ }
+    });
+    img.addEventListener("error", () => {
+      wrap.classList.add("cm-zn-image-empty");
+      wrap.textContent = this.alt || t().editor.imageMissing;
+    });
     wrap.appendChild(img);
     return wrap;
   }
@@ -252,40 +297,75 @@ export class MathWidget extends WidgetType {
 }
 
 /**
- * Language chip + copy button for a fenced code block.
+ * Language picker + copy button for a fenced code block.
  *
  * Rendered as a widget at the end of the opening fence line, which is where the
  * Crepe editor put its language button. The code body stays inline markdown (so
  * it remains selectable and editable); only the affordances are a widget.
+ *
+ * The chip is a picker: choosing a language rewrites the fence's info string in
+ * place, which is how the previous editor let you change a block's syntax.
  */
 export class CodeToolsWidget extends WidgetType {
   private readonly lang: string;
   private readonly source: string;
+  /** Range of the fence's info string, so a change can rewrite it in place. */
+  private readonly infoFrom: number;
+  private readonly infoTo: number;
 
-  constructor(lang: string, source: string) {
+  constructor(lang: string, source: string, infoFrom = -1, infoTo = -1) {
     super();
     this.lang = lang;
     this.source = source;
+    this.infoFrom = infoFrom;
+    this.infoTo = infoTo;
   }
 
   eq(other: CodeToolsWidget): boolean {
-    return other.lang === this.lang && other.source === this.source;
+    return (
+      other.lang === this.lang &&
+      other.source === this.source &&
+      other.infoFrom === this.infoFrom &&
+      other.infoTo === this.infoTo
+    );
   }
 
   toDOM(): HTMLElement {
     const wrap = document.createElement("span");
-    wrap.className = "zn-lp-code-tools";
+    wrap.className = "cm-zn-code-tools";
     wrap.setAttribute("contenteditable", "false");
 
-    const lang = document.createElement("span");
-    lang.className = "zn-lp-code-lang";
-    lang.textContent = this.lang || "text";
-    wrap.appendChild(lang);
+    // A native <select> deliberately: it is keyboard accessible, closes on
+    // blur, and needs no positioning code inside a scrolled container.
+    const picker = document.createElement("select");
+    picker.className = "zn-lp-code-lang";
+    picker.title = t().editor.codeLanguage;
+    const known = t().editor.codeLanguages.split(",");
+    const languages = this.lang && !known.includes(this.lang) ? [this.lang, ...known] : known;
+    for (const name of languages) {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name || t().editor.codeLanguagePlain;
+      if (name === this.lang) option.selected = true;
+      picker.appendChild(option);
+    }
+    picker.addEventListener("mousedown", e => e.stopPropagation());
+    picker.addEventListener("click", e => e.stopPropagation());
+    picker.addEventListener("change", e => {
+      e.stopPropagation();
+      const view = EditorView.findFromDOM(wrap);
+      if (!view || this.infoFrom < 0) return;
+      view.dispatch({
+        changes: { from: this.infoFrom, to: this.infoTo, insert: picker.value },
+      });
+      view.focus();
+    });
+    wrap.appendChild(picker);
 
     const btn = document.createElement("button");
-    btn.className = "zn-lp-code-copy";
+    btn.className = "cm-zn-code-copy";
     btn.type = "button";
-    btn.textContent = "复制";
+    btn.textContent = t().editor.copyCode;
     // mousedown would drop the caret into the widget instead of pressing it.
     btn.addEventListener("mousedown", e => e.preventDefault());
     btn.addEventListener("click", e => {
@@ -294,8 +374,8 @@ export class CodeToolsWidget extends WidgetType {
       void navigator.clipboard
         .writeText(this.source)
         .then(() => {
-          btn.textContent = "已复制";
-          setTimeout(() => { btn.textContent = "复制"; }, 1200);
+          btn.textContent = t().editor.copied;
+          setTimeout(() => { btn.textContent = t().editor.copyCode; }, 1200);
         })
         .catch(err => { console.warn("live-preview-copy-failed", err); });
     });
@@ -307,6 +387,7 @@ export class CodeToolsWidget extends WidgetType {
     return false;
   }
 }
+
 /* --------------------------------------------------------------- footnotes */
 
 /** Ask for a one-shot highlight on a footnote jump target. */

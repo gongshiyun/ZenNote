@@ -148,28 +148,50 @@ describe('live preview — table parsing', () => {
 
 describe('live preview — table cell inline marks', () => {
   it('passes plain text through as one segment', () => {
-    expect(inlineSegments('plain')).toEqual([{ text: 'plain', mark: null }]);
+    expect(inlineSegments('plain')).toEqual([{ text: 'plain', mark: null, href: null }]);
   });
 
   it('extracts bold', () => {
     expect(inlineSegments('a **b** c')).toEqual([
-      { text: 'a ', mark: null },
-      { text: 'b', mark: 'strong' },
-      { text: ' c', mark: null },
+      { text: 'a ', mark: null, href: null },
+      { text: 'b', mark: 'strong', href: null },
+      { text: ' c', mark: null, href: null },
     ]);
   });
 
   it('extracts italic, code, strike and highlight', () => {
-    expect(inlineSegments('*i*')[0]).toEqual({ text: 'i', mark: 'em' });
-    expect(inlineSegments('`c`')[0]).toEqual({ text: 'c', mark: 'code' });
-    expect(inlineSegments('~~s~~')[0]).toEqual({ text: 's', mark: 'strike' });
-    expect(inlineSegments('==h==')[0]).toEqual({ text: 'h', mark: 'mark' });
+    expect(inlineSegments('*i*')[0]).toEqual({ text: 'i', mark: 'em', href: null });
+    expect(inlineSegments('`c`')[0]).toEqual({ text: 'c', mark: 'code', href: null });
+    expect(inlineSegments('~~s~~')[0]).toEqual({ text: 's', mark: 'strike', href: null });
+    expect(inlineSegments('==h==')[0]).toEqual({ text: 'h', mark: 'mark', href: null });
   });
 
   it('prefers strong over emphasis for a double marker', () => {
     const segs = inlineSegments('**bold**');
     expect(segs).toHaveLength(1);
-    expect(segs[0]).toEqual({ text: 'bold', mark: 'strong' });
+    expect(segs[0]).toEqual({ text: 'bold', mark: 'strong', href: null });
+  });
+
+  it('extracts a link with its href', () => {
+    // Regression: the link pattern was missing entirely, so `[text](url)` in a
+    // cell rendered as literal text.
+    expect(inlineSegments('[示例](https://example.com)')).toEqual([
+      { text: '示例', mark: 'link', href: 'https://example.com' },
+    ]);
+  });
+
+  it('keeps surrounding text around a link', () => {
+    expect(inlineSegments('见 [a](https://b.dev) 结束')).toEqual([
+      { text: '见 ', mark: null, href: null },
+      { text: 'a', mark: 'link', href: 'https://b.dev' },
+      { text: ' 结束', mark: null, href: null },
+    ]);
+  });
+
+  it('treats an empty link label as the url', () => {
+    expect(inlineSegments('[](https://x.dev)')).toEqual([
+      { text: 'https://x.dev', mark: 'link', href: 'https://x.dev' },
+    ]);
   });
 });
 

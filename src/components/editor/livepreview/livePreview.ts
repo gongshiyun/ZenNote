@@ -76,6 +76,10 @@ function requestRefresh(view: EditorView): void {
   setTimeout(() => {
     try {
       view.dispatch({ effects: livePreviewRefresh.of(null) });
+      // A block widget that GROWS after the fact (a Mermaid SVG or an image
+      // arriving) leaves CodeMirror's cached line heights stale, which makes
+      // clicks land on the wrong line until something forces a re-measure.
+      view.requestMeasure();
     } catch {
       /* view was destroyed while the async render was in flight */
     }
@@ -121,13 +125,22 @@ function renderMath(source: string, display: boolean): string | null {
   const hit = katexCache.get(key);
   if (hit !== undefined) return hit;
   if (!katexModule) return null;
-  const html = katexModule.renderToString(source, {
-    displayMode: display,
-    throwOnError: false,
-    output: "html",
-  });
-  katexCache.set(key, html);
-  return html;
+  try {
+    // throwOnError:true and an empty result on failure, so an invalid formula
+    // falls back to showing its SOURCE. With throwOnError:false KaTeX returns
+    // its own markup with `\frac{1}{` painted bright red — visually alarming
+    // for what is only a half-typed formula.
+    const html = katexModule.renderToString(source, {
+      displayMode: display,
+      throwOnError: true,
+      output: "html",
+    });
+    katexCache.set(key, html);
+    return html;
+  } catch {
+    katexCache.set(key, "");
+    return "";
+  }
 }
 
 function ensureKatex(view: EditorView): void {
@@ -274,20 +287,25 @@ export function parseAlign(spec: string): "left" | "center" | "right" | null {
 /** Compile a cell's inline markdown into flat `{ text, mark }` runs. */
 export function inlineSegments(raw: string): CellSegment[] {
   const segs: CellSegment[] = [];
-  const re = /(\*\*|__)(.+?)\1|(\*|_)(.+?)\3|`(.+?)`|~~(.+?)~~|==(.+?)==/g;
+  // Order matters: the link pattern must be tried before emphasis, or the
+  // `[text]` half of a link gets consumed by another rule. `href` is carried so
+  // the cell can render a real anchor.
+  const re =
+    /\[([^\]]*)\]\(([^)\s]+)\)|(\*\*|__)(.+?)\3|(\*|_)(.+?)\5|`(.+?)`|~~(.+?)~~|==(.+?)==/g;
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(raw)) !== null) {
-    if (m.index > last) segs.push({ text: raw.slice(last, m.index), mark: null });
-    if (m[2] !== undefined) segs.push({ text: m[2], mark: "strong" });
-    else if (m[4] !== undefined) segs.push({ text: m[4], mark: "em" });
-    else if (m[5] !== undefined) segs.push({ text: m[5], mark: "code" });
-    else if (m[6] !== undefined) segs.push({ text: m[6], mark: "strike" });
-    else if (m[7] !== undefined) segs.push({ text: m[7], mark: "mark" });
+    if (m.index > last) segs.push({ text: raw.slice(last, m.index), mark: null, href: null });
+    if (m[1] !== undefined) segs.push({ text: m[1] || m[2], mark: "link", href: m[2] });
+    else if (m[4] !== undefined) segs.push({ text: m[4], mark: "strong", href: null });
+    else if (m[6] !== undefined) segs.push({ text: m[6], mark: "em", href: null });
+    else if (m[7] !== undefined) segs.push({ text: m[7], mark: "code", href: null });
+    else if (m[8] !== undefined) segs.push({ text: m[8], mark: "strike", href: null });
+    else if (m[9] !== undefined) segs.push({ text: m[9], mark: "mark", href: null });
     last = m.index + m[0].length;
   }
-  if (last < raw.length) segs.push({ text: raw.slice(last), mark: null });
-  return segs.length ? segs : [{ text: raw, mark: null }];
+  if (last < raw.length) segs.push({ text: raw.slice(last), mark: null, href: null });
+  return segs.length ? segs : [{ text: raw, mark: null, href: null }];
 }
 
 /** Parse table source lines; returns null when it is not really a table. */
@@ -439,7 +457,24 @@ export function buildBlockDecorations(state: EditorState): DecorationSet {
     enter: (node) => {
       if (node.name !== "FencedCode" && node.name !== "Table") return;
       if (fm && node.from <= fm.to) return;
-      if (touched(node.from, node.to)) return; // edit as source while inside
+      if (touched(node.from, node.to)) {
+        // Typora behaviour: while the fence is being edited, keep a rendered
+        // preview below it so the diagram can be watched changing rather than
+        // only seen after leaving the block.
+        const body = node.node.getChild("CodeText");
+        const source = (body ? doc.sliceString(body.from, body.to) : "").trim();
+        if (!source) return;
+        const key = mermaidKey(source);
+        const cached = mermaidCache.get(key);
+        ranges.push(
+          Decoration.widget({
+            widget: cached ? new MermaidWidget(cached, key) : new MermaidPlaceholder(),
+            block: true,
+            side: 1,
+          }).range(node.to),
+        );
+        return;
+      }
 
       if (node.name === "Table") {
         const lines: string[] = [];
@@ -673,8 +708,8 @@ export function buildDecorations(view: EditorView): {
           return;
         }
         if (name === "TaskMarker") {
-          const checked = /\[[xX]\]/.test(doc.sliceString(nFrom, nTo));
-          markRange(nFrom, pastSpace(nTo), new TaskWidget(checked));
+          const raw = doc.sliceString(nFrom, nTo);
+          markRange(nFrom, pastSpace(nTo), new TaskWidget(/\[[xX]\]/.test(raw), raw));
           return;
         }
 
@@ -684,7 +719,18 @@ export function buildDecorations(view: EditorView): {
         }
 
         if (name === "FencedCode") {
-          eachLine(nFrom, nTo, (line) => styleLine(line.from, "cm-zn-fence"));
+          // Three distinct line classes so CSS can draw a single continuous box:
+          // lines are siblings among ALL lines, so `:first-child`-style selectors
+          // cannot identify a fence's first/last line.
+          const first = doc.lineAt(nFrom);
+          const last = doc.lineAt(Math.max(nFrom, nTo - 1));
+          eachLine(nFrom, nTo, (line) => {
+            const cls =
+              line.from === first.from ? "cm-zn-fence cm-zn-fence-open"
+                : line.from === last.from ? "cm-zn-fence cm-zn-fence-close"
+                  : "cm-zn-fence cm-zn-fence-body";
+            styleLine(line.from, cls);
+          });
           // Language chip + copy button, placed after the info string on the
           // opening fence line (where the Crepe editor put its language button).
           if (!touched(nFrom, nTo)) {
@@ -692,9 +738,15 @@ export function buildDecorations(view: EditorView): {
             const body = node.node.getChild("CodeText");
             const lang = info ? doc.sliceString(info.from, info.to).trim() : "";
             const source = body ? doc.sliceString(body.from, body.to).replace(/\n$/, "") : "";
-            const at = info ? info.to : node.node.getChild("CodeMark")?.to ?? nFrom;
+            // The widget owns the info-string range so switching the language
+            // rewrites it in place.
+            const infoFrom = info ? info.from : (node.node.getChild("CodeMark")?.to ?? nFrom);
+            const infoTo = info ? info.to : infoFrom;
             decos.push(
-              Decoration.widget({ widget: new CodeToolsWidget(lang, source), side: 1 }).range(at),
+              Decoration.widget({
+                widget: new CodeToolsWidget(lang, source, infoFrom, infoTo),
+                side: 1,
+              }).range(infoTo),
             );
           }
           return;

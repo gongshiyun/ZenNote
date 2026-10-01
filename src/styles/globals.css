@@ -246,7 +246,10 @@
      became unreadable. Any hue sharing the text palette would collide with one
      of the mark, link or inline-code colours; blue collides with none of them.
      (Anthropic's own secondary accent is this same dusty blue.) */
-  --selection-bg: #CFDFEE;
+  /* Selection. Text readability is handled by the `-on` variants (selected text
+     switches to full contrast), so this is free to stay understated — the more
+     saturated dusty blue read as jarring against the warm canvas. */
+  --selection-bg: #DFE5EA;
   --scrollbar-thumb: #CFCBBE;
 
   --titlebar-btn-hover: #EDEBE1;
@@ -329,9 +332,9 @@
   --border: #3A3A36;
   --border-light: #2E2E2B;
 
-  /* Dusty blue, matching the light variant's reasoning: it shares no hue with
-     the warm mark / link / code colours, so nothing blends into it. */
-  --selection-bg: #2F4A61;
+  /* Muted slate: visible against the warm charcoal without the saturated blue's
+     jarring contrast. Text readability is guaranteed by the `-on` variants. */
+  --selection-bg: #3B4249;
   --scrollbar-thumb: #4A4A45;
 
   --titlebar-btn-hover: #323230;

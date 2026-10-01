@@ -282,6 +282,8 @@ class RenderedBlockManager {
   private readonly view: EditorView;
   private imageBar: HTMLElement | null = null;
   private tableMenu: HTMLElement | null = null;
+  /** Where a press inside a table cell began, to tell a click from a drag. */
+  private cellDown: { x: number; y: number; cell: HTMLElement } | null = null;
 
   private readonly onContextMenu = (e: MouseEvent) => {
     const cell = (e.target as HTMLElement)?.closest?.(".cm-zn-table th, .cm-zn-table td") as HTMLElement | null;
@@ -303,30 +305,53 @@ class RenderedBlockManager {
 
   constructor(view: EditorView) {
     this.view = view;
-    view.dom.addEventListener("mousedown", this.onImageClick, true);
+    view.dom.addEventListener("mousedown", this.onMouseDownCapture, true);
+    view.dom.addEventListener("click", this.onClickCapture, true);
     view.dom.addEventListener("contextmenu", this.onContextMenu);
     document.addEventListener("mousedown", this.onDocPointerDown, true);
   }
 
-  private readonly onImageClick = (e: MouseEvent) => {
+  /**
+   * mousedown only RECORDS where the press started.
+   *
+   * The first version called preventDefault here to enter cell editing, which
+   * made native text selection inside a cell impossible — dragging to copy did
+   * nothing. The decision to edit now waits for the click, and a click that
+   * moved is treated as a selection drag instead.
+   */
+  private readonly onMouseDownCapture = (e: MouseEvent) => {
     const target = e.target as HTMLElement | null;
-    const btn = target?.closest?.(".zn-mermaid-zoom-btn");
-    if (btn) return; // the zoom button owns its own click
-
-    // A table cell: edit it in place rather than letting the click move the
-    // caret into the table source.
     const cell = target?.closest?.(".cm-zn-table th, .cm-zn-table td") as HTMLElement | null;
     if (cell) {
-      const wrap = cell.closest(".cm-zn-table-wrap") as HTMLElement | null;
-      if (wrap) {
-        e.preventDefault();
-        e.stopPropagation();
-        this.closeImageBar();
-        this.closeTableMenu();
-        beginCellEdit(this.view, wrap, cell);
-      }
-      return;
+      this.cellDown = { x: e.clientX, y: e.clientY, cell };
+      return; // no preventDefault: let the browser start a text selection
     }
+    this.cellDown = null;
+    this.onImagePress(e);
+  };
+
+  private readonly onClickCapture = (e: MouseEvent) => {
+    const down = this.cellDown;
+    this.cellDown = null;
+    if (!down) return;
+    const cell = (e.target as HTMLElement)?.closest?.(".cm-zn-table th, .cm-zn-table td") as HTMLElement | null;
+    if (cell !== down.cell) return;
+    // A few pixels of tolerance: a click is never perfectly still.
+    const moved = Math.abs(e.clientX - down.x) > 4 || Math.abs(e.clientY - down.y) > 4;
+    if (moved) return; // the user was selecting text, not opening the cell
+
+    const wrap = cell.closest(".cm-zn-table-wrap") as HTMLElement | null;
+    if (!wrap) return;
+    e.preventDefault();
+    e.stopPropagation();
+    this.closeImageBar();
+    this.closeTableMenu();
+    beginCellEdit(this.view, wrap, cell);
+  };
+
+  private readonly onImagePress = (e: MouseEvent) => {
+    const target = e.target as HTMLElement | null;
+    if (target?.closest?.(".zn-mermaid-zoom-btn")) return; // the button owns its click
 
     const wrap = target?.closest?.(".cm-zn-image") as HTMLElement | null;
     if (!wrap) { this.closeImageBar(); return; }
@@ -474,7 +499,8 @@ class RenderedBlockManager {
   }
 
   destroy(): void {
-    this.view.dom.removeEventListener("mousedown", this.onImageClick, true);
+    this.view.dom.removeEventListener("mousedown", this.onMouseDownCapture, true);
+    this.view.dom.removeEventListener("click", this.onClickCapture, true);
     this.view.dom.removeEventListener("contextmenu", this.onContextMenu);
     document.removeEventListener("mousedown", this.onDocPointerDown, true);
     this.closeImageBar();

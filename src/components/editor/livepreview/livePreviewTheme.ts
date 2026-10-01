@@ -226,48 +226,6 @@ export const livePreviewChromeStyles = `
   0%, 60% { background: color-mix(in srgb, var(--text-accent) 22%, transparent); }
   100% { background: transparent; }
 }
-/* The [TOC] outline. Mirrors the Crepe editor's look, but scoped to its own
-   class so the two implementations can never collide. */
-.cm-zn-toc {
-  margin: 0.6em 0;
-  padding: 12px 18px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--bg-code) 40%, transparent);
-}
-.cm-zn-toc-title {
-  font-weight: 600;
-  font-size: 0.95em;
-  color: var(--text-primary);
-  margin-bottom: 6px;
-}
-.cm-zn-toc-empty {
-  font-size: 0.88em;
-  color: var(--text-tertiary);
-  font-style: italic;
-}
-.cm-zn-toc-list {
-  display: flex;
-  flex-direction: column;
-}
-.cm-zn-toc-item {
-  font-size: 0.9em;
-  line-height: 1.9;
-  color: var(--text-accent);
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.cm-zn-toc-item:hover {
-  text-decoration: underline;
-}
-.cm-zn-toc-level-1 { font-weight: 600; }
-.cm-zn-toc-level-2 { padding-left: 1.2em; }
-.cm-zn-toc-level-3 { padding-left: 2.4em; }
-.cm-zn-toc-level-4 { padding-left: 3.6em; }
-.cm-zn-toc-level-5 { padding-left: 4.8em; }
-.cm-zn-toc-level-6 { padding-left: 6em; }
 /* Code block language chip + copy button. */
 .zn-lp-code-tools {
   display: inline-flex;
@@ -281,7 +239,16 @@ export const livePreviewChromeStyles = `
   font-family: var(--zn-font-code, monospace);
   font-size: 10.5px;
   color: var(--text-tertiary);
-  text-transform: lowercase;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 1px 2px;
+  cursor: pointer;
+  appearance: auto;
+}
+.zn-lp-code-lang:hover {
+  color: var(--text-primary);
+  border-color: var(--zn-float-border, #ddd);
 }
 .zn-lp-code-copy {
   border: 1px solid var(--zn-float-border, #ddd);
@@ -308,7 +275,7 @@ export function installLivePreviewChrome(): void {
   document.head.appendChild(el);
 }
 
-export const livePreviewTheme = EditorView.theme({  "&": {
+const themeSpec = {  "&": {
     height: "100%",
     background: "var(--bg-editor)",
     color: "var(--zn-editor-text)",
@@ -398,7 +365,7 @@ export const livePreviewTheme = EditorView.theme({  "&": {
   },
 
   /* ---- images ---- */
-  ".cm-zn-image": { display: "block", margin: "0.6em 0", textAlign: "center" },
+  ".cm-zn-image": { display: "block", padding: "0.6em 0", textAlign: "center" },
   ".cm-zn-image img": {
     maxWidth: "100%",
     borderRadius: "6px",
@@ -408,7 +375,7 @@ export const livePreviewTheme = EditorView.theme({  "&": {
   ".cm-zn-image-empty": { color: "var(--text-tertiary)", fontStyle: "italic" },
 
   /* ---- tables ---- */
-  ".cm-zn-table-wrap": { overflowX: "auto", margin: "0.5em 0" },
+  ".cm-zn-table-wrap": { overflowX: "auto", padding: "0.5em 0" },
   ".cm-zn-table": {
     borderCollapse: "collapse",
     width: "100%",
@@ -438,11 +405,52 @@ export const livePreviewTheme = EditorView.theme({  "&": {
   },
   ".cm-zn-table td, .cm-zn-table th": { cursor: "text" },
 
+  /* ---- `[TOC]` outline ----
+     Lives here rather than in the chrome stylesheet: it is document content, and
+     `livePreviewThemeSpec` is what the geometry regression test inspects. */
+  ".cm-zn-toc": {
+    // padding not margin — margins are invisible to CodeMirror's block-widget
+    // height measurement (see the note in the test).
+    padding: "12px 18px",
+    margin: "0",
+    border: "1px solid var(--border)",
+    borderRadius: "8px",
+    background: "color-mix(in srgb, var(--bg-code) 40%, transparent)",
+  },
+  ".cm-zn-toc-title": {
+    fontWeight: "600",
+    fontSize: "0.95em",
+    color: "var(--text-primary)",
+    marginBottom: "6px",
+  },
+  ".cm-zn-toc-empty": {
+    fontSize: "0.88em",
+    color: "var(--text-tertiary)",
+    fontStyle: "italic",
+  },
+  ".cm-zn-toc-list": { display: "flex", flexDirection: "column" },
+  ".cm-zn-toc-item": {
+    fontSize: "0.9em",
+    lineHeight: "1.9",
+    color: "var(--text-accent)",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  ".cm-zn-toc-item:hover": { textDecoration: "underline" },
+  ".cm-zn-toc-level-1": { fontWeight: "600" },
+  ".cm-zn-toc-level-2": { paddingLeft: "1.2em" },
+  ".cm-zn-toc-level-3": { paddingLeft: "2.4em" },
+  ".cm-zn-toc-level-4": { paddingLeft: "3.6em" },
+  ".cm-zn-toc-level-5": { paddingLeft: "4.8em" },
+  ".cm-zn-toc-level-6": { paddingLeft: "6em" },
+
   /* ---- raw HTML blocks ---- */
   // Mirrors the Crepe editor's `.zn-html-render` rules so the same document
   // looks the same in both. The list/paragraph rules matter because the editor
   // resets default list styling, so rendered HTML would otherwise lose bullets.
-  ".cm-zn-html-block": { display: "block", margin: "0.5em 0", color: "inherit" },
+  ".cm-zn-html-block": { display: "block", padding: "0.5em 0", color: "inherit" },
   ".cm-zn-html-block cite": {
     display: "block",
     fontStyle: "normal",
@@ -499,11 +507,14 @@ export const livePreviewTheme = EditorView.theme({  "&": {
 
   /* ---- math ---- */
   ".cm-zn-math-inline": { display: "inline-block", verticalAlign: "middle" },
-  ".cm-zn-math-display": { display: "block", margin: "0.6em 0", textAlign: "center", overflowX: "auto" },
+  ".cm-zn-math-display": { display: "block", padding: "0.6em 0", textAlign: "center", overflowX: "auto" },
 
   /* ---- YAML frontmatter ---- */
   ".cm-zn-frontmatter": {
-    margin: "0.2em 0 0.8em",
+    // padding, not margin: CodeMirror measures a block widget's height with
+    // getBoundingClientRect(), which excludes margins — so a vertical margin
+    // makes every later line's hit-testing drift by that amount.
+    padding: "0.2em 0 0.8em",
     border: "1px dashed var(--border)",
     borderRadius: "8px",
     background: "color-mix(in srgb, var(--bg-code) 40%, transparent)",
@@ -529,7 +540,7 @@ export const livePreviewTheme = EditorView.theme({  "&": {
   },
 
   /* ---- mermaid ---- */
-  ".cm-zn-mermaid": { display: "flex", justifyContent: "center", margin: "0.6em 0" },
+  ".cm-zn-mermaid": { display: "flex", justifyContent: "center", padding: "0.6em 0" },
   ".cm-zn-mermaid svg": { maxWidth: "100%", height: "auto" },
   ".cm-zn-mermaid-pending": { color: "var(--text-tertiary)", fontStyle: "italic", fontSize: "0.9em" },
 
@@ -578,9 +589,49 @@ export const livePreviewTheme = EditorView.theme({  "&": {
     margin: "1.1em 0",
   },
 
+  /* ---- fenced code blocks ----
+     Three line classes (`-open` / `-body` / `-close`) so a single continuous box
+     can be drawn: fence lines are siblings among ALL lines, so `:first-child`
+     style selectors cannot identify a fence's own first and last line. */
   ".cm-zn-fence": {
     fontFamily: LIVE_PREVIEW_MONO,
     fontSize: "0.9em",
-    color: "var(--text-tertiary)",
+    lineHeight: "1.6",
+    background: "var(--zn-editor-surface, var(--bg-code))",
   },
-});
+  // Fence-symbol lines stay dim; the code body keeps normal contrast.
+  ".cm-zn-fence-open, .cm-zn-fence-close": { color: "var(--text-tertiary)" },
+  ".cm-zn-fence-open": {
+    paddingTop: "8px",
+    borderTopLeftRadius: "8px",
+    borderTopRightRadius: "8px",
+    border: "1px solid var(--zn-editor-rule)",
+    borderBottom: "none",
+  },
+  ".cm-zn-fence-body": {
+    borderLeft: "1px solid var(--zn-editor-rule)",
+    borderRight: "1px solid var(--zn-editor-rule)",
+  },
+  ".cm-zn-fence-close": {
+    paddingBottom: "8px",
+    borderBottomLeftRadius: "8px",
+    borderBottomRightRadius: "8px",
+    border: "1px solid var(--zn-editor-rule)",
+    borderTop: "none",
+  },
+  // A fence with no body (an empty block) must still look like one box.
+  ".cm-zn-fence-open.cm-zn-fence-close": {
+    borderRadius: "8px",
+    border: "1px solid var(--zn-editor-rule)",
+    paddingTop: "8px",
+    paddingBottom: "8px",
+  },
+};
+
+/**
+ * The raw style spec, exported so a test can assert invariants about it. The
+ * block-widget margin rule below is easy to reintroduce and produces a subtle,
+ * hard-to-diagnose click-drift, so it is pinned rather than trusted.
+ */
+export const livePreviewThemeSpec = themeSpec;
+export const livePreviewTheme = EditorView.theme(themeSpec);

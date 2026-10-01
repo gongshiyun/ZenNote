@@ -329,6 +329,7 @@ export function AppShell() {
   useUpdater();
 
   const livePreview = useStore(s => s.livePreview);
+  const sourceMode = useStore(s => s.sourceMode);
 
   const [sidebarWidth] = useState(240);
   const [outlineWidth] = useState(180);
@@ -508,9 +509,12 @@ export function AppShell() {
             <div className="resize-handle" onMouseDown={onOutlineMouseDown} />
           </>
         )}
-        {/* Editor */}
+        {/* Editor.
+            Source mode falls back to the Crepe editor, which owns the CodeMirror
+            source surface. Live Preview must not ignore `sourceMode` — doing so
+            made Ctrl+` appear to do nothing while Live Preview was on. */}
         <div style={{ flex: 1, minWidth: 360, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          {livePreview ? <LivePreviewEditor viewRef={lpViewRef} /> : <Editor />}
+          {livePreview && !sourceMode ? <LivePreviewEditor viewRef={lpViewRef} /> : <Editor />}
         </div>
       </div>
       <StatusBar />
