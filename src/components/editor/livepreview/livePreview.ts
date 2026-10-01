@@ -55,10 +55,70 @@ import { renderHtmlValue } from "../../../lib/htmlRender";
 
 /* ------------------------------------------------------------ async refresh */
 
-/** Dispatched once an async render (Mermaid, KaTeX) lands, to rebuild widgets. */
+/**
+ * Dispatched once an async render (Mermaid, KaTeX) lands, to rebuild widgets.
+ */
 export const livePreviewRefresh = StateEffect.define<null>();
 
+/** The view waiting for a rebuild, and the timer that will perform it. */
+let refreshPending: EditorView | null = null;
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Re-render every live preview view once something async resolves.
+ *
+ * Coalesced to one rebuild per tick. Preparing a whole document resolves many
+ * diagrams in quick succession, and each rebuild remeasures every block, so
+ * rebuilding once per diagram would rework the height map over and over while
+ * the reader is looking at it.
+ */
+function requestRefresh(view: EditorView): void {
+  // Never dispatch synchronously: this is reached from inside a view update.
+  // `destroyed` is private on EditorView, so the guard is try/catch — a view
+  // torn down between the timer and the dispatch throws instead of silently
+  // writing into a dead editor.
+  refreshPending = view;
+  if (refreshTimer !== null) return;
+  refreshTimer = setTimeout(() => {
+    refreshTimer = null;
+    const target = refreshPending;
+    refreshPending = null;
+    if (!target) return;
+    try {
+      target.dispatch({ effects: livePreviewRefresh.of(null) });
+      // A block widget that GROWS after the fact (a Mermaid SVG or an image
+      // arriving) leaves CodeMirror's cached line heights stale, which makes
+      // clicks land on the wrong line until something forces a re-measure.
+      target.requestMeasure();
+    } catch {
+      /* view was destroyed while the async render was in flight */
+    }
+  }, 0);
+}
+
 /* ------------------------------------------------------------------ mermaid */
+
+/**
+ * How many rendered diagrams to keep.
+ *
+ * Preparing a whole document caches every diagram in it, and the caches are
+ * module-level so they survive switching files — without a bound, a session spent
+ * reading diagram-heavy notes would hold every SVG it had ever drawn. Dropping
+ * the oldest only costs a re-render if the reader returns to it.
+ */
+const MERMAID_CACHE_LIMIT = 200;
+/** Formula markup is small, but the same argument applies. */
+const KATEX_CACHE_LIMIT = 800;
+
+/** Drops the oldest entry once a cache exceeds its limit. */
+function capCache(cache: Map<string, string>, limit: number): void {
+  while (cache.size > limit) {
+    // A Map iterates in insertion order, so the first key is the oldest.
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) return;
+    cache.delete(oldest);
+  }
+}
 
 // Module-level so the cache survives editor recreation. Keyed by colour scheme
 // as well as content, because the rendered SVG bakes the theme in.
@@ -68,30 +128,20 @@ const mermaidFailed = new Set<string>();
 
 const mermaidKey = (source: string) => `${useStore.getState().resolvedMode}|${source}`;
 
-/** Re-render every live preview view once something async resolves. */
-function requestRefresh(view: EditorView): void {
-  // Never dispatch synchronously: this is reached from inside a view update.
-  // `destroyed` is private on EditorView, so the guard is try/catch — a view
-  // torn down between the timer and the dispatch throws instead of silently
-  // writing into a dead editor.
-  setTimeout(() => {
-    try {
-      view.dispatch({ effects: livePreviewRefresh.of(null) });
-      // A block widget that GROWS after the fact (a Mermaid SVG or an image
-      // arriving) leaves CodeMirror's cached line heights stale, which makes
-      // clicks land on the wrong line until something forces a re-measure.
-      view.requestMeasure();
-    } catch {
-      /* view was destroyed while the async render was in flight */
-    }
-  }, 0);
-}
-
-function ensureMermaid(source: string, view: EditorView): void {
+/**
+ * Renders one diagram, resolving when it is cached.
+ *
+ * Returning the promise lets the preloader prepare diagrams one at a time
+ * instead of starting every render at once — mermaid is the expensive part of
+ * opening a note, and running them all in parallel blocks the page.
+ */
+function ensureMermaid(source: string, view: EditorView): Promise<void> {
   const key = mermaidKey(source);
-  if (mermaidCache.has(key) || mermaidPending.has(key) || mermaidFailed.has(key)) return;
+  if (mermaidCache.has(key) || mermaidPending.has(key) || mermaidFailed.has(key)) {
+    return Promise.resolve();
+  }
   mermaidPending.add(key);
-  void (async () => {
+  return (async () => {
     let ok = false;
     try {
       const mod = await import("mermaid");
@@ -103,6 +153,7 @@ function ensureMermaid(source: string, view: EditorView): void {
       const id = "lp-" + Math.random().toString(36).slice(2, 8);
       const { svg } = await mod.default.render(id, source);
       mermaidCache.set(key, svg);
+      capCache(mermaidCache, MERMAID_CACHE_LIMIT);
       ok = true;
     } catch (err) {
       // Cache the failure so a broken diagram is not retried on every keystroke.
@@ -118,7 +169,7 @@ function ensureMermaid(source: string, view: EditorView): void {
 /* -------------------------------------------------------------------- katex */
 
 let katexModule: typeof import("katex") | null = null;
-let katexRequested = false;
+let katexLoading: Promise<void> | null = null;
 const katexCache = new Map<string, string>();
 
 function renderMath(source: string, display: boolean): string | null {
@@ -137,24 +188,172 @@ function renderMath(source: string, display: boolean): string | null {
       output: "html",
     });
     katexCache.set(key, html);
+    capCache(katexCache, KATEX_CACHE_LIMIT);
     return html;
   } catch {
     katexCache.set(key, "");
+    capCache(katexCache, KATEX_CACHE_LIMIT);
     return "";
   }
 }
 
-function ensureKatex(view: EditorView): void {
-  if (katexModule || katexRequested) return;
-  katexRequested = true;
-  void (async () => {
+/**
+ * Loads KaTeX, once per session.
+ *
+ * Deliberately does not rebuild the decorations itself. Formulas are warmed into
+ * the cache in chunks and the preloader rebuilds once at the end, so a document
+ * with many formulas pays for one rebuild instead of one per formula.
+ */
+function ensureKatex(): Promise<void> {
+  if (katexModule) return Promise.resolve();
+  if (katexLoading) return katexLoading;
+  katexLoading = (async () => {
     try {
       katexModule = await import("katex");
-      requestRefresh(view);
     } catch (err) {
       console.warn("live-preview-katex-failed", err);
+    } finally {
+      katexLoading = null;
     }
   })();
+  return katexLoading;
+}
+
+/* ------------------------------------------------- whole-document preloading */
+
+/**
+ * A note is prepared in full when it is opened, not as it is scrolled.
+ *
+ * Rendering used to be driven by the viewport, so the diagrams and formulas
+ * below the fold were left until they came into view. That is cheaper, but it
+ * means block heights are still unknown while the reader scrolls: each one is
+ * measured as it appears, the height map is corrected underneath them, and the
+ * view shifts. Preparing everything up front removes that class of movement.
+ *
+ * Nothing here blocks the page. The text is on screen before any of this runs,
+ * diagrams are rendered one at a time (mermaid is not cheap, and running every
+ * render at once is what actually freezes a tab), and the loop hands the main
+ * thread back between batches so typing and scrolling stay responsive on a long
+ * note.
+ */
+
+/**
+ * Items to prepare before yielding back to the browser. Deliberately small: a
+ * batch of formula chunks is synchronous work, so this is what bounds how long
+ * the main thread is held before the page gets a turn.
+ */
+const PRELOAD_BATCH = 2;
+
+/**
+ * Formulas warmed per task. `renderToString` is synchronous, so this is what
+ * keeps a note with many formulas from rendering them all in one go.
+ */
+const MATH_WARM_CHUNK = 8;
+
+/**
+ * Bumped whenever the queue is replaced. A drain from an older generation stops
+ * as soon as it notices, so a diagram from a file the reader has left is never
+ * rendered into the new one.
+ */
+let preloadGeneration = 0;
+let preloadView: EditorView | null = null;
+let preloadQueue: Array<() => Promise<void> | void> = [];
+let preloadTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Whether the last view update saw a syntax tree covering the whole document.
+ *
+ * The tree is parsed asynchronously and the block decorations are built from it,
+ * so the very first pass builds nothing. Resetting this on every document change
+ * and rebuilding once when the parse catches up is what puts the prepared
+ * diagrams on screen without waiting for the reader to click something.
+ */
+let treeWasComplete = false;
+
+/** Everything in the document that needs async work, in the order to do it. */
+function collectPreloadTasks(view: EditorView): Array<() => Promise<void> | void> {
+  const doc = view.state.doc;
+  const fm = frontmatterRange(doc);
+  const tasks: Array<() => Promise<void> | void> = [];
+
+  // First, because no formula can be rendered before the module is here.
+  tasks.push(() => ensureKatex());
+
+  // Formulas next: they are cheap and synchronous, so getting them measured
+  // before the diagrams means most of the page's geometry is right early.
+  const formulas = findMath(doc).filter(m => !(fm && m.from <= fm.to));
+  for (let i = 0; i < formulas.length; i += MATH_WARM_CHUNK) {
+    const chunk = formulas.slice(i, i + MATH_WARM_CHUNK);
+    tasks.push(() => {
+      for (const m of chunk) renderMath(m.source, m.display);
+    });
+  }
+  // Show them now rather than at the end of the queue: on a note with many
+  // diagrams the diagrams take far longer, and nothing needs the formulas to
+  // wait for them. Coalesced with everything else, so this costs one rebuild.
+  if (formulas.length) tasks.push(() => requestRefresh(view));
+
+  for (const fence of findMermaidBlocks(doc)) {
+    if (fm && fence.from <= fm.to) continue;
+    if (!fence.source) continue;
+    tasks.push(() => ensureMermaid(fence.source, view));
+  }
+
+  return tasks;
+}
+
+async function drainPreload(generation: number): Promise<void> {
+  while (preloadQueue.length) {
+    if (generation !== preloadGeneration) return;
+    const batch = preloadQueue.splice(0, PRELOAD_BATCH);
+    for (const task of batch) {
+      if (generation !== preloadGeneration) return;
+      // One malformed block must not stop the rest of the document; each task
+      // reports its own failure.
+      try {
+        await task();
+      } catch {
+        /* reported where it happened */
+      }
+    }
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+  }
+  // The formulas were warmed into the cache rather than rendered, so this is
+  // what actually puts them on screen. Coalesced, so it costs one rebuild.
+  if (generation === preloadGeneration && preloadView) requestRefresh(preloadView);
+}
+
+function preloadDocument(view: EditorView): void {
+  preloadView = view;
+  const generation = ++preloadGeneration;
+  preloadQueue = collectPreloadTasks(view);
+  void drainPreload(generation);
+}
+
+/**
+ * Queues a full prepare of the document.
+ *
+ * Debounced because the plugin sees every keystroke: rescanning the whole
+ * document on each one would be wasteful, and the scan is only useful once the
+ * text has settled.
+ */
+export function scheduleDocumentPreload(view: EditorView, delay = 250): void {
+  if (preloadTimer !== null) clearTimeout(preloadTimer);
+  preloadTimer = setTimeout(() => {
+    preloadTimer = null;
+    preloadDocument(view);
+  }, delay);
+}
+
+/** Drops queued work — a closed document must not keep rendering. */
+export function cancelDocumentPreload(): void {
+  preloadGeneration++;
+  preloadQueue = [];
+  preloadView = null;
+  if (preloadTimer !== null) {
+    clearTimeout(preloadTimer);
+    preloadTimer = null;
+  }
 }
 
 /* -------------------------------------------------------------- frontmatter */
@@ -244,6 +443,72 @@ export function findMath(doc: Text): MathRange[] {
       i = close + 1;
     }
   }
+  return out;
+}
+
+/* ----------------------------------------------------------- fence scanning */
+
+export interface FenceRange {
+  from: number;
+  to: number;
+  source: string;
+}
+
+/**
+ * Find the fenced code blocks whose info string is `mermaid`.
+ *
+ * A line scan rather than a syntax-tree walk, for the same reason as `findMath`
+ * above: the tree is parsed asynchronously, and preparing a file has to start
+ * the moment it opens rather than a frame or two later. Reading the tree here
+ * meant a freshly opened note found no diagrams at all and left every one of them
+ * unrendered.
+ *
+ * The rules follow CommonMark closely enough for this: an opening fence is up to
+ * three spaces of indent followed by three or more backticks or tildes, and it is
+ * closed by a fence of the same character, at least as long, with no info string.
+ * The info string must be exactly `mermaid` — the same thing the block
+ * decorations accept, so nothing is rendered that will never be shown.
+ */
+export function findMermaidBlocks(doc: Text): FenceRange[] {
+  const out: FenceRange[] = [];
+  let open: { char: string; len: number; start: number; bodyFrom: number; mermaid: boolean } | null =
+    null;
+
+  for (let n = 1; n <= doc.lines; n++) {
+    const line = doc.line(n);
+    const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line.text);
+    if (!match) continue;
+    const fence = match[1];
+    const rest = match[2];
+    const char = fence[0];
+
+    if (!open) {
+      // A backtick fence is not allowed a backtick in its info string.
+      if (char === "`" && rest.includes("`")) continue;
+      // Every fence opens, including a bare ``` with no language — otherwise a
+      // mermaid fence sitting inside a plain one would be mistaken for a block
+      // of its own.
+      open = {
+        char,
+        len: fence.length,
+        start: line.from,
+        bodyFrom: line.to + 1,
+        mermaid: rest.trim().toLowerCase() === "mermaid",
+      };
+      continue;
+    }
+    if (char !== open.char || fence.length < open.len || rest.trim() !== "") continue;
+    if (open.mermaid) {
+      out.push({
+        from: open.start,
+        to: line.to,
+        source: doc.sliceString(open.bodyFrom, line.from).trim(),
+      });
+    }
+    open = null;
+  }
+
+  // An unclosed fence is not a block, matching CommonMark.
   return out;
 }
 
@@ -565,34 +830,6 @@ export const livePreviewBlocks = StateField.define<DecorationSet>({
     EditorView.decorations.from(field),
 });
 
-/**
- * Kick off async work for the block constructs currently on screen. Called from
- * the plugin (which has a view) so a long note only renders the diagrams the
- * user can actually see rather than every diagram in the file.
- */
-function ensureVisibleBlockRenders(view: EditorView): void {
-  const doc = view.state.doc;
-  const fm = frontmatterRange(doc);
-  const tree = syntaxTree(view.state);
-
-  for (const { from, to } of view.visibleRanges) {
-    tree.iterate({
-      from,
-      to,
-      enter: (node) => {
-        if (node.name !== "FencedCode") return;
-        if (fm && node.from <= fm.to) return;
-        const info = node.node.getChild("CodeInfo");
-        if (!info) return;
-        if (doc.sliceString(info.from, info.to).trim().toLowerCase() !== "mermaid") return;
-        const body = node.node.getChild("CodeText");
-        const source = (body ? doc.sliceString(body.from, body.to) : "").trim();
-        if (source) ensureMermaid(source, view);
-      },
-    });
-  }
-}
-
 export function buildDecorations(view: EditorView): {
   decos: Range<Decoration>[];
   atomic: Range<Decoration>[];
@@ -663,8 +900,10 @@ export function buildDecorations(view: EditorView): {
   const pastSpace = (pos: number) =>
     doc.sliceString(pos, pos + 1) === " " ? pos + 1 : pos;
 
-  ensureKatex(view);
-  ensureVisibleBlockRenders(view);
+  // Loading the module is not the same as rendering: math is rendered as soon
+  // as the module is here, and starting the load on the first decoration pass
+  // means that happens a tick sooner. Formulas are warmed in the preloader.
+  void ensureKatex();
 
   for (const { from, to } of view.visibleRanges) {
     tree.iterate({
@@ -937,12 +1176,37 @@ export const livePreview = ViewPlugin.fromClass(
       const { decos, atomic } = buildDecorations(view);
       this.decorations = Decoration.set(decos, true);
       this.atomic = Decoration.set(atomic, true);
+      // A new view starts with an unparsed tree. This has to be reset here and
+      // not only on `docChanged`: switching files creates a fresh view whose
+      // first update reports no document change, so a flag left over from the
+      // file just closed would suppress the rebuild that follows the parse and
+      // the new file's diagrams would never appear.
+      treeWasComplete = false;
+      // Prepare the whole document, not just what fits on screen. Delayed by
+      // nothing: the first pass has already put the text in the DOM, and the
+      // preloader yields between items, so this never delays the first paint.
+      scheduleDocumentPreload(view, 0);
     }
 
     update(update: ViewUpdate): void {
       const forced = update.transactions.some(tr =>
         tr.effects.some(e => e.is(livePreviewRefresh)),
       );
+      if (update.docChanged) {
+        // Debounced: the diagrams and formulas have to be re-derived from the
+        // new text, but not once per keystroke.
+        treeWasComplete = false;
+        scheduleDocumentPreload(update.view);
+      }
+      const parsed = syntaxTree(update.state);
+      if (!treeWasComplete && parsed.length >= update.state.doc.length) {
+        treeWasComplete = true;
+        // The block widgets can only be built from a complete tree. Preloading
+        // has already rendered the diagrams into the cache by now, so this is
+        // the rebuild that actually displays them. Runs once per parse, not
+        // once per update.
+        requestRefresh(update.view);
+      }
       // `geometryChanged` matters on mount: the constructor's pass runs before
       // layout, so anything scoped to the viewport (code-block tools, inline
       // marks) would be missing until the next update without it.
@@ -956,6 +1220,10 @@ export const livePreview = ViewPlugin.fromClass(
       const { decos, atomic } = buildDecorations(update.view);
       this.decorations = Decoration.set(decos, true);
       this.atomic = Decoration.set(atomic, true);
+    }
+
+    destroy(): void {
+      cancelDocumentPreload();
     }
   },
   {
