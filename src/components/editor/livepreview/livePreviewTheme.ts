@@ -270,20 +270,28 @@ export const livePreviewChromeStyles = `
 .zn-lp-code-chevron svg { width: 12px; height: 12px; }
 .zn-lp-code-lang.is-open .zn-lp-code-chevron { transform: rotate(180deg); }
 .zn-lp-code-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
   border: 1px solid transparent;
   border-radius: 5px;
   background: transparent;
   color: var(--text-tertiary);
-  font-family: var(--zn-font-stack, inherit);
-  font-size: 11px;
-  line-height: 1;
-  padding: 3px 7px;
+  padding: 0;
   /* Optical: match the -5px on the language pill, on the other side. */
-  margin-right: -7px;
+  margin-right: -5px;
   cursor: pointer;
 }
+.zn-lp-code-copy svg { width: 15px; height: 15px; }
 .zn-lp-code-copy:hover {
   color: var(--text-primary);
+  background: var(--zn-float-hover, rgba(128, 128, 128, 0.12));
+}
+/* The confirmation is the mark changing colour, not the button resizing. */
+.zn-lp-code-copy.is-copied {
+  color: var(--text-accent);
   background: var(--zn-float-hover, rgba(128, 128, 128, 0.12));
 }
 
@@ -448,7 +456,35 @@ const themeSpec = {  "&": {
   ".cm-zn-image-empty": { color: "var(--text-tertiary)", fontStyle: "italic" },
 
   /* ---- tables ---- */
-  ".cm-zn-table-wrap": { overflowX: "auto", padding: "0.5em 0" },
+  ".cm-zn-table-wrap": { overflowX: "auto", padding: "0.5em 0", position: "relative" },
+  /* Row/column operations. Kept out of the way until the table is hovered or the
+     button itself has focus, so the frame stays quiet while reading. */
+  ".cm-zn-table-ops": {
+    position: "absolute",
+    top: "0.5em",
+    right: "0",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "24px",
+    height: "24px",
+    padding: "0",
+    border: "1px solid var(--zn-editor-rule)",
+    borderRadius: "5px",
+    background: "var(--bg-editor)",
+    color: "var(--text-tertiary)",
+    opacity: "0",
+    transition: "opacity 120ms ease",
+    cursor: "pointer",
+  },
+  ".cm-zn-table-ops svg": { width: "15px", height: "15px" },
+  ".cm-zn-table-wrap:hover .cm-zn-table-ops, .cm-zn-table-ops:focus-visible": {
+    opacity: "1",
+  },
+  ".cm-zn-table-ops:hover": {
+    color: "var(--text-primary)",
+    background: "var(--zn-float-hover, rgba(128, 128, 128, 0.12))",
+  },
   ".cm-zn-table": {
     borderCollapse: "collapse",
     width: "100%",

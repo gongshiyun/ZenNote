@@ -179,7 +179,8 @@ const zhCN = {
     "selectRow": "选择行",
     "selectCol": "选择列",
     "selectTable": "选择整个表格",
-    "deleteTable": "删除表格"
+    "deleteTable": "删除表格",
+    "ops": "行列操作"
   },
   "find": {
     "find": "查找...",

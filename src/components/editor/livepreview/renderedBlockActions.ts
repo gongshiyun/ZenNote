@@ -85,6 +85,68 @@ function cellElement(wrap: HTMLElement, row: number, col: number): HTMLElement |
 }
 
 /**
+ * Markdown delimiters for the marks `appendInline` (widgets.ts) can produce.
+ * A link is handled separately because it carries an href.
+ */
+const MARK_WRAPPERS: Record<string, [string, string]> = {
+  strong: ["**", "**"],
+  em: ["*", "*"],
+  strike: ["~~", "~~"],
+  mark: ["==", "=="],
+  code: ["`", "`"],
+};
+
+/**
+ * Turn an edited cell back into markdown.
+ *
+ * The cell is edited with its rendered content still in place, so the marks have
+ * to be reconstructed from the DOM instead of read from the source. That is
+ * only possible because `appendInline` is the single thing that produces this
+ * markup: the set of classes worth recognising is closed, and anything else —
+ * including the wrappers contenteditable invents on its own — is treated as
+ * plain text, which is the safe reading of it.
+ *
+ * Typing markdown still works, incidentally: a literal `**x**` typed into a cell
+ * contains no marks to serialise, so it round-trips unchanged and is re-parsed as
+ * bold on the next render.
+ */
+function serializeCell(cell: HTMLElement): string {
+  const parts: string[] = [];
+
+  const emit = (node: Node): void => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      // A cell may not contain an unescaped pipe.
+      parts.push((node.nodeValue ?? "").replace(/(?<!\\)\|/g, "\\|"));
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const el = node as HTMLElement;
+    // A soft line break has no markdown form inside a cell.
+    if (el.tagName === "BR") {
+      parts.push(" ");
+      return;
+    }
+
+    const before = parts.length;
+    for (const child of Array.from(el.childNodes)) emit(child);
+    const text = parts.splice(before).join("");
+
+    const className = typeof el.className === "string" ? el.className : "";
+    const mark = /cm-zn-inline-(\w+)/.exec(className)?.[1];
+    if (mark === "link") {
+      parts.push(`[${text}](${el.getAttribute("href") ?? ""})`);
+      return;
+    }
+    const wrap = mark ? MARK_WRAPPERS[mark] : undefined;
+    // A run the user emptied must not leave `****` behind.
+    parts.push(wrap && text ? `${wrap[0]}${text}${wrap[1]}` : text);
+  };
+
+  for (const child of Array.from(cell.childNodes)) emit(child);
+  return parts.join("");
+}
+
+/**
  * Make one cell editable. `cells`/`lineIndex` describe where it lives in the
  * table's source lines.
  */
@@ -102,7 +164,10 @@ function activateCell(
 
   td.contentEditable = "true";
   td.classList.add("cm-zn-cell-editing");
-  td.textContent = original;
+  // The rendered content is deliberately NOT replaced with its source. Revealing
+  // the markdown on a click made every table look like it had fallen apart, when
+  // all the reader wanted was to put the caret in a cell. The marks stay rendered
+  // and `serializeCell` puts them back on commit.
   td.spellcheck = false;
 
   // Put the caret at the end and select nothing, so typing appends rather than
@@ -120,7 +185,7 @@ function activateCell(
   const finish = (move: "next" | "prev" | "down" | "none", cancel = false) => {
     if (committing) return;
     committing = true;
-    const value = cancel ? original : (td.textContent ?? "");
+    const value = cancel ? original : serializeCell(td);
     td.contentEditable = "false";
     td.classList.remove("cm-zn-cell-editing");
 
@@ -140,8 +205,7 @@ function activateCell(
 
     if (!cancel && value !== original) {
       const next = cells.slice();
-      // A cell may not contain an unescaped pipe.
-      next[target.col] = value.replace(/(?<!\\)\|/g, "\\|");
+      next[target.col] = value;
       const newLines = lines.slice();
       newLines[lineIndex] = rowOf(next, width);
       const range = tableRange(view, wrap);
@@ -284,6 +348,21 @@ class RenderedBlockManager {
   private tableMenu: HTMLElement | null = null;
   /** Where a press inside a table cell began, to tell a click from a drag. */
   private cellDown: { x: number; y: number; cell: HTMLElement } | null = null;
+  /**
+   * The cell the pointer was last over. The table's row/column button lives on
+   * the frame, not in a cell, so without this the menu would have no row or
+   * column to act on.
+   */
+  private hoverCell: HTMLElement | null = null;
+
+  private readonly onMouseOver = (e: MouseEvent) => {
+    const cell = (e.target as HTMLElement)?.closest?.(
+      ".cm-zn-table th, .cm-zn-table td",
+    ) as HTMLElement | null;
+    // Only ever set, never cleared: moving onto the button leaves the last cell
+    // as the target, which is what the menu should act on.
+    if (cell) this.hoverCell = cell;
+  };
 
   private readonly onContextMenu = (e: MouseEvent) => {
     const cell = (e.target as HTMLElement)?.closest?.(".cm-zn-table th, .cm-zn-table td") as HTMLElement | null;
@@ -307,6 +386,7 @@ class RenderedBlockManager {
     this.view = view;
     view.dom.addEventListener("mousedown", this.onMouseDownCapture, true);
     view.dom.addEventListener("click", this.onClickCapture, true);
+    view.dom.addEventListener("mouseover", this.onMouseOver);
     view.dom.addEventListener("contextmenu", this.onContextMenu);
     document.addEventListener("mousedown", this.onDocPointerDown, true);
   }
@@ -331,6 +411,24 @@ class RenderedBlockManager {
   };
 
   private readonly onClickCapture = (e: MouseEvent) => {
+    // The table frame's own button, before anything cell-related: it is not in a
+    // cell, so the cell-click path below would ignore it.
+    const ops = (e.target as HTMLElement)?.closest?.(".cm-zn-table-ops") as HTMLElement | null;
+    if (ops) {
+      e.preventDefault();
+      e.stopPropagation();
+      const wrap = ops.closest(".cm-zn-table-wrap") as HTMLElement | null;
+      const cell = this.hoverCell?.closest(".cm-zn-table-wrap") === wrap
+        ? this.hoverCell
+        : (wrap?.querySelector(".cm-zn-table td, .cm-zn-table th") ?? null);
+      if (!wrap || !cell) return;
+      this.closeImageBar();
+      this.closeTableMenu();
+      const r = ops.getBoundingClientRect();
+      this.openTableMenu(r.right, r.bottom + 6, wrap, cell as HTMLElement);
+      return;
+    }
+
     const down = this.cellDown;
     this.cellDown = null;
     if (!down) return;
@@ -447,13 +545,13 @@ class RenderedBlockManager {
     const lines = node.text.split("\n");
 
     const items: Array<{ label: string; run: () => void; danger?: boolean } | "divider"> = [
-      { label: "在下方插入行", run: () => this.applyTable(node, insertRow(lines, row)) },
-      { label: "删除行", run: () => this.applyTable(node, deleteRow(lines, row)) },
+      { label: t().table.insertRowBelow, run: () => this.applyTable(node, insertRow(lines, row)) },
+      { label: t().table.deleteRow, run: () => this.applyTable(node, deleteRow(lines, row)) },
       "divider",
-      { label: "在右侧插入列", run: () => this.applyTable(node, insertColumn(lines, col)) },
-      { label: "删除列", run: () => this.applyTable(node, deleteColumn(lines, col)) },
+      { label: t().table.insertColRight, run: () => this.applyTable(node, insertColumn(lines, col)) },
+      { label: t().table.deleteCol, run: () => this.applyTable(node, deleteColumn(lines, col)) },
       "divider",
-      { label: "删除表格", run: () => this.deleteTable(node), danger: true },
+      { label: t().table.deleteTable, run: () => this.deleteTable(node), danger: true },
     ];
 
     const menu = document.createElement("div");
@@ -501,6 +599,7 @@ class RenderedBlockManager {
   destroy(): void {
     this.view.dom.removeEventListener("mousedown", this.onMouseDownCapture, true);
     this.view.dom.removeEventListener("click", this.onClickCapture, true);
+    this.view.dom.removeEventListener("mouseover", this.onMouseOver);
     this.view.dom.removeEventListener("contextmenu", this.onContextMenu);
     document.removeEventListener("mousedown", this.onDocPointerDown, true);
     this.closeImageBar();

@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-Zenmark（ZenNote）是一个本地优先的 Markdown 笔记桌面应用，技术栈：**React 19 + TypeScript + Vite + Tauri 2 + Zustand**。Markdown 编辑器基于 Milkdown/Crepe（含 CodeMirror、KaTeX、Mermaid 支持），样式使用 Tailwind CSS 4，代码校验使用 oxlint，测试使用 Vitest。
+Zenmark（ZenNote）是一个本地优先的 Markdown 笔记桌面应用，技术栈：**React 19 + TypeScript + Vite + Tauri 2 + Zustand**。Markdown 编辑器基于 CodeMirror 6 实时预览（含 KaTeX、Mermaid 支持），另有独立源码模式；样式使用 Tailwind CSS 4，代码校验使用 oxlint，测试使用 Vitest。
 
 ## 模块边界
 
@@ -28,7 +28,11 @@ Zenmark（ZenNote）是一个本地优先的 Markdown 笔记桌面应用，技�
 
 | 文件                                   | 职责                                                                        |
 | ------------------------------------ | ------------------------------------------------------------------------- |
-| `src/components/editor/Editor.tsx`   | 编辑器主逻辑：Crepe 实例生命周期、HTML 清洗、块内 Markdown 渲染、查找替换、表格右键菜单、代码块语言注入（含 Mermaid） |
+| `src/components/editor/livepreview/LivePreviewEditor.tsx` | 编辑器主逻辑：CodeMirror 实例生命周期、内容同步、主题切换时重渲染图表、查找替换入口 |
+| `src/components/editor/livepreview/livePreview.ts` | 实时预览的核心：语法树 → 装饰、块级替换（表格/图表/公式/图片/HTML/目录/frontmatter）、异步渲染调度与全文预加载 |
+| `src/components/editor/livepreview/widgets.ts` | 全部块级 widget 的 DOM（表格、图片、公式、Mermaid、目录、脚注、代码块工具、任务项）与其高度估算 |
+| `src/components/editor/livepreview/renderedBlockActions.ts` | 渲染块上的交互：表格单元格编辑与行列菜单、图片对齐栏、表格右键菜单 |
+| `src/components/editor/SourceEditor.tsx` | 源码模式（Ctrl+`）的 CodeMirror 表面；实时预览为默认编辑模式（设置中已无开关） |
 | `src/components/layout/AppShell.tsx` | 应用布局与面板编排：标题栏 / 标签页 / 状态栏 / 文件树 / 大纲 / 编辑器组合、懒加载搜索与设置面板、自动保存逻辑            |
 | `src/store/index.ts`                 | 全局状态 composition root：聚合全部 slice 创建单一 Zustand store，并回导出领域类型与 slice 接口    |
 

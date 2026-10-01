@@ -179,7 +179,8 @@ const enUS = {
     "selectRow": "Select row",
     "selectCol": "Select column",
     "selectTable": "Select whole table",
-    "deleteTable": "Delete table"
+    "deleteTable": "Delete table",
+    "ops": "Row & column actions"
   },
   "find": {
     "find": "Find...",

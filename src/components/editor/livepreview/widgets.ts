@@ -271,6 +271,11 @@ export class TableWidget extends WidgetType {
     });
     table.appendChild(tbody);
     wrap.appendChild(table);
+    // Row and column operations were reachable only by right-clicking a cell,
+    // which is the same as not having them. A quiet button on the frame opens the
+    // same menu; the manager supplies the cell the pointer was last over so the
+    // row and column items act on the right one.
+    wrap.appendChild(tableOpsButton());
     return wrap;
   }
 
@@ -417,6 +422,34 @@ const CHEVRON_SVG =
 const TICK_SVG =
   '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" ' +
   'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6.5 5 9l4.5-5.5"/></svg>';
+
+/** Two offset sheets: the conventional copy mark. */
+const COPY_SVG =
+  '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<rect x="5.75" y="5.75" width="7.5" height="7.5" rx="1.6"/>' +
+  '<path d="M10.25 5.5V3.9c0-.91-.74-1.65-1.65-1.65H3.9c-.91 0-1.65.74-1.65 1.65v4.7' +
+  'c0 .91.74 1.65 1.65 1.65h1.6"/></svg>';
+
+/** A grid with its header and column rules: the table frame itself. */
+const TABLE_OPS_SVG =
+  '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" ' +
+  'stroke-linecap="round" aria-hidden="true">' +
+  '<rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.8"/>' +
+  '<path d="M1.75 6.25h12.5M6.4 6.25v7M10.1 6.25v7"/></svg>';
+
+/** The table's row/column button. Behaviour lives in renderedBlockActions. */
+export function tableOpsButton(): HTMLButtonElement {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "cm-zn-table-ops";
+  btn.title = t().table.ops;
+  btn.setAttribute("aria-label", t().table.ops);
+  btn.innerHTML = TABLE_OPS_SVG;
+  // mousedown would move the caret out of the widget before the click lands.
+  btn.addEventListener("mousedown", e => e.preventDefault());
+  return btn;
+}
 
 /** The open language menu, if any. At most one exists at a time. */
 let openLangMenu: {
@@ -628,7 +661,11 @@ export class CodeToolsWidget extends WidgetType {
     const btn = document.createElement("button");
     btn.className = "cm-zn-code-copy";
     btn.type = "button";
-    btn.textContent = t().editor.copyCode;
+    // An icon carries no words, so the name has to come from the label and the
+    // tooltip; without them the button is unreadable to a screen reader.
+    btn.title = t().editor.copyCode;
+    btn.setAttribute("aria-label", t().editor.copyCode);
+    btn.innerHTML = COPY_SVG;
     // mousedown would drop the caret into the widget instead of pressing it.
     btn.addEventListener("mousedown", e => e.preventDefault());
     btn.addEventListener("click", e => {
@@ -637,8 +674,16 @@ export class CodeToolsWidget extends WidgetType {
       void navigator.clipboard
         .writeText(this.source)
         .then(() => {
-          btn.textContent = t().editor.copied;
-          setTimeout(() => { btn.textContent = t().editor.copyCode; }, 1200);
+          // Swap the mark rather than the words: the button keeps its size, so
+          // nothing in the header moves when it confirms.
+          btn.innerHTML = TICK_SVG;
+          btn.classList.add("is-copied");
+          btn.title = t().editor.copied;
+          setTimeout(() => {
+            btn.innerHTML = COPY_SVG;
+            btn.classList.remove("is-copied");
+            btn.title = t().editor.copyCode;
+          }, 1200);
         })
         .catch(err => { console.warn("live-preview-copy-failed", err); });
     });
