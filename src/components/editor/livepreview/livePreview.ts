@@ -36,6 +36,7 @@ import {
   BLOCK_ESTIMATE,
   BulletWidget,
   type CellSegment,
+  closeLangMenu,
   CodeToolsWidget,
   footnoteFlashField,
   FootnoteRefWidget,
@@ -997,6 +998,16 @@ export function buildDecorations(view: EditorView): {
           return;
         }
 
+        if (name === "CodeInfo" && node.node.parent?.name === "FencedCode") {
+          // The tools widget shows the language name, so leaving the raw info
+          // string visible printed it twice on the same line (`text  text ⌄`).
+          // While the caret is inside the fence the widget is not drawn and the
+          // info string has to stay editable, so it is only hidden otherwise.
+          const fence = node.node.parent;
+          if (!touched(fence.from, fence.to)) markRange(nFrom, nTo);
+          return;
+        }
+
         if (name === "Image") {
           if (touched(nFrom, nTo)) { markRange(nFrom, nTo); return; }
           // A single inline node, so a plain (non-block) replacement is correct.
@@ -1224,6 +1235,9 @@ export const livePreview = ViewPlugin.fromClass(
 
     destroy(): void {
       cancelDocumentPreload();
+      // The language menu is attached to document.body, not to the editor, so
+      // nothing else would take it down with the view.
+      closeLangMenu();
     }
   },
   {

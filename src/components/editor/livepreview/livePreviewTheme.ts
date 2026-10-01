@@ -226,44 +226,117 @@ export const livePreviewChromeStyles = `
   0%, 60% { background: color-mix(in srgb, var(--text-accent) 22%, transparent); }
   100% { background: transparent; }
 }
-/* Code block language chip + copy button. */
+/* Code block header: the language menu on the left, Copy on the right.
+   Both belong to the frame, not the code, so they stay quiet — tertiary until
+   touched. The deliberate type split: the language is set in the mono face so it
+   reads as a code label, Copy stays in the UI face so it reads as a control. */
 .zn-lp-code-tools {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  margin-left: 10px;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
   user-select: none;
-  vertical-align: middle;
 }
 .zn-lp-code-lang {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   font-family: var(--zn-font-code, monospace);
   font-size: 10.5px;
+  /* Slightly tracked, so it reads as a label rather than a sentence. */
+  letter-spacing: 0.02em;
   color: var(--text-tertiary);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 1px 2px;
+  border-radius: 5px;
+  padding: 2px 5px;
+  /* Optical: the label lines up with the code's left edge, not the pill's. */
+  margin-left: -5px;
   cursor: pointer;
-  appearance: auto;
 }
-.zn-lp-code-lang:hover {
+.zn-lp-code-lang:hover,
+.zn-lp-code-lang.is-open {
   color: var(--text-primary);
-  border-color: var(--zn-float-border, #ddd);
+  background: var(--zn-float-hover, rgba(128, 128, 128, 0.12));
 }
+.zn-lp-code-chevron {
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
+  opacity: 0.75;
+  transition: transform 140ms ease;
+}
+.zn-lp-code-chevron svg { width: 12px; height: 12px; }
+.zn-lp-code-lang.is-open .zn-lp-code-chevron { transform: rotate(180deg); }
 .zn-lp-code-copy {
-  border: 1px solid var(--zn-float-border, #ddd);
-  border-radius: 4px;
+  border: 1px solid transparent;
+  border-radius: 5px;
   background: transparent;
   color: var(--text-tertiary);
-  font-size: 10.5px;
+  font-family: var(--zn-font-stack, inherit);
+  font-size: 11px;
   line-height: 1;
-  padding: 2px 6px;
+  padding: 3px 7px;
+  /* Optical: match the -5px on the language pill, on the other side. */
+  margin-right: -7px;
   cursor: pointer;
 }
 .zn-lp-code-copy:hover {
   color: var(--text-primary);
-  background: var(--zn-float-hover, #f0f0f0);
+  background: var(--zn-float-hover, rgba(128, 128, 128, 0.12));
 }
+
+/* The language menu. Built from the same surfaces as the table context menu
+   rather than a native <select>, whose popup the platform draws itself and
+   which therefore ignores the app's theme. */
+.zn-lp-code-menu {
+  position: fixed;
+  z-index: 1250;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  min-width: 150px;
+  max-height: 288px;
+  overflow-y: auto;
+  background: var(--zn-float-bg, #fff);
+  border: 1px solid var(--zn-float-border, #ddd);
+  border-radius: var(--zn-radius-menu, 8px);
+  box-shadow: var(--shadow-popover, 0 6px 20px rgba(0, 0, 0, 0.12));
+}
+.zn-lp-code-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--zn-font-code, monospace);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.zn-lp-code-menu-item:hover,
+.zn-lp-code-menu-item:focus-visible {
+  background: var(--zn-float-hover, rgba(128, 128, 128, 0.14));
+  color: var(--text-primary);
+  outline: none;
+}
+.zn-lp-code-menu-item.is-selected { color: var(--text-primary); }
+/* A fixed gutter keeps every label on one left edge, selected row or not, so
+   the tick never shifts the text sideways. */
+.zn-lp-code-menu-tick {
+  display: inline-flex;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  color: var(--text-accent);
+}
+.zn-lp-code-menu-tick svg { width: 12px; height: 12px; }
+.zn-lp-code-menu-item:not(.is-selected) .zn-lp-code-menu-tick { visibility: hidden; }
 `;
 
 /** Inject the chrome stylesheet once per document. */
@@ -601,19 +674,28 @@ const themeSpec = {  "&": {
   },
   // Fence-symbol lines stay dim; the code body keeps normal contrast.
   ".cm-zn-fence-open, .cm-zn-fence-close": { color: "var(--text-tertiary)" },
+  // The opening fence line is the block's header row: language and Copy sit in
+  // their own strip, with air above and below so the header does not read as the
+  // first line of code.
   ".cm-zn-fence-open": {
-    paddingTop: "8px",
+    padding: "6px 12px 7px",
     borderTopLeftRadius: "8px",
     borderTopRightRadius: "8px",
     border: "1px solid var(--zn-editor-rule)",
     borderBottom: "none",
   },
+  // Horizontal padding, not margin: the code must not touch the frame. Padding
+  // is included in a line's measured box, so this cannot reintroduce the
+  // hit-testing drift that vertical margins caused in the block widgets.
   ".cm-zn-fence-body": {
+    padding: "0 12px",
     borderLeft: "1px solid var(--zn-editor-rule)",
     borderRight: "1px solid var(--zn-editor-rule)",
   },
+  // The closing fence line holds no visible text (its backticks are hidden), so
+  // it is the block's footer spacing.
   ".cm-zn-fence-close": {
-    paddingBottom: "8px",
+    padding: "6px 12px 10px",
     borderBottomLeftRadius: "8px",
     borderBottomRightRadius: "8px",
     border: "1px solid var(--zn-editor-rule)",
@@ -623,8 +705,7 @@ const themeSpec = {  "&": {
   ".cm-zn-fence-open.cm-zn-fence-close": {
     borderRadius: "8px",
     border: "1px solid var(--zn-editor-rule)",
-    paddingTop: "8px",
-    paddingBottom: "8px",
+    padding: "6px 12px 10px",
   },
 };
 

@@ -408,6 +408,140 @@ export class MathWidget extends WidgetType {
  * The chip is a picker: choosing a language rewrites the fence's info string in
  * place, which is how the previous editor let you change a block's syntax.
  */
+/* ------------------------------------------------- code-block chrome */
+
+const CHEVRON_SVG =
+  '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5"/></svg>';
+
+const TICK_SVG =
+  '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6.5 5 9l4.5-5.5"/></svg>';
+
+/** The open language menu, if any. At most one exists at a time. */
+let openLangMenu: {
+  el: HTMLElement;
+  trigger: HTMLElement;
+  detach: () => void;
+} | null = null;
+
+/**
+ * Closes the open language menu, if there is one.
+ *
+ * Exported so the editor can drop the menu when the view goes away: the menu
+ * lives on `document.body` with its own document-level listeners, so without
+ * this a view destroyed while a menu was open would leave both behind.
+ */
+export function closeLangMenu(): void {
+  if (!openLangMenu) return;
+  openLangMenu.detach();
+  openLangMenu.el.remove();
+  openLangMenu.trigger.classList.remove("is-open");
+  openLangMenu = null;
+}
+
+/**
+ * Opens the code-language menu under its trigger.
+ *
+ * This replaces a native `<select>`. A select draws its popup itself — a light
+ * grey OS list that ignores the app's theming, which is what made it look wrong
+ * over the dark editor — and it printed the language name a second time next to
+ * the raw info string. A menu built from the same pieces as the table context
+ * menu picks up this app's surfaces, borders and hover states for free.
+ */
+function openLanguageMenu(
+  trigger: HTMLElement,
+  choices: string[],
+  current: string,
+  onPick: (name: string) => void,
+): void {
+  closeLangMenu();
+
+  const menu = document.createElement("div");
+  menu.className = "zn-lp-code-menu";
+  menu.setAttribute("role", "listbox");
+  menu.setAttribute("aria-label", t().editor.codeLanguage);
+
+  for (const choice of choices) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "zn-lp-code-menu-item";
+    item.setAttribute("role", "option");
+    if (choice === current) {
+      item.classList.add("is-selected");
+      item.setAttribute("aria-selected", "true");
+    }
+
+    const tick = document.createElement("span");
+    tick.className = "zn-lp-code-menu-tick";
+    tick.innerHTML = TICK_SVG;
+    item.appendChild(tick);
+
+    const text = document.createElement("span");
+    text.textContent = choice || t().editor.codeLanguagePlain;
+    item.appendChild(text);
+
+    // mousedown would drop the caret into the block before the click lands.
+    item.addEventListener("mousedown", e => e.preventDefault());
+    item.addEventListener("click", e => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeLangMenu();
+      onPick(choice);
+    });
+    menu.appendChild(item);
+  }
+
+  document.body.appendChild(menu);
+
+  // Keep it on screen: below the trigger, nudged back inside the window edges.
+  const r = trigger.getBoundingClientRect();
+  const w = menu.offsetWidth;
+  const h = menu.offsetHeight;
+  menu.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(r.bottom + 4, window.innerHeight - h - 8))}px`;
+
+  const onPointerDown = (e: MouseEvent) => {
+    if (menu.contains(e.target as Node) || trigger.contains(e.target as Node)) return;
+    closeLangMenu();
+  };
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeLangMenu();
+      return;
+    }
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    // A native <select> allowed arrow keys; a menu of buttons does not by
+    // default, so it has to be put back or the control is worse to use.
+    e.preventDefault();
+    const items = Array.from(menu.querySelectorAll<HTMLButtonElement>(".zn-lp-code-menu-item"));
+    if (!items.length) return;
+    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+    const step = e.key === "ArrowDown" ? 1 : -1;
+    const next = at < 0 ? 0 : (at + step + items.length) % items.length;
+    items[next].focus();
+  };
+  // A menu anchored to a line must not survive that line leaving the screen.
+  const onScroll = () => closeLangMenu();
+
+  document.addEventListener("mousedown", onPointerDown, true);
+  document.addEventListener("keydown", onKeyDown, true);
+  document.addEventListener("scroll", onScroll, true);
+
+  openLangMenu = {
+    el: menu,
+    trigger,
+    detach: () => {
+      document.removeEventListener("mousedown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("scroll", onScroll, true);
+    },
+  };
+  trigger.classList.add("is-open");
+  menu.querySelector<HTMLButtonElement>(".is-selected")?.focus();
+}
+
 export class CodeToolsWidget extends WidgetType {
   private readonly lang: string;
   private readonly source: string;
@@ -432,37 +566,55 @@ export class CodeToolsWidget extends WidgetType {
     );
   }
 
+  private languages(): string[] {
+    const known = t().editor.codeLanguages.split(",");
+    return this.lang && !known.includes(this.lang) ? [this.lang, ...known] : known;
+  }
+
   toDOM(): HTMLElement {
     const wrap = document.createElement("span");
     wrap.className = "cm-zn-code-tools";
     wrap.setAttribute("contenteditable", "false");
 
-    // A native <select> deliberately: it is keyboard accessible, closes on
-    // blur, and needs no positioning code inside a scrolled container.
-    const picker = document.createElement("select");
-    picker.className = "zn-lp-code-lang";
-    picker.title = t().editor.codeLanguage;
-    const known = t().editor.codeLanguages.split(",");
-    const languages = this.lang && !known.includes(this.lang) ? [this.lang, ...known] : known;
-    for (const name of languages) {
-      const option = document.createElement("option");
-      option.value = name;
-      option.textContent = name || t().editor.codeLanguagePlain;
-      if (name === this.lang) option.selected = true;
-      picker.appendChild(option);
-    }
-    picker.addEventListener("mousedown", e => e.stopPropagation());
-    picker.addEventListener("click", e => e.stopPropagation());
-    picker.addEventListener("change", e => {
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "zn-lp-code-lang";
+    trigger.title = t().editor.codeLanguage;
+    trigger.setAttribute("aria-haspopup", "listbox");
+
+    const name = document.createElement("span");
+    name.className = "zn-lp-code-lang-name";
+    name.textContent = this.lang || t().editor.codeLanguagePlain;
+    trigger.appendChild(name);
+
+    const chevron = document.createElement("span");
+    chevron.className = "zn-lp-code-chevron";
+    chevron.innerHTML = CHEVRON_SVG;
+    trigger.appendChild(chevron);
+
+    // mousedown, not click: preventDefault keeps the caret out of the widget, so
+    // opening the menu never moves the selection into the code block.
+    trigger.addEventListener("mousedown", e => {
+      e.preventDefault();
       e.stopPropagation();
-      const view = EditorView.findFromDOM(wrap);
-      if (!view || this.infoFrom < 0) return;
-      view.dispatch({
-        changes: { from: this.infoFrom, to: this.infoTo, insert: picker.value },
-      });
-      view.focus();
     });
-    wrap.appendChild(picker);
+    trigger.addEventListener("click", e => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (openLangMenu?.trigger === trigger) {
+        closeLangMenu();
+        return;
+      }
+      openLanguageMenu(trigger, this.languages(), this.lang, next => {
+        const view = EditorView.findFromDOM(wrap);
+        if (!view || this.infoFrom < 0) return;
+        view.dispatch({
+          changes: { from: this.infoFrom, to: this.infoTo, insert: next },
+        });
+        view.focus();
+      });
+    });
+    wrap.appendChild(trigger);
 
     const btn = document.createElement("button");
     btn.className = "cm-zn-code-copy";
@@ -483,6 +635,11 @@ export class CodeToolsWidget extends WidgetType {
     });
     wrap.appendChild(btn);
     return wrap;
+  }
+
+  /** The widget is rebuilt whenever the decorations are; drop any open menu. */
+  destroy(): void {
+    closeLangMenu();
   }
 
   ignoreEvent(): boolean {
