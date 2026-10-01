@@ -1,173 +1,147 @@
 // Shared note-export helpers (HTML / PDF), used by both the titlebar menu and shortcuts.
 //
-// The exported document reuses the LIVE editor styles: we walk the app's loaded
-// stylesheets, keep the rules that style the editor content (plus the theme
-// variable blocks), and embed them together with the current theme/font
-// attributes. This makes the export match the on-screen preview closely.
+// The body is rendered from the markdown source (see markdownToHtml.ts) rather
+// than taken from the editor: CodeMirror renders only its viewport, so the
+// editor's DOM holds about one screenful of the note and cloning it dropped
+// everything below. Colour and type come from the app's own resolved custom
+// properties, embedded with a stylesheet written for the exported document.
 
 import { currentFontStack } from "./fontStack";
-import { sanitizeHtmlFragment, sanitizeSvg } from "./sanitize";
+import { resolveImageUrl } from "../services";
+import { sanitizeSvg } from "./sanitize";
+import { useStore } from "../store";
+import { t } from "../i18n";
+import { renderMarkdownToHtml } from "./markdownToHtml";
 
-// Selectors worth copying: theme variable blocks + anything that styles content.
-const KEEP_RE = /:root|\[data-theme|\[data-font|\.dark|\.milkdown|\.ProseMirror|(^|[\s,>+~(])(h[1-6]|p|blockquote|pre|code|table|thead|tbody|tr|th|td|ul|ol|li|dl|dt|dd|a|strong|em|del|s|hr|img|mark|sub|sup|figure|figcaption|\.katex|\.cm-|\.zn-html-render|\.zn-toc|\.zn-fm)/;
+/**
+ * Styles for the exported document.
+ *
+ * Written for the export rather than copied out of the running app. Copying used
+ * to work because the editor produced plain semantic HTML; it cannot work now,
+ * because CodeMirror scopes every theme rule to a generated class on its own
+ * element, so none of those selectors match a standalone file.
+ *
+ * Nothing here is a hard-coded colour — `collectResolvedVariables` emits the
+ * app's own custom properties, so this follows whichever theme is active.
+ */
+const EXPORT_STYLES = `
+*{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+html,body{margin:0;padding:0;background:var(--bg-editor,#fff);color:var(--text-primary,#1a1a1a);}
+body{max-width:800px;margin:0 auto;padding:56px 28px;font-family:var(--zn-font-stack,'Microsoft YaHei',sans-serif);font-size:16px;line-height:1.75;}
+h1,h2,h3,h4,h5,h6{font-weight:600;line-height:1.35;color:var(--zn-editor-heading,var(--text-primary));margin:1.6em 0 .6em;}
+h1{font-size:2.1em;margin-top:0;padding-bottom:.3em;border-bottom:1px solid var(--zn-editor-rule,#e5e5e5);}
+h2{font-size:1.65em;padding-bottom:.25em;border-bottom:1px solid var(--zn-editor-rule,#e5e5e5);}
+h3{font-size:1.35em;}h4{font-size:1.15em;}h5{font-size:1.02em;}
+h6{font-size:.94em;color:var(--text-secondary);}
+p{margin:.9em 0;}
+a{color:var(--text-accent,#C2603F);text-decoration:none;}
+strong,b{font-weight:700;color:var(--zn-editor-heading,var(--text-primary));}
+del,s{text-decoration:line-through;color:var(--zn-editor-muted,var(--text-secondary));}
+mark{background:color-mix(in srgb,var(--text-accent) 26%,transparent);color:inherit;padding:0 2px;border-radius:3px;}
+hr{border:none;border-top:1px solid var(--zn-editor-rule,#e5e5e5);margin:2em 0;}
+blockquote{margin:1em 0;padding:.1em 0 .1em 1em;border-left:3px solid var(--zn-editor-rule-strong,#d5d5d5);color:var(--text-secondary);}
+ul,ol{margin:.75em 0;padding-left:1.6em;}
+li{margin:.25em 0;}
+li>ul,li>ol{margin:.25em 0;}
+li.zn-task{list-style:none;margin-left:-1.4em;}
+li.zn-task input{margin-right:.4em;}
+/* The same mono stack and code colours the preview uses (livePreviewTheme.ts), so
+   the export matches what was on screen rather than a generic monospace. */
+code{font-family:"Cascadia Code","JetBrains Mono","Fira Code",Consolas,"Microsoft YaHei",monospace;font-size:.88em;background:color-mix(in srgb,var(--zn-editor-code-bg) 72%,transparent);color:var(--zn-editor-code-fg,inherit);padding:0 4px;border-radius:4px;}
+pre{margin:1.1em 0;padding:14px 16px;background:var(--zn-editor-surface,var(--bg-code,#f6f6f4));border:1px solid var(--zn-editor-rule,#e5e5e5);border-radius:8px;overflow-x:auto;}
+pre code{background:none;padding:0;font-size:.9em;line-height:1.6;}
+table{border-collapse:collapse;width:100%;margin:1.1em 0;font-size:.95em;}
+th,td{border:1px solid var(--zn-editor-rule,#e5e5e5);padding:6px 10px;vertical-align:top;text-align:left;overflow-wrap:anywhere;}
+th{background:color-mix(in srgb,var(--bg-code,#f6f6f4) 55%,transparent);font-weight:600;color:var(--zn-editor-heading,var(--text-primary));}
+img{max-width:100%;height:auto;border-radius:6px;}
+.zn-fm-block{margin:0 0 1.6em;padding:10px 14px;background:var(--zn-editor-surface,var(--bg-code,#f6f6f4));border:1px solid var(--zn-editor-rule,#e5e5e5);border-radius:8px;font-size:.85em;color:var(--text-secondary);}
+.zn-export-mermaid{margin:1.2em 0;text-align:center;overflow-x:auto;}
+/* Formulas are emitted as MathML, which the browser typesets itself — no
+   stylesheet and no webfont are needed for the file to stand alone.
+   A formula's ink (superscripts, tall delimiters) reaches past its line box, so
+   the block gets padding to hold it and no vertical scroller: without that even a
+   plain E = mc² reports overflow and grows a scrollbar. */
+.zn-export-latex{margin:1.2em 0;overflow-x:auto;overflow-y:hidden;text-align:center;padding:6px 0;}
+math{font-size:1.06em;}
+.zn-export-latex math[display="block"]{margin:0;}
+.zn-fn-ref{font-size:.72em;vertical-align:super;line-height:0;}
+.zn-fn-ref a{text-decoration:none;padding:0 .15em;border-radius:3px;background:color-mix(in srgb,var(--text-accent,#C2603F) 14%,transparent);}
+.zn-export-footnotes{margin-top:2.4em;font-size:.9em;color:var(--text-secondary);}
+.zn-export-footnotes ol{padding-left:1.4em;}
+.zn-fn-back{text-decoration:none;opacity:.7;}
+.zn-html-render{margin:1em 0;}
+.zn-toc{margin:1.2em 0;padding:12px 16px;border:1px solid var(--zn-editor-rule,#e5e5e5);border-radius:8px;}
+.zn-toc-title{font-weight:600;margin-bottom:.4em;color:var(--zn-editor-heading,var(--text-primary));}
+.zn-toc-list{list-style:none;padding-left:0;margin:0;}
+.zn-toc-list ul{list-style:none;padding-left:1.1em;}
+.zn-toc-list a{color:var(--text-secondary);text-decoration:none;}
+@page{margin:14mm;}
+@media print{body{max-width:none;padding:0;}}
+`;
 
-function collectEditorCss(): string {
-  const out: string[] = [];
-  const walk = (rules: CSSRuleList) => {
-    for (const rule of Array.from(rules)) {
-      if (rule instanceof CSSStyleRule) {
-        if (KEEP_RE.test(rule.selectorText)) out.push(rule.cssText);
-      } else if (rule instanceof CSSMediaRule) {
-        const inner: string[] = [];
-        for (const r of Array.from(rule.cssRules)) {
-          if (r instanceof CSSStyleRule && KEEP_RE.test(r.selectorText)) inner.push(r.cssText);
-        }
-        if (inner.length) out.push("@media " + rule.media.mediaText + " {\n" + inner.join("\n") + "\n}");
-      } else if (rule instanceof CSSSupportsRule) {
-        const inner: string[] = [];
-        for (const r of Array.from(rule.cssRules)) {
-          if (r instanceof CSSStyleRule && KEEP_RE.test(r.selectorText)) inner.push(r.cssText);
-        }
-        if (inner.length) out.push("@supports " + rule.conditionText + " {\n" + inner.join("\n") + "\n}");
-      }
-    }
-  };
-  for (const sheet of Array.from(document.styleSheets)) {
-    try { walk(sheet.cssRules); } catch { /* cross-origin sheet, skip */ }
-  }
-  return out.join("\n");
-}
+/**
+ * Build the export body for a note.
+ *
+ * Rendering happens from the markdown source. It cannot be taken from the editor
+ * any more: CodeMirror renders only its viewport — the visible area plus a
+ * hard-coded 1000px that no option can widen — so the editor's DOM holds roughly
+ * one screenful of the note. Reading it exported the visible part and silently
+ * dropped the rest.
+ *
+ * Everything async is supplied here rather than inside the renderer, so the
+ * renderer itself stays a pure function of the markdown and can be unit tested.
+ */
+async function buildExportBody(markdown: string): Promise<string> {
+  const { resolvedMode, currentFilePath } = useStore.getState();
 
-// Detect whether a code block is a mermaid diagram and return its source.
-// Rendered blocks expose the language via the .language-button text; unrendered
-// (lazy placeholder) blocks have no language UI, so fall back to matching the
-// source against known mermaid diagram-type keywords.
-const MERMAID_KEYWORDS = /^\s*(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|journey|gantt|pie|gitGraph|mindmap|timeline|quadrantChart|requirementDiagram|C4Context|zenuml|sankey|xychart|block)\b/;
-function getMermaidSource(cb: Element): string | null {
-  const codeEl = cb.querySelector(".cm-content") || cb.querySelector(".milkdown-code-block-placeholder code") || cb.querySelector("code");
-  const source = codeEl ? (codeEl.textContent || "") : "";
-  const langBtn = cb.querySelector(".language-button");
-  if (langBtn) {
-    return langBtn.textContent && langBtn.textContent.trim().toLowerCase() === "mermaid" ? source : null;
-  }
-  return MERMAID_KEYWORDS.test(source) ? source : null;
-}
+  // Loaded up front so the renderer's maths callback can stay synchronous.
+  let katex: typeof import("katex") | null = null;
+  try { katex = await import("katex"); } catch { /* formulas stay as source */ }
+  let mermaid: typeof import("mermaid")["default"] | null = null;
+  try { mermaid = (await import("mermaid")).default; } catch { /* diagrams stay as source */ }
 
-// Render any mermaid diagram that has not been rendered yet in the editor.
-// Code blocks are lazily initialised (only when scrolled into view), so a
-// diagram below the fold would otherwise be exported as raw source. This runs
-// on the DETACHED clone, so it never disturbs the live ProseMirror document.
-async function ensureMermaidRendered(root: HTMLElement): Promise<void> {
-  const blocks = Array.from(root.querySelectorAll(".milkdown-code-block"));
-  const pending = blocks.filter(cb => !cb.querySelector(".preview svg") && getMermaidSource(cb) != null);
-  if (!pending.length) return;
-  try {
-    const mermaidMod = await import("mermaid");
-    const { useStore } = await import("../store");
-    const isDark = useStore.getState().resolvedMode === "dark";
-    mermaidMod.default.initialize({ startOnLoad: false, theme: isDark ? "dark" : "default", securityLevel: "antiscript", fontFamily: currentFontStack() });
-    for (const cb of pending) {
-      const source = getMermaidSource(cb);
-      if (source == null) continue;
+  return renderMarkdownToHtml(markdown, {
+    tocTitle: t().editor.tocTitle,
+    resolveImage: src => {
+      try { return resolveImageUrl(src, currentFilePath); } catch { return src; }
+    },
+    renderMath: (source, display) => {
+      if (!katex) return null;
       try {
+        // MathML, not KaTeX's HTML. KaTeX's HTML needs its stylesheet AND its
+        // webfonts, which it references by relative path — a standalone export has
+        // no such folder beside it, so every formula would fall back to a
+        // substitute face. MathML is typeset by the browser itself, so the file
+        // stays self-contained. The preview keeps the HTML form, which does have
+        // the fonts alongside it.
+        return katex.renderToString(source, { displayMode: display, throwOnError: true, output: "mathml" });
+      } catch {
+        return null;
+      }
+    },
+    renderMermaid: async source => {
+      if (!mermaid) return null;
+      try {
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: resolvedMode === "dark" ? "dark" : "default",
+          securityLevel: "antiscript",
+          fontFamily: currentFontStack(),
+        });
         const id = "zn-exp-" + Math.random().toString(36).slice(2, 8);
-        const { svg } = await mermaidMod.default.render(id, source.trim());
-        let preview = cb.querySelector(".preview");
-        if (!preview) {
-          let panel = cb.querySelector(".preview-panel");
-          if (!panel) {
-            panel = document.createElement("div");
-            panel.className = "preview-panel";
-            cb.appendChild(panel);
-          }
-          preview = document.createElement("div");
-          preview.className = "preview";
-          panel.appendChild(preview);
-        }
-        preview.innerHTML = sanitizeSvg(svg);
-      } catch { /* leave this block as source code */ }
-    }
-  } catch { /* mermaid unavailable; blocks stay as source */ }
+        const { svg } = await mermaid.render(id, source);
+        return sanitizeSvg(svg);
+      } catch {
+        return null;
+      }
+    },
+  });
 }
 
-// Serialize the rendered editor content, stripping editing chrome (zoom buttons,
-// code-block toolbars, block-edit handles) and normalising code blocks so the
-// output is clean, portable HTML.
-async function serializeEditorContent(fallbackContent: string): Promise<string> {
-  const editorEl = document.querySelector(".ProseMirror") as HTMLElement | null;
-  if (!editorEl) {
-    return fallbackContent
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/\n/g, "<br>");
-  }
-  const clone = editorEl.cloneNode(true) as HTMLElement;
-
-  // Remove editing-only UI chrome.
-  clone.querySelectorAll(
-    '.zn-mermaid-zoom-btn, .preview-toggle-button, .language-selector, [class*="block-edit"], [class*="crepe-toolbar"], .milkdown-cursor, .ProseMirror-trailingBreak'
-  ).forEach(el => el.remove());
-
-  // Render mermaid diagrams that were not yet rendered in the editor (lazy init).
-  await ensureMermaidRendered(clone);
-
-  // Normalise code blocks: keep mermaid SVGs and rendered LaTeX, turn other
-  // CodeMirror content into plain <pre><code>.
-  clone.querySelectorAll(".milkdown-code-block").forEach(cb => {
-    const svg = cb.querySelector(".preview svg");
-    if (svg) {
-      const wrap = document.createElement("div");
-      wrap.className = "zn-export-mermaid";
-      const clonedSvg = svg.cloneNode(true) as SVGElement;
-      clonedSvg.removeAttribute("style");
-      clonedSvg.setAttribute("style", "max-width:100%;height:auto;");
-      wrap.appendChild(clonedSvg);
-      cb.replaceWith(wrap);
-      return;
-    }
-    // LaTeX blocks: keep the rendered KaTeX output instead of the raw source.
-    const preview = cb.querySelector(".preview") as HTMLElement | null;
-    if (preview && preview.querySelector(".katex")) {
-      const wrap = document.createElement("div");
-      wrap.className = "zn-export-latex";
-      wrap.innerHTML = preview.innerHTML;
-      cb.replaceWith(wrap);
-      return;
-    }
-    const codeText = (cb.querySelector(".cm-content")?.textContent) || cb.textContent || "";
-    const pre = document.createElement("pre");
-    const code = document.createElement("code");
-    code.textContent = codeText.replace(/\n$/, "");
-    pre.appendChild(code);
-    cb.replaceWith(pre);
-  });
-
-  // Normalise raw-HTML blocks: the editor wraps them in a <span data-type="html">,
-  // but block-level content inside a <span> is invalid HTML and gets mangled when
-  // the export is re-parsed for PDF. Convert block ones to <div>. If the block was
-  // being edited at export time (a source <textarea> is present), render its value.
-  clone.querySelectorAll('span[data-type="html"]').forEach(span => {
-    const isBlock = span.classList.contains("zn-html-block");
-    const ta = span.querySelector(".zn-html-textarea") as HTMLTextAreaElement | null;
-    const wrap = document.createElement(isBlock ? "div" : "span");
-    wrap.className = "zn-html-render" + (isBlock ? " zn-html-block" : "");
-    if (ta) {
-      wrap.textContent = "";
-      wrap.innerHTML = sanitizeHtmlFragment(ta.value);
-    } else {
-      wrap.innerHTML = span.innerHTML;
-    }
-    span.replaceWith(wrap);
-  });
-
-  return clone.innerHTML;
-}
-
-// Collect the CURRENTLY-RESOLVED values of every CSS custom property used by
-// the app, read straight from the live computed styles. Emitting these as
-// concrete :root / .milkdown blocks guarantees the export uses exactly the
-// colors/fonts the user sees, regardless of which theme rules get copied.
+// Collect the CURRENTLY-RESOLVED values of every CSS custom property the app
+// defines, read straight from the live computed styles. Emitting them concretely
+// guarantees the export uses exactly the colours and fonts the user sees,
+// whichever theme is active, without copying any of the app's own rules.
 function collectResolvedVariables(): string {
   const names = new Set<string>();
   for (const sheet of Array.from(document.styleSheets)) {
@@ -182,31 +156,20 @@ function collectResolvedVariables(): string {
     } catch { /* cross-origin */ }
   }
   const rootCS = getComputedStyle(document.documentElement);
-  const milkEl = document.querySelector(".milkdown");
-  const milkCS = milkEl ? getComputedStyle(milkEl) : null;
   const rootVars: string[] = [];
-  const milkVars: string[] = [];
   for (const name of names) {
-    const rv = rootCS.getPropertyValue(name).trim();
-    if (rv) rootVars.push(name + ":" + rv + ";");
-    if (milkCS) {
-      const mv = milkCS.getPropertyValue(name).trim();
-      if (mv && mv !== rv) milkVars.push(name + ":" + mv + ";");
-    }
+    const value = rootCS.getPropertyValue(name).trim();
+    if (value) rootVars.push(name + ":" + value + ";");
   }
-  let out = ":root{" + rootVars.join("") + "}";
-  if (milkVars.length) out += "\n.milkdown{" + milkVars.join("") + "}";
-  return out;
+  return ":root{" + rootVars.join("") + "}";
 }
 
 function buildExportHtml(bodyHtml: string, title: string): string {
-  // Match the current app theme attributes so any copied theme rules resolve.
+  // Match the current theme attributes so the emitted variables resolve.
   const root = document.documentElement;
   const isDark = root.classList.contains("dark");
-  const themeId = root.getAttribute("data-theme") || "zen";
-  const dataFont = root.getAttribute("data-font") || "sans";
-  const css = collectEditorCss();
-  const vars = collectResolvedVariables();
+  const themeId = root.getAttribute("data-theme") || "claude";
+  const dataFont = root.getAttribute("data-font") || "claude";
 
   return (
     "<!DOCTYPE html>\n" +
@@ -216,20 +179,13 @@ function buildExportHtml(bodyHtml: string, title: string): string {
     '<meta name="viewport" content="width=device-width,initial-scale=1">\n' +
     "<title>" + title + "</title>\n" +
     "<style>\n" +
-    // Concrete resolved variables first (exact WYSIWYG colors/fonts), then the
-    // copied structural rules, then a small base layout.
-    vars + "\n" +
-    css + "\n" +
-    "*{-webkit-print-color-adjust:exact;print-color-adjust:exact;}\n" +
-    "html,body{margin:0;padding:0;background:var(--bg-editor,#fff);color:var(--text-primary,#1a1a1a);}\n" +
-    "body{max-width:860px;margin:0 auto;padding:40px 24px;font-family:var(--zn-font-stack,'Microsoft YaHei',sans-serif);}\n" +
-    ".zn-export-mermaid{margin:1em 0;text-align:center;}\n" +
-    ".zn-export-latex{margin:1em 0;overflow-x:auto;}\n" +
-    "@media print{body{max-width:none;padding:12mm;}}\n" +
+    // The app's own resolved custom properties, then the export stylesheet.
+    collectResolvedVariables() + "\n" +
+    EXPORT_STYLES +
     "</style>\n" +
     "</head>\n" +
     "<body>\n" +
-    '<div class="milkdown"><div class="ProseMirror">' + bodyHtml + "</div></div>\n" +
+    bodyHtml + "\n" +
     "</body>\n</html>"
   );
 }
@@ -238,7 +194,7 @@ export async function exportToHtml(content: string, filePath: string) {
   try {
     const { save } = await import("@tauri-apps/plugin-dialog");
     const { invoke } = await import("@tauri-apps/api/core");
-    const bodyHtml = await serializeEditorContent(content);
+    const bodyHtml = await buildExportBody(content);
     const name = filePath.split(/[\\/]/).pop()?.replace(/\.md$/, "") || "Note";
     const html = buildExportHtml(bodyHtml, name);
     const defaultPath = filePath.replace(/\.md$/, ".html");
@@ -338,7 +294,7 @@ export async function exportToPdf(content: string, filePath: string) {
     const { invoke } = await import("@tauri-apps/api/core");
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
     await dbg("=== exportToPdf start ===");
-    const bodyHtml = await serializeEditorContent(content);
+    const bodyHtml = await buildExportBody(content);
     const name = filePath.split(/[\\/]/).pop()?.replace(/\.md$/, "") || "Note";
     const html = buildExportHtml(bodyHtml, name);
     await dbg("html built, length=" + html.length);
@@ -428,6 +384,6 @@ export async function exportToPdf(content: string, filePath: string) {
 
 // Test helper: build the full export HTML for the current editor content.
 export async function generateExportHtml(content: string): Promise<string> {
-  const bodyHtml = await serializeEditorContent(content);
+  const bodyHtml = await buildExportBody(content);
   return buildExportHtml(bodyHtml, "export");
 }

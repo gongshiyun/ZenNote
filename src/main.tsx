@@ -1,6 +1,10 @@
 ﻿import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+// KaTeX lays its output out entirely in CSS — without this sheet a formula is a
+// flat run of text, so `a^2` shows as "a2" and fractions lose their bar. Must stay
+// BEFORE globals.css so the app's own rules still win.
+import 'katex/dist/katex.min.css';
 // MUST stay after ./App: globals.css overrides the editor's own rules at the same
 // specificity, so it only wins by being loaded later. Reordering these two imports
 // silently disables every editor override.
