@@ -14,8 +14,9 @@ describe("keyboard routing", () => {
   });
 
   it("recognizes editor surfaces so editor formatting wins over global shortcuts", () => {
+    // The editor is CodeMirror; `.ProseMirror` was the Crepe surface.
     const editor = document.createElement("div");
-    editor.className = "ProseMirror";
+    editor.className = "cm-editor";
     const child = document.createElement("span");
     editor.appendChild(child);
     expect(isEditableTarget(child)).toBe(true);
