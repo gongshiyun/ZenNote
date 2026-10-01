@@ -4,7 +4,7 @@ import { Titlebar } from "./Titlebar";
 import { TabBar } from "./TabBar";
 import { StatusBar } from "./StatusBar";
 import { FileTree } from "../filetree/FileTree";
-import { Editor } from "../editor/Editor";
+import { SourceEditor } from "../editor/SourceEditor";
 import { LivePreviewEditor } from "../editor/livepreview/LivePreviewEditor";
 import { Outline } from "../outline/Outline";
 
@@ -168,7 +168,6 @@ function useWindowPersistence() {
           showHiddenFiles: s.showHiddenFiles,
           showFileExtensions: s.showFileExtensions,
           defaultSourceMode: s.defaultSourceMode,
-          livePreview: s.livePreview,
           sidebarVisible: s.sidebarVisible,
           outlineVisible: s.outlineVisible,
           draft: s.currentFilePath && s.isDirty
@@ -207,7 +206,6 @@ function useWindowPersistence() {
         if (typeof data.showHiddenFiles === "boolean") useStore.getState().setShowHiddenFiles(data.showHiddenFiles);
         if (typeof data.showFileExtensions === "boolean") useStore.getState().setShowFileExtensions(data.showFileExtensions);
         if (typeof data.defaultSourceMode === "boolean") useStore.getState().setDefaultSourceMode(data.defaultSourceMode);
-        if (typeof data.livePreview === "boolean") useStore.getState().setLivePreview(data.livePreview);
         if (typeof data.sidebarVisible === "boolean" && data.sidebarVisible !== useStore.getState().sidebarVisible) useStore.getState().toggleSidebar();
         if (typeof data.outlineVisible === "boolean" && data.outlineVisible !== useStore.getState().outlineVisible) useStore.getState().toggleOutline();
         // An OS-launched file ("Open with") wins over the persisted workspace
@@ -328,7 +326,6 @@ export function AppShell() {
   useCloseSaveGuard();
   useUpdater();
 
-  const livePreview = useStore(s => s.livePreview);
   const sourceMode = useStore(s => s.sourceMode);
 
   const [sidebarWidth] = useState(240);
@@ -340,6 +337,8 @@ export function AppShell() {
   // Live Preview's CodeMirror view. Find & replace and the table/image menus
   // are wired to the Crepe view today; they move onto this one in Phase 4.
   const lpViewRef = useRef<EditorView | null>(null);
+  /** Source mode is a different surface, so it needs its own view handle. */
+  const srcViewRef = useRef<EditorView | null>(null);
   const onSidebarMouseDown = useCallback(() => { isDraggingSidebar.current = true; }, []);
   const onOutlineMouseDown = useCallback(() => { isDraggingOutline.current = true; }, []);
 
@@ -510,11 +509,13 @@ export function AppShell() {
           </>
         )}
         {/* Editor.
-            Source mode falls back to the Crepe editor, which owns the CodeMirror
-            source surface. Live Preview must not ignore `sourceMode` — doing so
-            made Ctrl+` appear to do nothing while Live Preview was on. */}
+            Live Preview is the editor. Source mode — the raw markdown surface —
+            is a separate shell around CodeMirror, not a second editor, which is
+            why toggling it no longer swaps components. */}
         <div style={{ flex: 1, minWidth: 360, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          {livePreview && !sourceMode ? <LivePreviewEditor viewRef={lpViewRef} /> : <Editor />}
+          {sourceMode
+            ? <SourceEditor viewRef={srcViewRef} />
+            : <LivePreviewEditor viewRef={lpViewRef} />}
         </div>
       </div>
       <StatusBar />

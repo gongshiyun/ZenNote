@@ -136,7 +136,6 @@ const zhCN = {
     "editorPadding": "页面左右边距",
     "autoSaveDelay": "自动保存延迟",
     "defaultSourceMode": "默认源码模式",
-    "livePreview": "实时预览编辑器（实验）",
     "fileTree": "文件树",
     "showHiddenFiles": "显示隐藏文件",
     "showFileExtensions": "显示文件扩展名",

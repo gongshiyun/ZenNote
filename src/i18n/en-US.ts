@@ -136,7 +136,6 @@ const enUS = {
     "editorPadding": "Page side margins",
     "autoSaveDelay": "Auto-save delay",
     "defaultSourceMode": "Default source mode",
-    "livePreview": "Live Preview editor (experimental)",
     "fileTree": "File Tree",
     "showHiddenFiles": "Show hidden files",
     "showFileExtensions": "Show file extensions",

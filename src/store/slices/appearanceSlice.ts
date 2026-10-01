@@ -23,16 +23,6 @@ export interface ConfigSlice {
   showHiddenFiles: boolean;
   showFileExtensions: boolean;
   defaultSourceMode: boolean;
-  /**
-   * Use the CodeMirror Live Preview editor instead of the Milkdown/Crepe one.
-   *
-   * Live Preview keeps the raw markdown as the document, so every syntax
-   * character has a real caret position (which is what makes editing a
-   * heading's "###" possible at all). It is opt-in while the port is in
-   * progress: Live Preview currently renders block marks only, so tables,
-   * images, math and Mermaid still need Crepe.
-   */
-  livePreview: boolean;
   setFontSize: (n: number) => void;
   setTabSize: (n: number) => void;
   setEditorPadding: (n: number) => void;
@@ -40,7 +30,6 @@ export interface ConfigSlice {
   setShowHiddenFiles: (v: boolean) => void;
   setShowFileExtensions: (v: boolean) => void;
   setDefaultSourceMode: (v: boolean) => void;
-  setLivePreview: (v: boolean) => void;
 }
 
 export const DEFAULT_AUTO_SAVE_DELAY = 500;
@@ -67,7 +56,6 @@ export const createConfigSlice: StateCreator<ConfigSlice, [], [], ConfigSlice> =
   showHiddenFiles: false,
   showFileExtensions: true,
   defaultSourceMode: false,
-  livePreview: false,
   setFontSize: (n) => set({ fontSize: n }),
   setTabSize: (n) => set({ tabSize: n }),
   setEditorPadding: (n) => set({ editorPadding: n }),
@@ -75,5 +63,4 @@ export const createConfigSlice: StateCreator<ConfigSlice, [], [], ConfigSlice> =
   setShowHiddenFiles: (v) => set({ showHiddenFiles: v }),
   setShowFileExtensions: (v) => set({ showFileExtensions: v }),
   setDefaultSourceMode: (v) => set({ defaultSourceMode: v }),
-  setLivePreview: (v) => set({ livePreview: v }),
 });

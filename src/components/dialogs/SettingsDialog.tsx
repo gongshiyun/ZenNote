@@ -45,8 +45,6 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const setShowFileExtensions = useStore(s => s.setShowFileExtensions);
   const defaultSourceMode = useStore(s => s.defaultSourceMode);
   const setDefaultSourceMode = useStore(s => s.setDefaultSourceMode);
-  const livePreview = useStore(s => s.livePreview);
-  const setLivePreview = useStore(s => s.setLivePreview);
   const mode = useStore(s => s.mode);
   const setMode = useStore(s => s.setMode);
   const themeId = useStore(s => s.themeId);
@@ -224,9 +222,6 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             </Row>
             <Row label={t().settings.defaultSourceMode}>
               <Toggle checked={defaultSourceMode} onChange={setDefaultSourceMode} />
-            </Row>
-            <Row label={t().settings.livePreview}>
-              <Toggle checked={livePreview} onChange={setLivePreview} />
             </Row>
           </Section>
 
