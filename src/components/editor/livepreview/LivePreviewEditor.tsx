@@ -24,7 +24,7 @@ import { offsetAtLineCol } from "../../../lib/textPosition";
 import { computeWordCount } from "../../../domain";
 import { znCodeHighlightStyle } from "../codeHighlight";
 import { FindReplaceBar } from "../FindReplaceBar";
-import { livePreviewExtensions } from "./livePreview";
+import { livePreviewExtensions, scheduleDocumentPreload } from "./livePreview";
 import { Highlight } from "./markdownExtensions";
 import { bubbleToolbar, markKeymap } from "./livePreviewInteractions";
 import { renderedBlockActions } from "./renderedBlockActions";
@@ -43,6 +43,21 @@ export function LivePreviewEditor({ viewRef }: Props) {
   const currentFilePath = useStore(s => s.currentFilePath);
   const tabSize = useStore(s => s.tabSize);
   const editorPadding = useStore(s => s.editorPadding);
+  const resolvedMode = useStore(s => s.resolvedMode);
+
+  // Mermaid bakes the colour scheme into the SVG it produces, and rendered
+  // diagrams are cached per mode, so a scheme change has to re-render all of
+  // them. Nothing else in the editor depends on the mode — the markup is styled
+  // by CSS — so without this the previous mode's diagrams stay on screen:
+  // switching dark to light left dark boxes sitting on a light page.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    // Re-running the prepare pass renders the diagrams for the new mode and
+    // rebuilds the decorations; the old mode's SVGs stay cached for switching
+    // back.
+    scheduleDocumentPreload(view, 0);
+  }, [resolvedMode, viewRef]);
 
   // The scroller margin is driven by the same setting as the old editor, so the
   // "page side margins" slider keeps working.
