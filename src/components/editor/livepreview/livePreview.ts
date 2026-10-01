@@ -726,8 +726,15 @@ export function buildBlockDecorations(state: EditorState): DecorationSet {
       if (fm && node.from <= fm.to) return;
 
       if (node.name === "Table") {
-        // While a cell is being edited the table shows its source instead.
-        if (touched(node.from, node.to)) return;
+        // A table is always rendered, even with the caret in it.
+        //
+        // It used to fall back to its own markdown when the selection touched it,
+        // so that rows and columns could be edited as text. In practice that made
+        // a single click explode the whole table into pipes: mousedown is passed
+        // through (withholding it breaks selecting text inside a cell), so
+        // CodeMirror moves the caret into the table on every click, and the
+        // widget was dropped. Rows and columns now have their own controls, and
+        // the raw markdown is what source mode is for.
         const lines: string[] = [];
         let pos = node.from;
         for (;;) {
@@ -975,9 +982,12 @@ export function buildDecorations(view: EditorView): {
                   : "cm-zn-fence cm-zn-fence-body";
             styleLine(line.from, cls);
           });
-          // Language chip + copy button, placed after the info string on the
-          // opening fence line (where the Crepe editor put its language button).
-          if (!touched(nFrom, nTo)) {
+          // Header (language + copy), withheld only while the opening fence line
+          // itself is being edited — there the raw info string is on screen and
+          // the widget would print the language name a second time. Anywhere else
+          // in the block the header stays, so the code looks like code while it is
+          // being edited and the copy button never disappears on a click.
+          if (first.number !== doc.lineAt(sel.head).number) {
             const info = node.node.getChild("CodeInfo");
             const body = node.node.getChild("CodeText");
             const lang = info ? doc.sliceString(info.from, info.to).trim() : "";
@@ -999,23 +1009,18 @@ export function buildDecorations(view: EditorView): {
           (name === "CodeMark" || name === "CodeInfo") &&
           node.node.parent?.name === "FencedCode"
         ) {
-          const fence = node.node.parent;
-          // One decision for the whole fence line, not one per mark.
+          // The fence markers are the block's chrome, not its content: they are
+          // shown only while the caret sits on that very line.
           //
-          // Deciding per mark went wrong as soon as the caret sat on a different
-          // line of the same block: the backticks were judged "not touched" and
-          // hidden, while the info string was judged "touched" and shown, so the
-          // header read as a bare `ruby` with no fence and no way to edit it.
-          //
-          // Editing the block therefore reveals the whole source — backticks and
-          // info string together — and otherwise both are hidden, because the
-          // tools widget carries the language name.
-          if (touched(fence.from, fence.to)) {
-            const cls = hasSelection() ? "cm-zn-mark cm-zn-mark-on" : "cm-zn-mark";
-            decos.push(Decoration.mark({ class: cls }).range(nFrom, nTo));
-            return;
-          }
-          markRange(nFrom, nTo);
+          // Revealing them for the whole block — which an earlier version did, and
+          // which a per-mark `touched` test did inconsistently before that — made
+          // every click inside a code block sprout ``` above and below it. What
+          // the reader wants when they click into code is to be in the code.
+          const onThisLine = doc.lineAt(nFrom).number === doc.lineAt(sel.head).number;
+          const cls = hasSelection() ? "cm-zn-mark cm-zn-mark-on" : "cm-zn-mark";
+          const deco = onThisLine ? Decoration.mark({ class: cls }) : Decoration.replace({});
+          decos.push(deco.range(nFrom, nTo));
+          if (!onThisLine) atomic.push(deco.range(nFrom, nTo));
           return;
         }
 

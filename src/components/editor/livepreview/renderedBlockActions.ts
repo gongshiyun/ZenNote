@@ -191,7 +191,13 @@ function activateCell(
 
     // Work out where focus should go before the widget is rebuilt.
     let nextTarget: CellTarget | null = null;
+    let grow = false;
     if (move === "next") {
+      // Tab past the last cell adds a row. A table editor is expected to work
+      // that way, and with the table always rendered it is the only keyboard
+      // route to a new row. Data rows are lines[2..], so the last one is
+      // `lines.length - 3`.
+      grow = target.col >= width - 1 && target.row >= lines.length - 3;
       nextTarget = target.col + 1 < width
         ? { row: target.row, col: target.col + 1 }
         : { row: target.row + 1, col: 0 };
@@ -203,11 +209,13 @@ function activateCell(
       nextTarget = { row: target.row + 1, col: target.col };
     }
 
-    if (!cancel && value !== original) {
+    const changed = !cancel && value !== original;
+    if (changed || grow) {
       const next = cells.slice();
-      next[target.col] = value;
+      if (changed) next[target.col] = value;
       const newLines = lines.slice();
       newLines[lineIndex] = rowOf(next, width);
+      if (grow) newLines.push(rowOf(new Array(width).fill(""), width));
       const range = tableRange(view, wrap);
       if (range) {
         // The table's start offset survives the edit (only cell text changed),
