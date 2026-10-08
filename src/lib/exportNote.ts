@@ -26,15 +26,24 @@ import { renderMarkdownToHtml } from "./markdownToHtml";
  */
 const EXPORT_STYLES = `
 *{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-html,body{margin:0;padding:0;background:var(--bg-editor,#fff);color:var(--text-primary,#1a1a1a);}
-body{max-width:800px;margin:0 auto;padding:56px 28px;font-family:var(--zn-font-stack,'Microsoft YaHei',sans-serif);font-size:16px;line-height:1.75;}
-h1,h2,h3,h4,h5,h6{font-weight:600;line-height:1.35;color:var(--zn-editor-heading,var(--text-primary));margin:1.6em 0 .6em;}
-h1{font-size:2.1em;margin-top:0;padding-bottom:.3em;border-bottom:1px solid var(--zn-editor-rule,#e5e5e5);}
-h2{font-size:1.65em;padding-bottom:.25em;border-bottom:1px solid var(--zn-editor-rule,#e5e5e5);}
-h3{font-size:1.35em;}h4{font-size:1.15em;}h5{font-size:1.02em;}
-h6{font-size:.94em;color:var(--text-secondary);}
+html,body{margin:0;padding:0;background:var(--bg-editor,#fff);}
+/* Body text, measured from the live preview: the sans stack, --zn-editor-text (not
+   --text-primary, which is the heading colour), 16px, 1.75 leading. */
+body{max-width:800px;margin:0 auto;padding:56px 28px;font-family:var(--zn-font-stack,'Microsoft YaHei',sans-serif);font-size:var(--zn-editor-font-size,16px);line-height:1.75;color:var(--zn-editor-text,var(--text-primary));}
+/* Headings switch to the serif face. This was the visible mismatch: the export
+   inherited the sans body stack, so every title came out in the wrong typeface.
+   Sizes, weights, line heights and padding are the preview's own values. */
+h1,h2,h3,h4,h5,h6{font-family:var(--zn-font-serif,Georgia,serif);font-weight:600;color:var(--zn-editor-heading,var(--text-primary));}
+h1{font-size:2.1em;line-height:1.3;padding:.5em 0 .3em;}
+h2{font-size:1.65em;line-height:1.35;padding:.5em 0 .25em;border-bottom:1px solid var(--zn-editor-rule-soft,#e5e5e5);}
+h3{font-size:1.35em;line-height:1.4;padding:.4em 0 .2em;}
+h4{font-size:1.15em;padding:.35em 0 .15em;}
+h5{font-size:1.02em;padding:.3em 0 .1em;}
+h6{font-size:.94em;color:var(--zn-editor-muted,var(--text-secondary));padding:.3em 0 .1em;}
 p{margin:.9em 0;}
-a{color:var(--text-accent,#C2603F);text-decoration:none;}
+/* The preview's links are --zn-editor-link with an underline, not the accent
+   colour bare. */
+a{color:var(--zn-editor-link,var(--text-accent,#C2603F));text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--zn-editor-link,var(--text-accent,#C2603F)) 40%,transparent);text-underline-offset:.18em;}
 strong,b{font-weight:700;color:var(--zn-editor-heading,var(--text-primary));}
 del,s{text-decoration:line-through;color:var(--zn-editor-muted,var(--text-secondary));}
 mark{background:color-mix(in srgb,var(--text-accent) 26%,transparent);color:inherit;padding:0 2px;border-radius:3px;}
@@ -269,17 +278,6 @@ async function dbg(msg: string): Promise<void> {
   } catch { /* logging must never break the export */ }
 }
 
-// Encode a UTF-8 string as base64 (for building a data: URL).
-function utf8ToBase64(str: string): string {
-  const bytes = new TextEncoder().encode(str);
-  let binary = "";
-  const chunk = 8192;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...Array.from(bytes.subarray(i, i + chunk)));
-  }
-  return btoa(binary);
-}
-
 // PDF export (Typora-style): render the styled document into an off-screen
 // webview and ask WebView2 to print it straight to a PDF file — no print dialog.
 //
@@ -311,8 +309,28 @@ export async function exportToPdf(content: string, filePath: string) {
     const dismissLoading = showLoadingToast("正在导出 PDF…");
 
     const label = "pdf-export-" + Date.now();
-    const dataUrl = "data:text/html;base64," + utf8ToBase64(html);
-    await dbg("creating WebviewWindow label=" + label + " dataUrl length=" + dataUrl.length);
+    // The document is written to a real file and loaded over file:// rather than
+    // handed to the window as a data: URL. A data: URL page has an opaque origin,
+    // where nothing resolves 'self' — and WebView2's print path is exactly the kind
+    // of thing that goes empty there. Over file:// the origin is real, the theme's
+    // own `'self'` CSP matches, and the page is an ordinary document to the
+    // printer. It also lifts the practical ceiling on data: URL length.
+    const tempPath = savePath.replace(/\.pdf$/i, "") + ".pdf-render.html";
+    try {
+      await invoke("write_file", { path: tempPath, content: html });
+    } catch (err) {
+      await dbg("write temp html FAILED: " + String(err));
+      dismissLoading();
+      showToast("PDF 导出失败: 无法写入渲染文件: " + String(err), true);
+      return;
+    }
+    const fileUrl = "file:///" + tempPath.replace(/\\/g, "/").replace(/^\/+/, "");
+    await dbg("temp file=" + tempPath + " url=" + fileUrl);
+    // Best-effort cleanup: the existing delete_file errors when the file is
+    // already gone, which is exactly the case after a successful export.
+    const removeTemp = () => {
+      void invoke("delete_file", { path: tempPath }).catch(() => undefined);
+    };
 
     // Guard so the export only ever starts once (created-event OR fallback timer).
     let started = false;
@@ -321,29 +339,39 @@ export async function exportToPdf(content: string, filePath: string) {
       started = true;
       dbg("startExport via " + via).then(() => {
         invoke("export_pdf", { label, path: savePath })
-          .then(() => { dbg("export_pdf SUCCESS"); dismissLoading(); showToast("PDF 导出成功 ✓"); })
+          .then(() => { dbg("export_pdf SUCCESS"); dismissLoading(); removeTemp(); showToast("PDF 导出成功 ✓"); })
           .catch((err: unknown) => {
             dbg("export_pdf FAILED: " + String(err));
             dismissLoading();
+            removeTemp();
             showToast("PDF 导出失败: " + String(err) + " 日志: " + dbgLogPath, true);
           });
       });
     };
 
     try {
-      // The render window is created HIDDEN. The Rust side makes it fully
-      // transparent (alpha=0) and THEN shows it, so WebView2 renders (PrintToPdf
-      // works) but the user never sees any window — no flash, no popup, regardless
-      // of monitor layout/DPI. (A merely off-screen window gets clamped on-screen
-      // on some setups; transparency guarantees invisibility.)
+      // The render window is created HIDDEN, positioned ON-SCREEN, and made
+      // effectively invisible by the Rust side (alpha = 1/255) BEFORE it is shown.
+      //
+      // Both details are load-bearing, and both were wrong at some point:
+      //
+      // * Alpha must be 1, not 0. A fully transparent layered window composites
+      //   to nothing and WebView2 hands PrintToPdf an empty document.
+      // * The window must be ON-SCREEN. It used to sit at x/y = -2000, and
+      //   Chromium does not rasterise content for a window that is entirely
+      //   outside the display bounds — so the PDF came out blank even though the
+      //   document was loaded fine (its <title> was present in the PDF metadata).
+      //
+      // Alpha is applied while the window is still hidden, so the user never sees
+      // it, and an on-screen position is what keeps WebView2 rendering.
       const win = new WebviewWindow(label, {
         title: name,
-        width: 200,
-        height: 150,
+        width: 794,
+        height: 1123,
         visible: false,
-        x: -2000,
-        y: -2000,
-        url: dataUrl,
+        x: 0,
+        y: 0,
+        url: fileUrl,
         skipTaskbar: true,
         focus: false,
         focusable: false,
@@ -352,7 +380,7 @@ export async function exportToPdf(content: string, filePath: string) {
       });
       win.once("tauri://created", () => {
         dbg("window created OK");
-        // Rust shows the (transparent) window and settles before printing.
+        // Rust shows the (effectively invisible) window and settles before printing.
         setTimeout(() => startExport("created-event"), 150);
       });
       win.once("tauri://error", (e: unknown) => {
@@ -363,12 +391,14 @@ export async function exportToPdf(content: string, filePath: string) {
         } catch { detail = String(e); }
         dbg("window tauri://error: " + detail).then(() => {
           dismissLoading();
+          removeTemp();
           showToast("PDF 导出失败: 无法创建渲染窗口 [" + detail + "] 日志: " + dbgLogPath, true);
         });
       });
     } catch (e) {
       await dbg("WebviewWindow constructor threw: " + String(e));
       dismissLoading();
+      removeTemp();
       showToast("PDF 导出失败: 无法创建渲染窗口: " + String(e), true);
       return;
     }

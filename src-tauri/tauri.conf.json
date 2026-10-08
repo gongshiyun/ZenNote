@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "ZenNote",
-  "version": "0.8.35",
+  "version": "0.8.36",
   "identifier": "com.zennote.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -28,7 +28,9 @@
       "devCsp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["**"]
+        "scope": [
+          "**"
+        ]
       }
     }
   },

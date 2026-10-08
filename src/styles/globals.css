@@ -578,6 +578,11 @@
    ======================================== */
 :root {
   --zn-font-stack: "Microsoft YaHei", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  /* Headings use a serif face while body text uses --zn-font-stack. It lives here,
+     not only in livePreviewTheme.ts, so the exported document can reach the same
+     stack through a variable instead of a second copy of the list. */
+  --zn-font-serif: "Anthropic Serif", "AnthropicSerif", "Tiempos", "Source Serif 4",
+    "Noto Serif SC", "Songti SC", Georgia, Cambria, "Times New Roman", serif;
 }
 :root[data-font="claude"] {
   --zn-font-stack: "Anthropic Sans", "AnthropicSans", "Styrene", "Inter", -apple-system,

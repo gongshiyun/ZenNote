@@ -15,9 +15,7 @@ export const LIVE_PREVIEW_FONT =
   'BlinkMacSystemFont, "Segoe UI", "PingFang SC", "HarmonyOS Sans SC", ' +
   '"Source Han Sans SC", "Noto Sans SC", "Microsoft YaHei", sans-serif';
 
-export const LIVE_PREVIEW_SERIF =
-  '"Anthropic Serif", "AnthropicSerif", "Tiempos", "Source Serif 4", ' +
-  '"Noto Serif SC", "Songti SC", Georgia, Cambria, "Times New Roman", serif';
+export const LIVE_PREVIEW_SERIF = "var(--zn-font-serif)";
 
 export const LIVE_PREVIEW_MONO =
   '"Cascadia Code", "JetBrains Mono", "Fira Code", Consolas, "Microsoft YaHei", monospace';

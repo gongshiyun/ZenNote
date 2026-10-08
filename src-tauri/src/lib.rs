@@ -399,11 +399,18 @@ fn search_workspace(
 
 // ---- PDF export (Windows: WebView2 PrintToPdf, no print dialog) ----
 
-/// Make a window fully transparent (alpha = 0) via Win32 layered-window
+/// Make a window effectively invisible (alpha = 1/255) via Win32 layered-window
 /// attributes, and hide it from the taskbar (WS_EX_TOOLWINDOW, clear
 /// WS_EX_APPWINDOW). The window stays "shown" (so WebView2 keeps rendering and
-/// PrintToPdf works) but is completely invisible to the user. Logs each step so
+/// PrintToPdf works) but is imperceptible to the user. Logs each step so
 /// failures can be diagnosed from export-debug.log.
+///
+/// The alpha is 1, NOT 0. A fully transparent layered window (alpha = 0) is
+/// composited as nothing at all, and WebView2 then hands PrintToPdf an EMPTY
+/// document: the export came out as one page with a zero-length content stream
+/// and not a single font resource. 1/255 is visually indistinguishable from
+/// invisible while keeping the compositor on the normal drawing path. Do not
+/// "tidy" this back to 0.
 #[cfg(windows)]
 fn make_window_transparent(webview_window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
     use windows::Win32::Foundation::{COLORREF, HWND};
@@ -426,12 +433,13 @@ fn make_window_transparent(webview_window: &tauri::WebviewWindow, app: &tauri::A
             & !(WS_EX_APPWINDOW.0 as isize);
         let set_result = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_style);
         let ex_after = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        let alpha_ok = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA).is_ok();
+        // 1, not 0 — see the note above. An alpha of 0 yields a blank PDF.
+        let alpha_ok = SetLayeredWindowAttributes(hwnd, COLORREF(0), 1, LWA_ALPHA).is_ok();
         append_debug_log(
             app,
             "rust",
             &format!(
-                "transparent: hwnd={:?} ex_before={:#x} set_result={} ex_after={:#x} alpha_ok={}",
+                "transparent: hwnd={:?} ex_before={:#x} set_result={} ex_after={:#x} alpha_ok={} alpha=1",
                 hwnd.0, ex_before, set_result, ex_after, alpha_ok
             ),
         );
@@ -515,7 +523,18 @@ async fn export_pdf(app: tauri::AppHandle, label: String, path: String) -> Resul
     make_window_transparent(&webview_window, &app);
     let _ = webview_window.show();
     make_window_transparent(&webview_window, &app);
-    append_debug_log(&app, "rust", "export_pdf: window shown (transparent)");
+    // Record the window's actual state at print time. A window that is off-screen
+    // or not visible is exactly the condition under which WebView2 skips
+    // rasterising, and that shows up as an empty PDF rather than an error — so
+    // this line is the difference between "guessing" and knowing.
+    let state = format!(
+        "pos={:?} outer={:?} inner={:?} visible={:?}",
+        webview_window.outer_position().ok(),
+        webview_window.outer_size().ok(),
+        webview_window.inner_size().ok(),
+        webview_window.is_visible().ok(),
+    );
+    append_debug_log(&app, "rust", &format!("export_pdf: window shown (alpha=1) {}", state));
 
     let pdf_path = std::path::PathBuf::from(&path);
     // Remove any stale file from a previous failed attempt so polling is clean.
@@ -523,12 +542,19 @@ async fn export_pdf(app: tauri::AppHandle, label: String, path: String) -> Resul
 
     // Settle so the (self-contained data:) document finishes loading/rendering
     // now that the window is shown.
-    std::thread::sleep(std::time::Duration::from_millis(600));
+    std::thread::sleep(std::time::Duration::from_millis(900));
 
-    // The export window is visible (off-screen), so rendering is active. Fire
-    // PrintToPdf and poll the output file; if the first attempt doesn't produce
-    // a file in time, retry (guards against the call landing before the document
-    // is fully ready). Up to 3 attempts, ~40s total.
+    // The export window is visible, so rendering is active. Fire PrintToPdf and
+    // poll the output file; if the first attempt doesn't produce a usable file in
+    // time, retry (guards against the call landing before the document is fully
+    // ready). Up to 3 attempts, ~40s total.
+    //
+    // A finished but EMPTY PDF is a real outcome, not a success: when the window
+    // is not actually rendering, Skia emits a valid single page whose content
+    // stream is zero-length (881 bytes, no /Font). Accepting any non-zero size
+    // reported "PDF 导出成功 ✓" for a blank file, so the bar is a size a blank
+    // page can never reach.
+    const MIN_PLAUSIBLE_PDF_BYTES: u64 = 4096;
     let mut result: Result<(), String> =
         Err("timed out waiting for the PDF file to be written".to_string());
     'outer: for attempt in 0..3u32 {
@@ -546,13 +572,25 @@ async fn export_pdf(app: tauri::AppHandle, label: String, path: String) -> Resul
                     std::thread::sleep(std::time::Duration::from_millis(400));
                     let size2 = std::fs::metadata(&pdf_path).map(|m| m.len()).unwrap_or(0);
                     if size2 > 0 && size2 == size1 {
-                        append_debug_log(
-                            &app,
-                            "rust",
-                            &format!("export_pdf: PDF ready attempt={} size={}", attempt, size2),
-                        );
-                        result = Ok(());
-                        break 'outer;
+                        if size2 < MIN_PLAUSIBLE_PDF_BYTES {
+                            append_debug_log(
+                                &app,
+                                "rust",
+                                &format!(
+                                    "export_pdf: attempt={} produced a {} byte file, too small to \
+                                     contain the note — treating as a failed render",
+                                    attempt, size2
+                                ),
+                            );
+                        } else {
+                            append_debug_log(
+                                &app,
+                                "rust",
+                                &format!("export_pdf: PDF ready attempt={} size={}", attempt, size2),
+                            );
+                            result = Ok(());
+                            break 'outer;
+                        }
                     }
                 }
             }
