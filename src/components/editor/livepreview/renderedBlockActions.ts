@@ -96,6 +96,14 @@ function cellPos(el: HTMLElement): CellPos {
   return { row: Number(el.dataset.row ?? "-1"), col: Number(el.dataset.col ?? "0") };
 }
 
+/** The element a live native text selection is anchored in, or null. */
+function nativeSelectionAnchor(): Element | null {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed) return null;
+  const anchor = sel.anchorNode;
+  return anchor instanceof Element ? anchor : anchor?.parentElement ?? null;
+}
+
 /**
  * Markdown delimiters for the marks `appendInline` (widgets.ts) can produce.
  * A link is handled separately because it carries an href.
@@ -440,17 +448,27 @@ class RenderedBlockManager {
     if (!cell) { this.closeTableMenu(); return; }
     const wrap = cell.closest(".cm-zn-table-wrap") as HTMLElement | null;
     if (!wrap) return;
-    // Right-clicking inside the painted range acts on the range; anywhere else
-    // starts a fresh single-cell menu.
+    this.closeImageBar();
+    // A right-click over selected text is a text gesture: the browser's own
+    // menu (copy, paste, ...) is what belongs there, so nothing is prevented.
+    if (nativeSelectionAnchor()?.closest(".cm-zn-table-wrap") === wrap) {
+      this.closeTableMenu();
+      return;
+    }
+    // Inside a painted range the menu operates on the range; anywhere else the
+    // table menu stays out of the way — row/column operations remain on the
+    // frame's own button.
     const sel = this.cellSel;
     const pos = cellPos(cell);
     const inRange = !!sel && sel.wrap === wrap && sel.wrap.isConnected
       && rectContains(sel.rect, pos.row, pos.col);
-    if (!inRange) this.clearCellSelection();
+    if (!inRange) {
+      this.closeTableMenu();
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
-    this.closeImageBar();
-    this.openTableMenu(e.clientX, e.clientY, wrap, cell, inRange && sel ? sel.rect : null);
+    this.openTableMenu(e.clientX, e.clientY, wrap, cell, sel ? sel.rect : null);
   };
 
   private readonly onDocPointerDown = (e: MouseEvent) => {
@@ -606,10 +624,7 @@ class RenderedBlockManager {
   private readonly onCopy = (e: ClipboardEvent) => {
     const sel = this.cellSel;
     if (!sel || !sel.wrap.isConnected) return;
-    const native = window.getSelection();
-    const anchor = native?.anchorNode ?? null;
-    const anchorEl = anchor instanceof Element ? anchor : anchor?.parentElement ?? null;
-    if (native && !native.isCollapsed && anchorEl?.closest(".cm-zn-table-wrap")) return;
+    if (nativeSelectionAnchor()?.closest(".cm-zn-table-wrap")) return;
     const pos = this.posOf(sel.wrap);
     if (pos === null) return;
     const node = nodeRangeAt(this.view, "Table", pos);
@@ -824,6 +839,10 @@ class RenderedBlockManager {
     this.view.dispatch({
       changes: { from: node.from, to: node.to, insert: lines.join("\n") },
     });
+    // The menu's buttons swallow mousedown focus, which can leave focus on a
+    // table cell — whose keydown handler stops propagation, so Ctrl+Z would
+    // die there instead of reaching the editor's history. Hand focus back.
+    this.view.focus();
   }
 
   private deleteTable(node: { from: number; to: number }): void {
@@ -831,6 +850,7 @@ class RenderedBlockManager {
     // Take the trailing newline too, so no blank line is left behind.
     const to = this.view.state.sliceDoc(node.to, node.to + 1) === "\n" ? node.to + 1 : node.to;
     this.view.dispatch({ changes: { from: node.from, to } });
+    this.view.focus();
   }
 
   private closeTableMenu(): void {
