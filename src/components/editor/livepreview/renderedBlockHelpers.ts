@@ -135,3 +135,79 @@ export function makeTable(width = 2, rows = 1): string[] {
   const body = Array.from({ length: rows }, () => rowOf([], width, ""));
   return [head, delim, ...body];
 }
+
+/* -------------------------------------------------------------- table selection */
+
+/** A cell address. Data rows are 0-based; the header row is -1. */
+export interface CellPos {
+  row: number;
+  col: number;
+}
+
+/** A rectangular cell range, normalised so r1 <= r2 and c1 <= c2. */
+export interface CellRect {
+  r1: number;
+  c1: number;
+  r2: number;
+  c2: number;
+}
+
+/** The rectangle two drag corners span. */
+export function cellRectOf(a: CellPos, b: CellPos): CellRect {
+  return {
+    r1: Math.min(a.row, b.row),
+    c1: Math.min(a.col, b.col),
+    r2: Math.max(a.row, b.row),
+    c2: Math.max(a.col, b.col),
+  };
+}
+
+/** Whether a cell lies inside a rectangle. */
+export function rectContains(rect: CellRect, row: number, col: number): boolean {
+  return row >= rect.r1 && row <= rect.r2 && col >= rect.c1 && col <= rect.c2;
+}
+
+/**
+ * Delete every data row in `[from, to]`. The header is never removable, so the
+ * range is clamped to data rows; deletion runs bottom-up so the earlier indices
+ * stay valid.
+ */
+export function deleteRowRange(lines: string[], from: number, to: number): string[] {
+  let out = lines;
+  for (let i = Math.min(to, lines.length - 3); i >= Math.max(from, 0); i--) {
+    out = deleteRow(out, i);
+  }
+  return out;
+}
+
+/**
+ * Delete every column in `[from, to]`, right to left so the remaining indices
+ * stay valid. `deleteColumn` refuses the last column, so a range covering the
+ * whole table keeps one — the same rule as the single-column gesture.
+ */
+export function deleteColumnRange(lines: string[], from: number, to: number): string[] {
+  let out = lines;
+  for (let i = Math.min(to, tableWidth(lines) - 1); i >= Math.max(from, 0); i--) {
+    out = deleteColumn(out, i);
+  }
+  return out;
+}
+
+/**
+ * The selected cells as TSV — the format a spreadsheet reads from the
+ * clipboard. The header row is included when the selection covers it.
+ */
+export function cellsToTsv(lines: string[], rect: CellRect): string {
+  const width = tableWidth(lines);
+  if (width === 0) return "";
+  const c1 = Math.max(rect.c1, 0);
+  const c2 = Math.min(rect.c2, width - 1);
+  const r1 = Math.max(rect.r1, -1);
+  const r2 = Math.min(rect.r2, lines.length - 3);
+  if (c1 > c2 || r1 > r2) return "";
+  const rows: string[] = [];
+  for (let r = r1; r <= r2; r++) {
+    rows.push(cellsOf(lines[r < 0 ? 0 : r + 2]).slice(c1, c2 + 1).join("\t"));
+  }
+  return rows.join("\n");
+}

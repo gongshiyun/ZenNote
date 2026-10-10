@@ -3,9 +3,14 @@
  *
  * A widget stands in for a run of markdown that is rendered rather than edited
  * while the caret is elsewhere: a list bullet, a task checkbox, an image, a
- * table, a Mermaid diagram, a KaTeX formula. All of them return `false` from
+ * table, a Mermaid diagram, a KaTeX formula. They return `false` from
  * `ignoreEvent` so a click still reaches the editor and moves the caret into
- * the underlying markdown.
+ * the underlying markdown — with one exception: the table returns `true`,
+ * because every gesture inside it (cell editing, text selection, cell-range
+ * dragging, its context menu) is handled by RenderedBlockManager itself.
+ * Handing those events to CodeMirror instead would make the editor's own
+ * selection machinery claim every drag, which is exactly why selecting text in
+ * a cell did not work.
  */
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { StateEffect, StateField } from "@codemirror/state";
@@ -247,6 +252,12 @@ export class TableWidget extends WidgetType {
       // Identity for the table context menu: the header is row -1.
       th.dataset.row = "-1";
       th.dataset.col = String(i);
+      // The cell is editable content from the start: Chrome refuses to start a
+      // mouse selection inside a contenteditable=false island, so a read-only
+      // cell could not be dragged over or copied. Editing is still a separate
+      // step — a click adds the commit wiring on top (see activateCell).
+      th.contentEditable = "true";
+      th.spellcheck = false;
       const a = alignOf(i);
       if (a) th.style.textAlign = a;
       appendInline(th, cell);
@@ -262,6 +273,10 @@ export class TableWidget extends WidgetType {
         const td = document.createElement("td");
         td.dataset.row = String(rowIndex);
         td.dataset.col = String(i);
+        // Editable from the start — see the header comment above: this is what
+        // makes native text selection (and copying) work inside a cell.
+        td.contentEditable = "true";
+        td.spellcheck = false;
         const a = alignOf(i);
         if (a) td.style.textAlign = a;
         appendInline(td, cell);
@@ -279,8 +294,16 @@ export class TableWidget extends WidgetType {
     return wrap;
   }
 
+  /**
+   * The table owns its events. Every pointer gesture here is handled by
+   * RenderedBlockManager (cell click-to-edit, native text selection in a cell,
+   * drag across cells, the row/column menu), so the editor must keep its hands
+   * off. With the default (`false`) CodeMirror starts its own MouseSelection on
+   * mousedown, whose selection lives in the document model — native text
+   * selection inside the cells then never survives, and copy stops working.
+   */
   ignoreEvent(): boolean {
-    return false;
+    return true;
   }
 }
 

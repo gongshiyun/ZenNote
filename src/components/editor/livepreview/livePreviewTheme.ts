@@ -511,6 +511,11 @@ const themeSpec = {  "&": {
     cursor: "text",
   },
   ".cm-zn-table td, .cm-zn-table th": { cursor: "text" },
+  /* A painted cell range (drag across cells). The tint is the app's accent at
+     low strength, so it reads as "selected" in every theme. */
+  ".cm-zn-table th.cm-zn-cell-selected, .cm-zn-table td.cm-zn-cell-selected": {
+    background: "color-mix(in srgb, var(--text-accent) 16%, transparent)",
+  },
 
   /* ---- `[TOC]` outline ----
      Lives here rather than in the chrome stylesheet: it is document content, and

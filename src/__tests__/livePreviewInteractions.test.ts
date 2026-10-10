@@ -14,6 +14,7 @@ import {
   SLASH_ITEMS,
 } from '../components/editor/livepreview/slashMenu';
 import { Highlight } from '../components/editor/livepreview/markdownExtensions';
+import { TableWidget } from '../components/editor/livepreview/widgets';
 
 // Phase 4 interactions. Mark toggling is pure text surgery on the markdown, so
 // it is fully testable without a real browser: build a state, run the command,
@@ -251,5 +252,16 @@ describe('live preview — slash menu', () => {
       expect(view.state.doc.toString()).toBe('---\n');
       view.destroy();
     });
+  });
+});
+
+describe('live preview — table widget events', () => {
+  it('keeps the editor out of the table so native selection can work', () => {
+    // `ignoreEvent` returning true means CodeMirror leaves every event inside
+    // the table to the browser and to RenderedBlockManager. Returning false
+    // (the previous behaviour) made the editor claim mousedown and start its
+    // own MouseSelection, which is why text in a cell could not be selected.
+    const widget = new TableWidget([], [], [], 'k');
+    expect(widget.ignoreEvent()).toBe(true);
   });
 });

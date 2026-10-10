@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
+  cellRectOf,
   cellsOf,
+  cellsToTsv,
   deleteColumn,
+  deleteColumnRange,
   deleteRow,
+  deleteRowRange,
   insertColumn,
   insertRow,
   makeTable,
   parseImageAlt,
+  rectContains,
   rowOf,
   tableWidth,
   withImageAlign,
@@ -174,5 +179,55 @@ describe('live preview — new table generation', () => {
     const t = makeTable(4, 2);
     expect(tableWidth(t)).toBe(4);
     expect(t).toHaveLength(4);
+  });
+});
+
+describe('live preview — table cell selection', () => {
+  const table = ['| a | b | c |', '| --- | --- | --- |', '| 1 | 2 | 3 |', '| 4 | 5 | 6 |'];
+
+  it('normalises two drag corners into a rectangle', () => {
+    expect(cellRectOf({ row: 1, col: 2 }, { row: 0, col: 0 })).toEqual({ r1: 0, c1: 0, r2: 1, c2: 2 });
+    expect(cellRectOf({ row: -1, col: 1 }, { row: -1, col: 1 })).toEqual({ r1: -1, c1: 1, r2: -1, c2: 1 });
+  });
+
+  it('reports whether a cell is inside the rectangle', () => {
+    const rect = { r1: -1, c1: 0, r2: 1, c2: 1 };
+    expect(rectContains(rect, -1, 0)).toBe(true);
+    expect(rectContains(rect, 1, 1)).toBe(true);
+    expect(rectContains(rect, 2, 1)).toBe(false);
+    expect(rectContains(rect, 0, 2)).toBe(false);
+  });
+
+  it('deletes every row a range covers', () => {
+    expect(deleteRowRange(table, 0, 1)).toEqual(['| a | b | c |', '| --- | --- | --- |']);
+  });
+
+  it('never deletes the header, even when the range covers it', () => {
+    expect(deleteRowRange(table, -1, 0)).toEqual([
+      '| a | b | c |', '| --- | --- | --- |', '| 4 | 5 | 6 |',
+    ]);
+    expect(deleteRowRange(table, -1, -1)).toEqual(table);
+  });
+
+  it('deletes every column a range covers', () => {
+    const out = deleteColumnRange(table, 0, 1);
+    expect(cellsOf(out[0])).toEqual(['c']);
+    expect(cellsOf(out[2])).toEqual(['3']);
+  });
+
+  it('keeps one column when the range covers the whole table', () => {
+    expect(tableWidth(deleteColumnRange(table, 0, 2))).toBe(1);
+  });
+
+  it('copies the selected cells as TSV', () => {
+    expect(cellsToTsv(table, { r1: 0, c1: 0, r2: 1, c2: 1 })).toBe('1\t2\n4\t5');
+    expect(cellsToTsv(table, { r1: -1, c1: 0, r2: 0, c2: 1 })).toBe('a\tb\n1\t2');
+    expect(cellsToTsv(table, { r1: -1, c1: 2, r2: 1, c2: 2 })).toBe('c\n3\n6');
+  });
+
+  it('clamps a selection to the real table bounds', () => {
+    expect(cellsToTsv(table, { r1: 0, c1: 0, r2: 99, c2: 99 })).toBe('1\t2\t3\n4\t5\t6');
+    expect(cellsToTsv(table, { r1: -1, c1: 0, r2: 99, c2: 99 })).toBe('a\tb\tc\n1\t2\t3\n4\t5\t6');
+    expect(cellsToTsv(['| a |'], { r1: 0, c1: 0, r2: 0, c2: 0 })).toBe('');
   });
 });

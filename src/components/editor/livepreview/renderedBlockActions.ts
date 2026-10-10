@@ -17,14 +17,21 @@ import { syntaxTree } from "@codemirror/language";
 import { openZoomOverlay } from "../zoomOverlay";
 import { t } from "../../../i18n";
 import {
+  cellRectOf,
   cellsOf,
+  cellsToTsv,
   deleteColumn,
+  deleteColumnRange,
   deleteRow,
+  deleteRowRange,
   insertColumn,
   insertRow,
   parseImageAlt,
+  rectContains,
   rowOf,
   withImageAlign,
+  type CellPos,
+  type CellRect,
   type ImageAlign,
 } from "./renderedBlockHelpers";
 
@@ -82,6 +89,11 @@ function cellElement(wrap: HTMLElement, row: number, col: number): HTMLElement |
   return wrap.querySelector<HTMLElement>(
     `.cm-zn-table [data-row="${row}"][data-col="${col}"]`,
   );
+}
+
+/** The cell address stored on a rendered cell. */
+function cellPos(el: HTMLElement): CellPos {
+  return { row: Number(el.dataset.row ?? "-1"), col: Number(el.dataset.col ?? "0") };
 }
 
 /**
@@ -147,10 +159,22 @@ function serializeCell(cell: HTMLElement): string {
 }
 
 /**
- * Make one cell editable. `cells`/`lineIndex` describe where it lives in the
- * table's source lines.
+ * Cells whose commit wiring is already attached. Elements are recreated by
+ * every rebuild, so the set never grows beyond the live widgets.
  */
-function activateCell(
+const wiredCells = new WeakSet<HTMLElement>();
+
+/**
+ * Attach the commit wiring for one cell: Tab / Enter / Escape handling and the
+ * blur that serializes the cell back into the table's source.
+ *
+ * Deliberately separate from activating the edit UI, and idempotent per
+ * element: focus alone — a mousedown, which is also how a text selection
+ * starts — must already make typing safe (the cell is editable content, so a
+ * keystroke would otherwise change the DOM without ever reaching the
+ * document). It does not move the caret or touch the selection.
+ */
+function wireCell(
   view: EditorView,
   wrap: HTMLElement,
   td: HTMLElement,
@@ -159,34 +183,16 @@ function activateCell(
   width: number,
   target: CellTarget,
 ): void {
+  if (wiredCells.has(td)) return;
+  wiredCells.add(td);
+
   const cells = cellsOf(lines[lineIndex]);
   const original = cells[target.col] ?? "";
-
-  td.contentEditable = "true";
-  td.classList.add("cm-zn-cell-editing");
-  // The rendered content is deliberately NOT replaced with its source. Revealing
-  // the markdown on a click made every table look like it had fallen apart, when
-  // all the reader wanted was to put the caret in a cell. The marks stay rendered
-  // and `serializeCell` puts them back on commit.
-  td.spellcheck = false;
-
-  // Put the caret at the end and select nothing, so typing appends rather than
-  // wiping a cell the user only meant to look at.
-  try {
-    const range = document.createRange();
-    range.selectNodeContents(td);
-    range.collapse(false);
-    const sel = window.getSelection();
-    sel?.removeAllRanges();
-    sel?.addRange(range);
-  } catch { /* selection is best-effort */ }
-  td.focus();
 
   const finish = (move: "next" | "prev" | "down" | "none", cancel = false) => {
     if (committing) return;
     committing = true;
     const value = cancel ? original : serializeCell(td);
-    td.contentEditable = "false";
     td.classList.remove("cm-zn-cell-editing");
 
     // Work out where focus should go before the widget is rebuilt.
@@ -255,7 +261,46 @@ function activateCell(
   };
 
   td.addEventListener("keydown", onKeyDown);
-  td.addEventListener("blur", () => finish("none"), { once: true });
+  // Permanent, not `once`: an unchanged blur keeps the element alive, so the
+  // next focus/blur cycle has to commit as well.
+  td.addEventListener("blur", () => finish("none"));
+}
+
+/**
+ * Turn a cell into the editing one: the commit wiring, plus the visible state —
+ * the outline and the caret. `caret: "keep"` wires without either, for focus
+ * that arrived as part of a selection gesture.
+ */
+function activateCell(
+  view: EditorView,
+  wrap: HTMLElement,
+  td: HTMLElement,
+  lines: string[],
+  lineIndex: number,
+  width: number,
+  target: CellTarget,
+  caret: "end" | "keep",
+): void {
+  wireCell(view, wrap, td, lines, lineIndex, width, target);
+  if (caret === "keep") return;
+
+  td.classList.add("cm-zn-cell-editing");
+  // The rendered content is deliberately NOT replaced with its source. Revealing
+  // the markdown on a click made every table look like it had fallen apart, when
+  // all the reader wanted was to put the caret in a cell. The marks stay rendered
+  // and `serializeCell` puts them back on commit.
+
+  // Put the caret at the end and select nothing, so typing appends rather than
+  // wiping a cell the user only meant to look at.
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(td);
+    range.collapse(false);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  } catch { /* selection is best-effort */ }
+  td.focus();
 }
 
 /**
@@ -296,12 +341,21 @@ function scheduleActivation(view: EditorView, tableFrom: number, target: CellTar
     const td = cellElement(wrap, row, col);
     if (!td) return;
     const lineIndex = row < 0 ? 0 : row + 2;
-    activateCell(view, wrap, td, lines, lineIndex, width, { row, col });
+    activateCell(view, wrap, td, lines, lineIndex, width, { row, col }, "end");
   }, 0);
 }
 
-/** Enter edit mode on a clicked cell. */
-function beginCellEdit(view: EditorView, wrap: HTMLElement, td: HTMLElement): void {
+/**
+ * Enter edit mode on a clicked cell, or — with `caret: "keep"` — only attach
+ * the commit wiring for a cell that just received focus (a mousedown that may
+ * be the start of a text selection).
+ */
+function beginCellEdit(
+  view: EditorView,
+  wrap: HTMLElement,
+  td: HTMLElement,
+  caret: "end" | "keep" = "end",
+): void {
   const range = tableRange(view, wrap);
   if (!range) return;
   const lines = view.state.sliceDoc(range.from, range.to).split("\n");
@@ -311,7 +365,7 @@ function beginCellEdit(view: EditorView, wrap: HTMLElement, td: HTMLElement): vo
   const col = Number(td.dataset.col ?? "0");
   const lineIndex = row < 0 ? 0 : row + 2;
   if (lineIndex >= lines.length || col >= width) return;
-  activateCell(view, wrap, td, lines, lineIndex, width, { row, col });
+  activateCell(view, wrap, td, lines, lineIndex, width, { row, col }, caret);
 }
 
 /* ------------------------------------------------------------------- helpers */
@@ -362,6 +416,15 @@ class RenderedBlockManager {
    * column to act on.
    */
   private hoverCell: HTMLElement | null = null;
+  /** The painted cell-range selection, if one is active. */
+  private cellSel: { wrap: HTMLElement; rect: CellRect } | null = null;
+  /** The cell-range drag in progress, if the pointer went down on a cell. */
+  private cellDrag: { anchor: CellPos; wrap: HTMLElement; active: boolean } | null = null;
+  /**
+   * Set when a drag ended as a cell range, so the click that follows the
+   * mouseup does not also open a cell for editing.
+   */
+  private suppressClick = false;
 
   private readonly onMouseOver = (e: MouseEvent) => {
     const cell = (e.target as HTMLElement)?.closest?.(
@@ -377,17 +440,37 @@ class RenderedBlockManager {
     if (!cell) { this.closeTableMenu(); return; }
     const wrap = cell.closest(".cm-zn-table-wrap") as HTMLElement | null;
     if (!wrap) return;
+    // Right-clicking inside the painted range acts on the range; anywhere else
+    // starts a fresh single-cell menu.
+    const sel = this.cellSel;
+    const pos = cellPos(cell);
+    const inRange = !!sel && sel.wrap === wrap && sel.wrap.isConnected
+      && rectContains(sel.rect, pos.row, pos.col);
+    if (!inRange) this.clearCellSelection();
     e.preventDefault();
     e.stopPropagation();
     this.closeImageBar();
-    this.openTableMenu(e.clientX, e.clientY, wrap, cell);
+    this.openTableMenu(e.clientX, e.clientY, wrap, cell, inRange && sel ? sel.rect : null);
   };
 
   private readonly onDocPointerDown = (e: MouseEvent) => {
     const tgt = e.target as HTMLElement | null;
-    if (tgt?.closest?.(".zn-lp-image-bar") || tgt?.closest?.(".zn-lp-table-menu")) return;
+    if (tgt?.closest?.(".zn-lp-image-bar") || tgt?.closest?.(".zn-lp-table-menu")
+        || tgt?.closest?.(".cm-zn-table-ops")) return;
     this.closeImageBar();
     this.closeTableMenu();
+    // A press outside the painted range drops it; a press inside it keeps the
+    // range alive so the menu (which opens on the following click or
+    // contextmenu) still has something to act on.
+    const sel = this.cellSel;
+    if (!sel) return;
+    const cell = tgt?.closest?.(".cm-zn-table th, .cm-zn-table td") as HTMLElement | null;
+    if (!cell || cell.closest(".cm-zn-table-wrap") !== sel.wrap) {
+      this.clearCellSelection();
+      return;
+    }
+    const pos = cellPos(cell);
+    if (!rectContains(sel.rect, pos.row, pos.col)) this.clearCellSelection();
   };
 
   constructor(view: EditorView) {
@@ -396,7 +479,9 @@ class RenderedBlockManager {
     view.dom.addEventListener("click", this.onClickCapture, true);
     view.dom.addEventListener("mouseover", this.onMouseOver);
     view.dom.addEventListener("contextmenu", this.onContextMenu);
+    view.dom.addEventListener("focusin", this.onCellFocus);
     document.addEventListener("mousedown", this.onDocPointerDown, true);
+    document.addEventListener("copy", this.onCopy, true);
   }
 
   /**
@@ -406,16 +491,133 @@ class RenderedBlockManager {
    * made native text selection inside a cell impossible — dragging to copy did
    * nothing. The decision to edit now waits for the click, and a click that
    * moved is treated as a selection drag instead.
+   *
+   * A left press on a cell also arms the cell-range drag: it stays dormant
+   * while the pointer moves within the starting cell (that is a text
+   * selection), and only takes over once it crosses into another cell.
    */
   private readonly onMouseDownCapture = (e: MouseEvent) => {
     const target = e.target as HTMLElement | null;
     const cell = target?.closest?.(".cm-zn-table th, .cm-zn-table td") as HTMLElement | null;
     if (cell) {
       this.cellDown = { x: e.clientX, y: e.clientY, cell };
+      this.suppressClick = false;
+      const wrap = cell.closest(".cm-zn-table-wrap") as HTMLElement | null;
+      // Presses inside the cell being edited are caret placement or word
+      // selection, never a cell-range drag.
+      if (wrap && e.button === 0 && !cell.classList.contains("cm-zn-cell-editing")) {
+        this.cellDrag = { anchor: cellPos(cell), wrap, active: false };
+        document.addEventListener("mousemove", this.onDragMove, true);
+        document.addEventListener("mouseup", this.onDragUp, true);
+      }
       return; // no preventDefault: let the browser start a text selection
     }
     this.cellDown = null;
+    this.cellDrag = null;
+    this.suppressClick = false;
     this.onImagePress(e);
+  };
+
+  /**
+   * A cell that gains focus is wired for committing immediately — without
+   * moving the caret or touching the selection. Focus arrives on mousedown, so
+   * a drag that starts in a cell can still select its text (or cross into
+   * other cells) while typing and the blur-commit keep working. The click path
+   * stays as the fallback that also shows the edit outline.
+   */
+  private readonly onCellFocus = (e: FocusEvent) => {
+    const cell = (e.target as HTMLElement | null)?.closest?.(".cm-zn-table th, .cm-zn-table td") as HTMLElement | null;
+    if (!cell || cell.classList.contains("cm-zn-cell-editing")) return;
+    const wrap = cell.closest(".cm-zn-table-wrap") as HTMLElement | null;
+    if (!wrap) return;
+    beginCellEdit(this.view, wrap, cell, "keep");
+  };
+
+  /** The cell under a viewport point, if it belongs to `wrap`. */
+  private cellUnder(x: number, y: number, wrap: HTMLElement): HTMLElement | null {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    const cell = el?.closest?.(".cm-zn-table th, .cm-zn-table td") as HTMLElement | null;
+    return cell && cell.closest(".cm-zn-table-wrap") === wrap ? cell : null;
+  }
+
+  /**
+   * Watches a press that began on a cell.
+   *
+   * Moving within the starting cell stays a native text selection — that is
+   * how a cell's text is selected for copying. Crossing into another cell
+   * switches the gesture to a cell range: the native selection is dropped and
+   * the cells between the two corners are painted instead.
+   */
+  private readonly onDragMove = (e: MouseEvent) => {
+    const drag = this.cellDrag;
+    if (!drag || !(e.buttons & 1)) return;
+    const cell = this.cellUnder(e.clientX, e.clientY, drag.wrap);
+    if (!cell) return;
+    const pos = cellPos(cell);
+    if (!drag.active) {
+      if (pos.row === drag.anchor.row && pos.col === drag.anchor.col) return;
+      drag.active = true;
+      // The gesture is about cells now, not text.
+      window.getSelection()?.removeAllRanges();
+    }
+    this.cellSel = { wrap: drag.wrap, rect: cellRectOf(drag.anchor, pos) };
+    this.paintCellSelection();
+  };
+
+  private readonly onDragUp = () => {
+    document.removeEventListener("mousemove", this.onDragMove, true);
+    document.removeEventListener("mouseup", this.onDragUp, true);
+    const drag = this.cellDrag;
+    this.cellDrag = null;
+    if (!drag?.active) return;
+    this.suppressClick = true;
+    const rect = this.cellSel?.rect;
+    // A range that collapsed to a single cell is not worth keeping.
+    if (rect && rect.r1 === rect.r2 && rect.c1 === rect.c2) this.clearCellSelection();
+  };
+
+  private paintCellSelection(): void {
+    const sel = this.cellSel;
+    if (!sel || !sel.wrap.isConnected) return;
+    for (const el of Array.from(sel.wrap.querySelectorAll(".cm-zn-cell-selected"))) {
+      el.classList.remove("cm-zn-cell-selected");
+    }
+    for (let r = sel.rect.r1; r <= sel.rect.r2; r++) {
+      for (let c = sel.rect.c1; c <= sel.rect.c2; c++) {
+        cellElement(sel.wrap, r, c)?.classList.add("cm-zn-cell-selected");
+      }
+    }
+  }
+
+  private clearCellSelection(): void {
+    const sel = this.cellSel;
+    this.cellSel = null;
+    if (!sel || !sel.wrap.isConnected) return;
+    for (const el of Array.from(sel.wrap.querySelectorAll(".cm-zn-cell-selected"))) {
+      el.classList.remove("cm-zn-cell-selected");
+    }
+  }
+
+  /**
+   * Copy for a cell-range selection: TSV, so it pastes into a spreadsheet.
+   * A live native selection inside a cell always wins — the user selected
+   * text, not cells, and the browser copies that itself.
+   */
+  private readonly onCopy = (e: ClipboardEvent) => {
+    const sel = this.cellSel;
+    if (!sel || !sel.wrap.isConnected) return;
+    const native = window.getSelection();
+    const anchor = native?.anchorNode ?? null;
+    const anchorEl = anchor instanceof Element ? anchor : anchor?.parentElement ?? null;
+    if (native && !native.isCollapsed && anchorEl?.closest(".cm-zn-table-wrap")) return;
+    const pos = this.posOf(sel.wrap);
+    if (pos === null) return;
+    const node = nodeRangeAt(this.view, "Table", pos);
+    if (!node) return;
+    const tsv = cellsToTsv(node.text.split("\n"), sel.rect);
+    if (!tsv) return;
+    e.preventDefault();
+    e.clipboardData?.setData("text/plain", tsv);
   };
 
   private readonly onClickCapture = (e: MouseEvent) => {
@@ -426,22 +628,33 @@ class RenderedBlockManager {
       e.preventDefault();
       e.stopPropagation();
       const wrap = ops.closest(".cm-zn-table-wrap") as HTMLElement | null;
-      const cell = this.hoverCell?.closest(".cm-zn-table-wrap") === wrap
-        ? this.hoverCell
-        : (wrap?.querySelector(".cm-zn-table td, .cm-zn-table th") ?? null);
-      if (!wrap || !cell) return;
+      if (!wrap) return;
+      // A painted range in this table takes precedence over the hovered cell.
+      const sel = this.cellSel && this.cellSel.wrap === wrap && wrap.isConnected ? this.cellSel : null;
+      let cell = sel ? cellElement(wrap, sel.rect.r1, sel.rect.c1) : null;
+      if (!cell && this.hoverCell?.closest(".cm-zn-table-wrap") === wrap) cell = this.hoverCell;
+      if (!cell) cell = wrap.querySelector(".cm-zn-table td, .cm-zn-table th") as HTMLElement | null;
+      if (!cell) return;
       this.closeImageBar();
       this.closeTableMenu();
       const r = ops.getBoundingClientRect();
-      this.openTableMenu(r.right, r.bottom + 6, wrap, cell as HTMLElement);
+      this.openTableMenu(r.right, r.bottom + 6, wrap, cell, sel ? sel.rect : null);
       return;
     }
+
+    // A drag that just painted a cell range must not also open a cell.
+    const wasRange = this.suppressClick;
+    this.suppressClick = false;
+    if (wasRange) { this.cellDown = null; return; }
 
     const down = this.cellDown;
     this.cellDown = null;
     if (!down) return;
     const cell = (e.target as HTMLElement)?.closest?.(".cm-zn-table th, .cm-zn-table td") as HTMLElement | null;
     if (cell !== down.cell) return;
+    // Clicking inside the cell already open for editing is caret placement or
+    // word selection within it — re-activating would collapse that selection.
+    if (cell.classList.contains("cm-zn-cell-editing")) return;
     // A few pixels of tolerance: a click is never perfectly still.
     const moved = Math.abs(e.clientX - down.x) > 4 || Math.abs(e.clientY - down.y) > 4;
     if (moved) return; // the user was selecting text, not opening the cell
@@ -452,6 +665,7 @@ class RenderedBlockManager {
     e.stopPropagation();
     this.closeImageBar();
     this.closeTableMenu();
+    this.clearCellSelection();
     beginCellEdit(this.view, wrap, cell);
   };
 
@@ -542,7 +756,13 @@ class RenderedBlockManager {
 
   /* -------------------------------------------------------- table context menu */
 
-  private openTableMenu(x: number, y: number, wrap: HTMLElement, cell: HTMLElement): void {
+  private openTableMenu(
+    x: number,
+    y: number,
+    wrap: HTMLElement,
+    cell: HTMLElement,
+    range: CellRect | null = null,
+  ): void {
     this.closeTableMenu();
     const row = Number(cell.dataset.row ?? "-1");
     const col = Number(cell.dataset.col ?? "0");
@@ -552,15 +772,27 @@ class RenderedBlockManager {
     if (!node) return;
     const lines = node.text.split("\n");
 
-    const items: Array<{ label: string; run: () => void; danger?: boolean } | "divider"> = [
-      { label: t().table.insertRowBelow, run: () => this.applyTable(node, insertRow(lines, row)) },
-      { label: t().table.deleteRow, run: () => this.applyTable(node, deleteRow(lines, row)) },
-      "divider",
-      { label: t().table.insertColRight, run: () => this.applyTable(node, insertColumn(lines, col)) },
-      { label: t().table.deleteCol, run: () => this.applyTable(node, deleteColumn(lines, col)) },
-      "divider",
-      { label: t().table.deleteTable, run: () => this.deleteTable(node), danger: true },
-    ];
+    // Range semantics: deletes cover every row/column the selection touches,
+    // inserts land just past its bottom/right edge.
+    const items: Array<{ label: string; run: () => void; danger?: boolean } | "divider"> = range
+      ? [
+          { label: t().table.insertRowBelow, run: () => this.applyTable(node, insertRow(lines, range.r2)) },
+          { label: t().table.deleteRow, run: () => this.applyTable(node, deleteRowRange(lines, Math.max(range.r1, 0), range.r2)) },
+          "divider",
+          { label: t().table.insertColRight, run: () => this.applyTable(node, insertColumn(lines, range.c2)) },
+          { label: t().table.deleteCol, run: () => this.applyTable(node, deleteColumnRange(lines, range.c1, range.c2)) },
+          "divider",
+          { label: t().table.deleteTable, run: () => this.deleteTable(node), danger: true },
+        ]
+      : [
+          { label: t().table.insertRowBelow, run: () => this.applyTable(node, insertRow(lines, row)) },
+          { label: t().table.deleteRow, run: () => this.applyTable(node, deleteRow(lines, row)) },
+          "divider",
+          { label: t().table.insertColRight, run: () => this.applyTable(node, insertColumn(lines, col)) },
+          { label: t().table.deleteCol, run: () => this.applyTable(node, deleteColumn(lines, col)) },
+          "divider",
+          { label: t().table.deleteTable, run: () => this.deleteTable(node), danger: true },
+        ];
 
     const menu = document.createElement("div");
     menu.className = "zn-lp-table-menu";
@@ -588,12 +820,14 @@ class RenderedBlockManager {
   }
 
   private applyTable(node: { from: number; to: number }, lines: string[]): void {
+    this.clearCellSelection();
     this.view.dispatch({
       changes: { from: node.from, to: node.to, insert: lines.join("\n") },
     });
   }
 
   private deleteTable(node: { from: number; to: number }): void {
+    this.clearCellSelection();
     // Take the trailing newline too, so no blank line is left behind.
     const to = this.view.state.sliceDoc(node.to, node.to + 1) === "\n" ? node.to + 1 : node.to;
     this.view.dispatch({ changes: { from: node.from, to } });
@@ -609,7 +843,12 @@ class RenderedBlockManager {
     this.view.dom.removeEventListener("click", this.onClickCapture, true);
     this.view.dom.removeEventListener("mouseover", this.onMouseOver);
     this.view.dom.removeEventListener("contextmenu", this.onContextMenu);
+    this.view.dom.removeEventListener("focusin", this.onCellFocus);
     document.removeEventListener("mousedown", this.onDocPointerDown, true);
+    document.removeEventListener("copy", this.onCopy, true);
+    document.removeEventListener("mousemove", this.onDragMove, true);
+    document.removeEventListener("mouseup", this.onDragUp, true);
+    this.clearCellSelection();
     this.closeImageBar();
     this.closeTableMenu();
   }
