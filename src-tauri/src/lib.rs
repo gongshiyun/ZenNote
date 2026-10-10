@@ -3,7 +3,10 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use ignore::{WalkBuilder, WalkState};
+use memchr::memmem;
 use walkdir::WalkDir;
 
 // ---- Data structures ----
@@ -282,7 +285,7 @@ fn list_markdown_files(
     Ok(files)
 }
 
-// ---- Workspace search (Rust-side, replaces the old per-file JS traversal) ----
+// ---- Workspace search (Rust-side; parallel walk, ripgrep-style) ----
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -296,17 +299,74 @@ pub struct SearchHit {
 }
 
 /// Case handling for a single line/needle pair (extracted for unit tests).
+#[cfg(test)]
 fn line_matches(line: &str, needle: &str, case_sensitive: bool) -> bool {
-    if case_sensitive {
-        line.contains(needle)
-    } else {
-        // Per-char to_lowercase keeps this correct for CJK/Unicode too.
-        line.to_lowercase().contains(&needle.to_lowercase())
-    }
+    Matcher::new(needle, case_sensitive).is_match(line)
 }
 
 const MAX_SEARCH_HITS: usize = 500;
 const MAX_SEARCHED_FILE_SIZE: u64 = 5_000_000;
+
+/// Substring matcher with the same semantics as the first version
+/// (`line.to_lowercase().contains(&needle.to_lowercase())`), but without its
+/// per-line allocations: that version lowercased the needle for every line and
+/// the line itself even when the query needed no case folding at all.
+enum Matcher {
+    /// Raw bytes, no allocation. Used for case-sensitive searches and for
+    /// needles that case folding cannot affect (see `is_fold_free`).
+    Plain(memmem::Finder<'static>),
+    /// ASCII needle: fold bytes in place. A line with non-ASCII characters
+    /// falls back to the Unicode path — folding can produce ASCII letters
+    /// (e.g. 'İ' lowercases to "i" + combining dot), so the raw scan would
+    /// miss those.
+    AsciiCI { lower: String },
+    /// Anything else (non-ASCII with case): lowercased needle, per-line
+    /// lowercase — the original semantics.
+    UnicodeCI { lower: String },
+}
+
+/// Whether a case-insensitive search for `s` is equivalent to a case-sensitive
+/// one: every character is non-ASCII with no case mapping, and none is a
+/// combining mark — those can be *produced* by folding another character
+/// ('İ' -> "i" + U+0307), so their absence in the raw line proves nothing.
+fn is_fold_free(s: &str) -> bool {
+    s.chars().all(|c| {
+        !c.is_ascii()
+            && c.to_lowercase().next() == Some(c)
+            && c.to_uppercase().next() == Some(c)
+            && !('\u{300}'..='\u{36f}').contains(&c)
+    })
+}
+
+impl Matcher {
+    fn new(needle: &str, case_sensitive: bool) -> Matcher {
+        if case_sensitive || is_fold_free(needle) {
+            return Matcher::Plain(memmem::Finder::new(needle.as_bytes()).into_owned());
+        }
+        let lower = needle.to_lowercase();
+        if lower.is_ascii() {
+            Matcher::AsciiCI { lower }
+        } else {
+            Matcher::UnicodeCI { lower }
+        }
+    }
+
+    fn is_match(&self, line: &str) -> bool {
+        match self {
+            Matcher::Plain(finder) => finder.find(line.as_bytes()).is_some(),
+            Matcher::AsciiCI { lower } => {
+                if line.is_ascii() {
+                    let hay = line.as_bytes();
+                    let n = lower.len();
+                    hay.len() >= n && hay.windows(n).any(|w| w.eq_ignore_ascii_case(lower.as_bytes()))
+                } else {
+                    line.to_lowercase().contains(lower.as_str())
+                }
+            }
+            Matcher::UnicodeCI { lower } => line.to_lowercase().contains(lower.as_str()),
+        }
+    }
+}
 
 #[tauri::command]
 fn search_workspace(
@@ -321,80 +381,99 @@ fn search_workspace(
     if query.is_empty() {
         return Ok(Vec::new());
     }
-    let cs = case_sensitive.unwrap_or(false);
-    let mut hits: Vec<SearchHit> = Vec::new();
+    let matcher = Arc::new(Matcher::new(&query, case_sensitive.unwrap_or(false)));
+    let hits: Arc<Mutex<Vec<SearchHit>>> = Arc::new(Mutex::new(Vec::new()));
+    let count = Arc::new(AtomicUsize::new(0));
+    // Set once the result cap is reached so every worker stops walking.
+    let quit = Arc::new(AtomicBool::new(false));
 
-    'outer: for entry in WalkDir::new(root)
-        .into_iter()
-        .filter_entry(|e| {
-            // Skip hidden directories/files (keeps .git, node_modules-ish noise out).
-            e.file_name()
-                .to_string_lossy()
-                .chars()
-                .next()
-                .map(|c| c != '.')
-                .unwrap_or(true)
-        })
-        .filter_map(|e| e.ok())
-    {
-        let p = entry.path();
-        if p.is_dir() {
-            continue;
-        }
-        if p.extension().map_or(true, |ext| {
-            !ext.to_string_lossy().eq_ignore_ascii_case("md")
-        }) {
-            continue;
-        }
-        let name = p
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-        let path_str = p.to_string_lossy().to_string();
-
-        // File-name hit.
-        if line_matches(&name, &query, cs) {
-            hits.push(SearchHit {
-                file_path: path_str.clone(),
-                file_name: name.clone(),
-                line: 0,
-                content: String::new(),
-            });
-            if hits.len() >= MAX_SEARCH_HITS {
-                break 'outer;
+    // `ignore` is ripgrep's own walker: parallel, skips hidden entries and
+    // .git, and honours .gitignore/.ignore files. A file that cannot be read
+    // (permissions, invalid UTF-8) is skipped rather than failing the search.
+    WalkBuilder::new(root).build_parallel().run(|| {
+        let matcher = Arc::clone(&matcher);
+        let hits = Arc::clone(&hits);
+        let count = Arc::clone(&count);
+        let quit = Arc::clone(&quit);
+        Box::new(move |entry| {
+            if quit.load(Ordering::Relaxed) {
+                return WalkState::Quit;
             }
-        }
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => return WalkState::Continue,
+            };
+            // Unknown file types fall through to the extension check rather
+            // than being treated as directories.
+            if entry.file_type().is_some_and(|t| t.is_dir()) {
+                return WalkState::Continue;
+            }
+            let p = entry.path();
+            if p.extension().map_or(true, |ext| {
+                !ext.to_string_lossy().eq_ignore_ascii_case("md")
+            }) {
+                return WalkState::Continue;
+            }
+            let name = p
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            let path_str = p.to_string_lossy().to_string();
 
-        // Content hits (skip oversized files to stay fast).
-        let size_ok = p
-            .metadata()
-            .map(|m| m.len() <= MAX_SEARCHED_FILE_SIZE)
-            .unwrap_or(false);
-        if !size_ok {
-            continue;
-        }
-        let text = match fs::read_to_string(p) {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        for (i, line) in text.lines().enumerate() {
-            if line_matches(line, &query, cs) {
-                let preview: String = line.trim().chars().take(120).collect();
-                hits.push(SearchHit {
+            let mut found: Vec<SearchHit> = Vec::new();
+            // File-name hit.
+            if matcher.is_match(&name) {
+                found.push(SearchHit {
                     file_path: path_str.clone(),
                     file_name: name.clone(),
-                    line: (i + 1) as u32,
-                    content: preview,
+                    line: 0,
+                    content: String::new(),
                 });
-                if hits.len() >= MAX_SEARCH_HITS {
-                    break 'outer;
+            }
+
+            // Content hits (skip oversized files to stay fast).
+            let size_ok = entry
+                .metadata()
+                .map(|m| m.len() <= MAX_SEARCHED_FILE_SIZE)
+                .unwrap_or(false);
+            if size_ok {
+                if let Ok(text) = fs::read_to_string(p) {
+                    for (i, line) in text.lines().enumerate() {
+                        if matcher.is_match(line) {
+                            let preview: String = line.trim().chars().take(120).collect();
+                            found.push(SearchHit {
+                                file_path: path_str.clone(),
+                                file_name: name.clone(),
+                                line: (i + 1) as u32,
+                                content: preview,
+                            });
+                        }
+                    }
                 }
             }
-        }
-    }
 
-    Ok(hits)
+            if found.is_empty() {
+                return WalkState::Continue;
+            }
+            let total = count.fetch_add(found.len(), Ordering::Relaxed) + found.len();
+            // A poisoned lock means another worker panicked; the collected
+            // results are still usable, so recover instead of panicking too.
+            hits.lock().unwrap_or_else(|e| e.into_inner()).extend(found);
+            if total >= MAX_SEARCH_HITS {
+                quit.store(true, Ordering::Relaxed);
+                return WalkState::Quit;
+            }
+            WalkState::Continue
+        })
+    });
+
+    // Parallel order is arrival order; sort so the UI is deterministic, then
+    // apply the cap again in case concurrent workers overshot it.
+    let mut out = std::mem::take(&mut *hits.lock().unwrap_or_else(|e| e.into_inner()));
+    out.sort_by(|a, b| a.file_path.cmp(&b.file_path).then(a.line.cmp(&b.line)));
+    out.truncate(MAX_SEARCH_HITS);
+    Ok(out)
 }
 
 // ---- PDF export (Windows: WebView2 PrintToPdf, no print dialog) ----
@@ -905,6 +984,58 @@ mod tests {
     }
 
     #[test]
+    fn matcher_variants_keep_the_old_semantics() {
+        // ASCII case folding in both directions.
+        assert!(line_matches("Hello World", "world", false));
+        assert!(line_matches("hello world", "WORLD", false));
+        assert!(!line_matches("hello WORLD", "world", true));
+
+        // A non-ASCII line with an ASCII needle: folding can produce the ASCII
+        // letter ('İ' lowercases to "i" + combining dot), so the fallback path
+        // must still match — and "istanbul" must NOT match, because the fold
+        // inserts the combining dot between the i and the s (old semantics).
+        assert!(line_matches("İstanbul", "i", false));
+        assert!(!line_matches("İstanbul", "istanbul", false));
+
+        // A lone combining mark is not fold-free: it can be produced by
+        // folding another character, so a raw substring scan would miss it.
+        assert!(!is_fold_free("\u{307}"));
+        assert!(line_matches("İ", "\u{307}", false));
+        assert!(!line_matches("x", "\u{307}", false));
+
+        // Fold-free needles (CJK, digits, punctuation) still match plainly.
+        assert!(is_fold_free("中文"));
+        assert!(!is_fold_free("a"));
+        assert!(line_matches("第 1 章：起点", "1", false));
+        assert!(line_matches("第 1 章：起点", "：", false));
+    }
+
+    #[test]
+    fn search_workspace_results_are_sorted_by_path_and_line() {
+        let dir = std::env::temp_dir().join(format!("zennote-search-sort-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        // Written out of alphabetical order so a walk-order result would fail.
+        fs::write(dir.join("c.md"), "hit one\nhit two\n").unwrap();
+        fs::write(dir.join("a.md"), "hit one\n").unwrap();
+        fs::write(dir.join("b.md"), "no\nhit one\n").unwrap();
+
+        let hits = search_workspace(dir.to_string_lossy().to_string(), "hit".into(), None).unwrap();
+        let order: Vec<(String, u32)> = hits.iter().map(|h| (h.file_name.clone(), h.line)).collect();
+        assert_eq!(
+            order,
+            vec![
+                ("a.md".to_string(), 1),
+                ("b.md".to_string(), 2),
+                ("c.md".to_string(), 1),
+                ("c.md".to_string(), 2),
+            ]
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn search_workspace_rejects_missing_folder() {
         let res = search_workspace(
             "definitely-not-a-real-folder-xyz".into(),
@@ -964,6 +1095,41 @@ mod tests {
         let hits = search_workspace(dir.to_string_lossy().to_string(), "hello".into(), None).unwrap();
         assert!(hits.iter().any(|h| h.file_name == "visible.md"));
         assert!(!hits.iter().any(|h| h.file_path.contains(".git")));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_workspace_scales_to_many_files() {
+        // Smoke + benchmark: 500 files x 300 lines. Run with `-- --nocapture`
+        // to see the timings; no timing assertion (flaky on loaded machines).
+        let dir = std::env::temp_dir().join(format!("zennote-search-bench-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let body = (0..300)
+            .map(|i| format!("line {i} of a typical note with some words 中文内容示例"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for i in 0..500 {
+            fs::write(
+                dir.join(format!("note-{i}.md")),
+                format!("# Note {i}\n{body}\nneedle-{i}\n"),
+            )
+            .unwrap();
+        }
+        let root = dir.to_string_lossy().to_string();
+
+        // Sparse match: every file must be walked and read (the walk benchmark).
+        let start = std::time::Instant::now();
+        let hits = search_workspace(root.clone(), "needle".into(), None).unwrap();
+        println!("BENCH sparse: {:?}, hits={}", start.elapsed(), hits.len());
+        assert_eq!(hits.len(), MAX_SEARCH_HITS);
+
+        // Dense match: every line matches; the cap must stop the scan early.
+        let start = std::time::Instant::now();
+        let hits = search_workspace(root.clone(), "typical".into(), None).unwrap();
+        println!("BENCH dense: {:?}, hits={}", start.elapsed(), hits.len());
+        assert_eq!(hits.len(), MAX_SEARCH_HITS);
 
         let _ = fs::remove_dir_all(&dir);
     }
