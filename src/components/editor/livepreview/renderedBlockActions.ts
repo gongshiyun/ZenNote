@@ -13,6 +13,7 @@
  * ./renderedBlockHelpers are pure and separately tested.
  */
 import { EditorView, ViewPlugin } from "@codemirror/view";
+import { EditorSelection, type SelectionRange } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 import { openZoomOverlay } from "../zoomOverlay";
 import { t } from "../../../i18n";
@@ -102,6 +103,33 @@ function nativeSelectionAnchor(): Element | null {
   if (!sel || sel.isCollapsed) return null;
   const anchor = sel.anchorNode;
   return anchor instanceof Element ? anchor : anchor?.parentElement ?? null;
+}
+
+/**
+ * The editor's selection just before the last mousedown.
+ *
+ * A commit caused by clicking into the editor text must keep the caret that
+ * click placed (that is where the user is about to type); any other commit
+ * leaves the selection stale — somewhere the user is not — and the undo
+ * transaction would scroll back to it. Comparing the current selection with
+ * this snapshot tells the two apart.
+ */
+let selectionAtMouseDown: EditorSelection | null = null;
+
+/**
+ * A cursor just outside a table's range.
+ *
+ * A table edit leaves the editor's own selection wherever it happened to be —
+ * often far from the table — and the undo transaction restores that selection
+ * with `scrollIntoView`, which yanks the viewport away. Moving the caret to
+ * this position before the edit makes the history record it, so undo lands
+ * (and scrolls) at the table instead. The position must stay OUTSIDE the
+ * range: a cursor touching it would reveal the raw markdown.
+ */
+function cursorNearTable(view: EditorView, node: { from: number; to: number }): SelectionRange | null {
+  if (node.from > 0) return EditorSelection.cursor(node.from - 1);
+  if (node.to < view.state.doc.length) return EditorSelection.cursor(node.to + 1);
+  return null;
 }
 
 /**
@@ -235,6 +263,18 @@ function wireCell(
         // The table's start offset survives the edit (only cell text changed),
         // so it is a stable handle for re-finding the widget after the rebuild.
         const tableFrom = range.from;
+        // A blur-commit that followed a click into the editor text must keep
+        // the caret that click placed. Every other commit leaves a stale
+        // selection the undo would scroll back to, so the caret is moved next
+        // to the table FIRST — the history records the selection a change had
+        // before it ran, so it has to be in place before the change dispatch.
+        const keepCaret = move === "none"
+          && selectionAtMouseDown !== null
+          && !view.state.selection.eq(selectionAtMouseDown);
+        if (!keepCaret) {
+          const near = cursorNearTable(view, range);
+          if (near) view.dispatch({ selection: near });
+        }
         view.dispatch({
           changes: { from: range.from, to: range.to, insert: newLines.join("\n") },
         });
@@ -337,6 +377,8 @@ function scheduleActivation(view: EditorView, tableFrom: number, target: CellTar
     // expected to do rather than trapping the user at the end.
     if (row > lines.length - 3) {
       const withRow = insertRow(lines, lines.length - 3);
+      const near = cursorNearTable(view, node);
+      if (near) view.dispatch({ selection: near });
       view.dispatch({
         changes: { from: node.from, to: node.to, insert: withRow.join("\n") },
       });
@@ -515,6 +557,7 @@ class RenderedBlockManager {
    * selection), and only takes over once it crosses into another cell.
    */
   private readonly onMouseDownCapture = (e: MouseEvent) => {
+    selectionAtMouseDown = this.view.state.selection;
     const target = e.target as HTMLElement | null;
     const cell = target?.closest?.(".cm-zn-table th, .cm-zn-table td") as HTMLElement | null;
     if (cell) {
@@ -836,6 +879,8 @@ class RenderedBlockManager {
 
   private applyTable(node: { from: number; to: number }, lines: string[]): void {
     this.clearCellSelection();
+    const near = cursorNearTable(this.view, node);
+    if (near) this.view.dispatch({ selection: near });
     this.view.dispatch({
       changes: { from: node.from, to: node.to, insert: lines.join("\n") },
     });
@@ -849,6 +894,8 @@ class RenderedBlockManager {
     this.clearCellSelection();
     // Take the trailing newline too, so no blank line is left behind.
     const to = this.view.state.sliceDoc(node.to, node.to + 1) === "\n" ? node.to + 1 : node.to;
+    const near = cursorNearTable(this.view, node);
+    if (near) this.view.dispatch({ selection: near });
     this.view.dispatch({ changes: { from: node.from, to } });
     this.view.focus();
   }
