@@ -172,6 +172,17 @@ export const livePreviewChromeStyles = `
 .zn-lp-table-menu button:hover {
   background: var(--zn-float-hover, #f0f0f0);
 }
+.zn-lp-table-menu button.is-active {
+  color: var(--text-accent);
+  font-weight: 600;
+}
+.zn-lp-table-menu button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.zn-lp-table-menu button:disabled:hover {
+  background: transparent;
+}
 .zn-lp-table-menu button.is-danger {
   color: var(--text-danger);
 }

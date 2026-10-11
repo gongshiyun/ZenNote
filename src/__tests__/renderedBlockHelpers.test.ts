@@ -10,9 +10,12 @@ import {
   insertColumn,
   insertRow,
   makeTable,
+  moveColumn,
+  moveRow,
   parseImageAlt,
   rectContains,
   rowOf,
+  setColumnAlign,
   tableWidth,
   withImageAlign,
 } from '../components/editor/livepreview/renderedBlockHelpers';
@@ -229,5 +232,54 @@ describe('live preview — table cell selection', () => {
     expect(cellsToTsv(table, { r1: 0, c1: 0, r2: 99, c2: 99 })).toBe('1\t2\t3\n4\t5\t6');
     expect(cellsToTsv(table, { r1: -1, c1: 0, r2: 99, c2: 99 })).toBe('a\tb\tc\n1\t2\t3\n4\t5\t6');
     expect(cellsToTsv(['| a |'], { r1: 0, c1: 0, r2: 0, c2: 0 })).toBe('');
+  });
+});
+
+describe('live preview — table alignment and moves', () => {
+  const table = ['| a | b | c |', '| --- | --- | --- |', '| 1 | 2 | 3 |', '| 4 | 5 | 6 |'];
+
+  it('encodes each alignment into the delimiter row', () => {
+    expect(cellsOf(setColumnAlign(table, 1, 'left')[1])).toEqual(['---', ':---', '---']);
+    expect(cellsOf(setColumnAlign(table, 1, 'center')[1])).toEqual(['---', ':---:', '---']);
+    expect(cellsOf(setColumnAlign(table, 1, 'right')[1])).toEqual(['---', '---:', '---']);
+  });
+
+  it('only touches the target column and keeps other rows intact', () => {
+    const out = setColumnAlign(table, 0, 'right');
+    expect(cellsOf(out[1])).toEqual(['---:', '---', '---']);
+    expect(out[0]).toBe('| a | b | c |');
+    expect(out[2]).toBe('| 1 | 2 | 3 |');
+  });
+
+  it('refuses an out-of-range column', () => {
+    expect(setColumnAlign(table, 9, 'left')).toEqual(table);
+    expect(setColumnAlign(table, -1, 'left')).toEqual(table);
+  });
+
+  it('moves a data row up and down', () => {
+    const swapped = ['| a | b | c |', '| --- | --- | --- |', '| 4 | 5 | 6 |', '| 1 | 2 | 3 |'];
+    expect(moveRow(table, 0, 1)).toEqual(swapped);
+    expect(moveRow(table, 1, 0)).toEqual(swapped);
+  });
+
+  it('keeps the header out of row moves and no-ops at the boundaries', () => {
+    expect(moveRow(table, -1, 0)).toEqual(table);
+    expect(moveRow(table, 0, -1)).toEqual(table);
+    expect(moveRow(table, 1, 9)).toEqual(table);
+    expect(moveRow(table, 0, 0)).toEqual(table);
+  });
+
+  it('moves a column together with its delimiter cell', () => {
+    const aligned = setColumnAlign(table, 0, 'right');
+    const out = moveColumn(aligned, 0, 2);
+    expect(cellsOf(out[0])).toEqual(['b', 'c', 'a']);
+    expect(cellsOf(out[1])).toEqual(['---', '---', '---:']);
+    expect(cellsOf(out[2])).toEqual(['2', '3', '1']);
+  });
+
+  it('no-ops on column boundaries', () => {
+    expect(moveColumn(table, 0, -1)).toEqual(table);
+    expect(moveColumn(table, 2, 3)).toEqual(table);
+    expect(moveColumn(table, 1, 1)).toEqual(table);
   });
 });

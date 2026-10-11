@@ -180,6 +180,13 @@ const enUS = {
     "selectCol": "Select column",
     "selectTable": "Select whole table",
     "deleteTable": "Delete table",
+    "alignLeft": "Align left",
+    "alignCenter": "Align center",
+    "alignRight": "Align right",
+    "moveRowUp": "Move row up",
+    "moveRowDown": "Move row down",
+    "moveColLeft": "Move column left",
+    "moveColRight": "Move column right",
     "ops": "Row & column actions"
   },
   "find": {

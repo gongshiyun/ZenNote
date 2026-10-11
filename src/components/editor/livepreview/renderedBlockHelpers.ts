@@ -128,6 +128,58 @@ export function deleteColumn(lines: string[], index: number): string[] {
   });
 }
 
+/** The delimiter-row cell that encodes an alignment. */
+function alignCell(align: "left" | "center" | "right" | null): string {
+  if (align === "left") return ":---";
+  if (align === "right") return "---:";
+  if (align === "center") return ":---:";
+  return "---";
+}
+
+/**
+ * Set the alignment of one column by rewriting its delimiter-row cell — the
+ * same "sync the separator text" move Typora makes on an align change. Other
+ * columns keep their existing delimiter text untouched.
+ */
+export function setColumnAlign(
+  lines: string[],
+  col: number,
+  align: "left" | "center" | "right" | null,
+): string[] {
+  const width = tableWidth(lines);
+  if (lines.length < 2 || col < 0 || col >= width) return lines;
+  const cells = cellsOf(lines[1]);
+  cells[col] = alignCell(align);
+  const out = lines.slice();
+  out[1] = rowOf(cells, width);
+  return out;
+}
+
+/**
+ * Move a data row (0-based) to another data-row position. The header and the
+ * delimiter row never move; boundaries are no-ops.
+ */
+export function moveRow(lines: string[], from: number, to: number): string[] {
+  const last = lines.length - 3;
+  if (from < 0 || from > last || to < 0 || to > last || from === to) return lines;
+  const out = lines.slice();
+  const [row] = out.splice(from + 2, 1);
+  out.splice(to + 2, 0, row);
+  return out;
+}
+
+/** Move a column (0-based) to another column position; all rows follow. */
+export function moveColumn(lines: string[], from: number, to: number): string[] {
+  const width = tableWidth(lines);
+  if (from < 0 || from >= width || to < 0 || to >= width || from === to) return lines;
+  return lines.map(line => {
+    const cells = cellsOf(line);
+    const [cell] = cells.splice(from, 1);
+    cells.splice(to, 0, cell);
+    return rowOf(cells, cells.length);
+  });
+}
+
 /** A fresh 2-column, 2-row table (header + one blank data row). */
 export function makeTable(width = 2, rows = 1): string[] {
   const head = rowOf(Array.from({ length: width }, (_, i) => `列 ${i + 1}`), width);

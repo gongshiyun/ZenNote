@@ -180,6 +180,13 @@ const zhCN = {
     "selectCol": "选择列",
     "selectTable": "选择整个表格",
     "deleteTable": "删除表格",
+    "alignLeft": "左对齐",
+    "alignCenter": "居中",
+    "alignRight": "右对齐",
+    "moveRowUp": "上移一行",
+    "moveRowDown": "下移一行",
+    "moveColLeft": "左移一列",
+    "moveColRight": "右移一列",
     "ops": "行列操作"
   },
   "find": {

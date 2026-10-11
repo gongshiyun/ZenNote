@@ -27,14 +27,18 @@ import {
   deleteRowRange,
   insertColumn,
   insertRow,
+  moveColumn,
+  moveRow,
   parseImageAlt,
   rectContains,
   rowOf,
+  setColumnAlign,
   withImageAlign,
   type CellPos,
   type CellRect,
   type ImageAlign,
 } from "./renderedBlockHelpers";
+import { parseAlign } from "./livePreview";
 
 const ZOOM_ICON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">' +
@@ -65,6 +69,26 @@ interface CellTarget {
 
 /** Set while a cell is mid-commit, so the resulting blur does not re-enter. */
 let committing = false;
+
+/** What committing a cell should do next. */
+type CellMove =
+  | "next"
+  | "prev"
+  | "down"
+  | "none" // navigation and plain commits
+  | "insert" // Ctrl+Enter: a new row below the current one
+  | "rowUp"
+  | "rowDown"
+  | "colLeft"
+  | "colRight"; // Alt+arrows: reorder, like Typora's table moves
+
+/** Alt+Arrow reorders a table row/column, mirroring Typora. */
+const ALT_ARROW_MOVES: Record<string, CellMove> = {
+  ArrowUp: "rowUp",
+  ArrowDown: "rowDown",
+  ArrowLeft: "colLeft",
+  ArrowRight: "colRight",
+};
 
 /** The table's current source range, derived from its rendered position. */
 function tableRange(view: EditorView, wrap: HTMLElement): { from: number; to: number } | null {
@@ -225,15 +249,20 @@ function wireCell(
   const cells = cellsOf(lines[lineIndex]);
   const original = cells[target.col] ?? "";
 
-  const finish = (move: "next" | "prev" | "down" | "none", cancel = false) => {
+  const finish = (move: CellMove, cancel = false) => {
     if (committing) return;
     committing = true;
     const value = cancel ? original : serializeCell(td);
+    const changed = !cancel && value !== original;
     td.classList.remove("cm-zn-cell-editing");
 
     // Work out where focus should go before the widget is rebuilt.
     let nextTarget: CellTarget | null = null;
     let grow = false;
+    let insertBelow = false;
+    // Reorders are deferred to one closure: the committed text is written into
+    // its row first and then moves along with that row/column.
+    let reorder: ((lines: string[]) => string[]) | null = null;
     if (move === "next") {
       // Tab past the last cell adds a row. A table editor is expected to work
       // that way, and with the table always rendered it is the only keyboard
@@ -249,15 +278,39 @@ function wireCell(
         : { row: target.row - 1, col: width - 1 };
     } else if (move === "down") {
       nextTarget = { row: target.row + 1, col: target.col };
+    } else if (move === "insert") {
+      // Ctrl+Enter: a fresh row below the current one (below the header when
+      // the caret sits in the header), caret in the same column of it.
+      insertBelow = true;
+      nextTarget = { row: target.row + 1, col: target.col };
+    } else if (move === "rowUp" || move === "rowDown") {
+      const to = move === "rowUp" ? target.row - 1 : target.row + 1;
+      if (target.row >= 0 && to >= 0 && to <= lines.length - 3) {
+        reorder = l => moveRow(l, target.row, to);
+        nextTarget = { row: to, col: target.col };
+      } else if (changed) {
+        // At the boundary the order stays; keep the cell after the commit.
+        nextTarget = target;
+      }
+    } else if (move === "colLeft" || move === "colRight") {
+      const to = move === "colLeft" ? target.col - 1 : target.col + 1;
+      if (to >= 0 && to < width) {
+        reorder = l => moveColumn(l, target.col, to);
+        nextTarget = { row: target.row, col: to };
+      } else if (changed) {
+        nextTarget = target;
+      }
     }
 
-    const changed = !cancel && value !== original;
-    if (changed || grow) {
+    const tableChanged = changed || grow || insertBelow || reorder !== null;
+    if (tableChanged) {
       const next = cells.slice();
       if (changed) next[target.col] = value;
-      const newLines = lines.slice();
+      let newLines = lines.slice();
       newLines[lineIndex] = rowOf(next, width);
       if (grow) newLines.push(rowOf(new Array(width).fill(""), width));
+      if (insertBelow) newLines = insertRow(newLines, target.row);
+      if (reorder) newLines = reorder(newLines);
       const range = tableRange(view, wrap);
       if (range) {
         // The table's start offset survives the edit (only cell text changed),
@@ -299,9 +352,21 @@ function wireCell(
       finish(e.shiftKey ? "prev" : "next");
       return;
     }
+    // Ctrl+Enter inserts a row below (before plain Enter, which it contains).
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      finish("insert");
+      return;
+    }
     if (e.key === "Enter") {
       e.preventDefault();
       finish("down");
+      return;
+    }
+    // Alt+arrows move the current row/column, like Typora's table moves.
+    if (e.altKey && ALT_ARROW_MOVES[e.key]) {
+      e.preventDefault();
+      finish(ALT_ARROW_MOVES[e.key]);
       return;
     }
     // Everything else is ordinary typing inside the cell.
@@ -631,6 +696,12 @@ class RenderedBlockManager {
     const drag = this.cellDrag;
     this.cellDrag = null;
     if (!drag?.active) return;
+    // The browser's own drag-selection keeps re-adding ranges while the
+    // pointer moves over editable cells, so a stale text selection can survive
+    // the gesture — and a live selection would win the copy (native text, not
+    // the TSV the user expects from a cell range). Clear it once more now that
+    // the gesture has ended as a range.
+    window.getSelection()?.removeAllRanges();
     this.suppressClick = true;
     const rect = this.cellSel?.rect;
     // A range that collapsed to a single cell is not worth keeping.
@@ -829,25 +900,66 @@ class RenderedBlockManager {
     const node = nodeRangeAt(this.view, "Table", pos);
     if (!node) return;
     const lines = node.text.split("\n");
+    const width = cellsOf(lines[1]).length;
+    const aligns = cellsOf(lines[1]).map(parseAlign);
 
+    // The columns an operation acts on: the hovered one, or every column a
+    // painted range covers (the same batch behaviour Typora's toolbar has).
+    const cols = range
+      ? Array.from({ length: range.c2 - range.c1 + 1 }, (_, i) => range.c1 + i)
+      : [col];
+    const sharedAlign = cols.every(c => aligns[c] === aligns[cols[0]]) ? aligns[cols[0]] : undefined;
+
+    const applyAlign = (align: "left" | "center" | "right") => {
+      let out = lines;
+      for (const c of cols) out = setColumnAlign(out, c, align);
+      this.applyTable(node, out);
+    };
+    const alignItem = (align: "left" | "center" | "right", label: string) => ({
+      label,
+      run: () => applyAlign(align),
+      active: sharedAlign === align,
+    });
+
+    type Item = {
+      label: string;
+      run: () => void;
+      danger?: boolean;
+      disabled?: boolean;
+      active?: boolean;
+    };
     // Range semantics: deletes cover every row/column the selection touches,
-    // inserts land just past its bottom/right edge.
-    const items: Array<{ label: string; run: () => void; danger?: boolean } | "divider"> = range
+    // inserts land just past its bottom/right edge. Disabled states mirror
+    // Typora's dynamic menu: no header deletion, no deleting the last column.
+    const items: Array<Item | "divider"> = range
       ? [
-          { label: t().table.insertRowBelow, run: () => this.applyTable(node, insertRow(lines, range.r2)) },
-          { label: t().table.deleteRow, run: () => this.applyTable(node, deleteRowRange(lines, Math.max(range.r1, 0), range.r2)) },
+          { label: `${t().table.insertRowBelow} (Ctrl+Enter)`, run: () => this.applyTable(node, insertRow(lines, range.r2)) },
+          { label: t().table.deleteRow, run: () => this.applyTable(node, deleteRowRange(lines, Math.max(range.r1, 0), range.r2)), disabled: range.r2 < 0 },
           "divider",
           { label: t().table.insertColRight, run: () => this.applyTable(node, insertColumn(lines, range.c2)) },
-          { label: t().table.deleteCol, run: () => this.applyTable(node, deleteColumnRange(lines, range.c1, range.c2)) },
+          { label: t().table.deleteCol, run: () => this.applyTable(node, deleteColumnRange(lines, range.c1, range.c2)), disabled: width <= 1 },
+          "divider",
+          alignItem("left", t().table.alignLeft),
+          alignItem("center", t().table.alignCenter),
+          alignItem("right", t().table.alignRight),
           "divider",
           { label: t().table.deleteTable, run: () => this.deleteTable(node), danger: true },
         ]
       : [
-          { label: t().table.insertRowBelow, run: () => this.applyTable(node, insertRow(lines, row)) },
-          { label: t().table.deleteRow, run: () => this.applyTable(node, deleteRow(lines, row)) },
+          { label: `${t().table.insertRowBelow} (Ctrl+Enter)`, run: () => this.applyTable(node, insertRow(lines, row)) },
+          { label: t().table.deleteRow, run: () => this.applyTable(node, deleteRow(lines, row)), disabled: row < 0 },
           "divider",
           { label: t().table.insertColRight, run: () => this.applyTable(node, insertColumn(lines, col)) },
-          { label: t().table.deleteCol, run: () => this.applyTable(node, deleteColumn(lines, col)) },
+          { label: t().table.deleteCol, run: () => this.applyTable(node, deleteColumn(lines, col)), disabled: width <= 1 },
+          "divider",
+          alignItem("left", t().table.alignLeft),
+          alignItem("center", t().table.alignCenter),
+          alignItem("right", t().table.alignRight),
+          "divider",
+          { label: t().table.moveRowUp, run: () => this.applyTable(node, moveRow(lines, row, row - 1)), disabled: row <= 0 },
+          { label: t().table.moveRowDown, run: () => this.applyTable(node, moveRow(lines, row, row + 1)), disabled: row < 0 || row >= lines.length - 3 },
+          { label: t().table.moveColLeft, run: () => this.applyTable(node, moveColumn(lines, col, col - 1)), disabled: col <= 0 },
+          { label: t().table.moveColRight, run: () => this.applyTable(node, moveColumn(lines, col, col + 1)), disabled: col >= width - 1 },
           "divider",
           { label: t().table.deleteTable, run: () => this.deleteTable(node), danger: true },
         ];
@@ -865,6 +977,12 @@ class RenderedBlockManager {
       b.type = "button";
       b.textContent = item.label;
       if (item.danger) b.classList.add("is-danger");
+      if (item.active) b.classList.add("is-active");
+      if (item.disabled) {
+        b.disabled = true;
+        menu.appendChild(b);
+        continue;
+      }
       asCommandButton(b, item.label, () => { item.run(); this.closeTableMenu(); });
       menu.appendChild(b);
     }
