@@ -179,6 +179,27 @@ Evidence: `artifacts/repro-fixed-source.png`, `artifacts/repro-fixed-preview.png
 
 ---
 
+## 11. 0.9.2 hotfix verification — oversized vertical gaps around images
+
+**User report:** in `README.md` the shields.io badge images were separated by ~100px of vertical space.
+
+**Root cause (measured through the release binary via CDP):** `ImageWidget` is an inline widget, but the theme styled its container as `display:block; padding:0.6em 0`. A block box inside the line box split each image line: a 22px badge line measured **103px** (47px widget + two 28px line boxes).
+
+**Fix:** `.cm-zn-image` is now `inline-block` with no block padding; a new `.cm-zn-image-line` class (added by the decoration pass only when an image/link-image owns the whole line) centres it with `0.15em` breathing room. Paragraph-inline images no longer inflate their line.
+
+**Verification (release `zennote.exe`, CDP):**
+
+| Metric | 0.9.1 | 0.9.2 |
+| --- | --- | --- |
+| README badge line height | 103px | 31–35px |
+| Badge centring | yes (block) | yes (line class) |
+| Paragraph-inline image | block gap | inline, no gap |
+| Theme invariants | — | all `livePreviewTheme` keys + no-vertical-margin test green |
+
+Evidence: `artifacts/repro-readme-spacing.png` (before), `artifacts/repro-readme-fixed.png` (after). Full suite 47 files / 543 tests; `lint` 0 errors; `tsc -b` 0 errors.
+
+---
+
 ## Appendix — artifacts directory listing (PNG)
 
 Pipeline output (28): `01-welcome-light` 17.8 KB · `02-welcome-dark` 17.9 · `03-workspace-light` 88.0 · `04-workspace-dark` 90.8 · `05-settings` 105.0 · `06-search` 179.0 · `07-quickopen` 162.2 · `08-findbar` 98.5 · `09-shortcuts` 130.2 · `10-editor-table` 94.7 · `11-editor-mermaid` 68.8 · `12-workspace-en` 90.2 · `13-settings-dark` 90.1 · `14-search-dark` 157.6 · `15-findbar-dark` 100.0 · `16-shortcuts-dark` 116.8 · `17-workspace-narrow` 72.7 · `18-settings-en` 108.6 · `19-settings-appearance` 114.7 · `20-recent-workspaces` 92.5 · `21-editor-code` 103.2 · `22-code-lang-menu` 95.0 · `23-editor-tasklist` 73.1 · `24-table-menu` 96.1 · `25-image-bar` 198.0 · `26-source-mode` 110.4 · `27-empty-state` 37.9 · `28-empty-state-cold` 36.9.

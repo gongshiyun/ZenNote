@@ -539,8 +539,24 @@ const themeSpec = {
     textDecorationColor: "color-mix(in srgb, var(--zn-editor-muted) 55%, transparent)",
   },
 
-  /* ---- images (block widget: no vertical margin) ---- */
-  ".cm-zn-image": { display: "block", padding: "0.6em 0", margin: "0", textAlign: "center" },
+  /* ---- images ----------------------------------------------------------
+     The image is an INLINE widget (it belongs to a paragraph). It must not be
+     `display:block`: a block box inside a CodeMirror line splits the line box
+     and stacked badge images ended up ~100px apart (each line reserved two full
+     line-heights plus padding). Standalone image lines get centring and a little
+     breathing room through `.cm-zn-image-line`, which the decoration pass adds
+     only when the image/link-image occupies the whole line. */
+  ".cm-zn-image": {
+    display: "inline-block",
+    verticalAlign: "middle",
+    position: "relative",
+    padding: "0",
+    margin: "0",
+  },
+  ".cm-zn-image-line": {
+    textAlign: "center",
+    padding: "0.15em 0",
+  },
   ".cm-zn-image img": {
     maxWidth: "100%",
     borderRadius: "var(--zn-radius-lg)",

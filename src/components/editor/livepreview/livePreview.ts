@@ -1124,6 +1124,15 @@ export function buildDecorations(view: EditorView): {
           const alt = /^!\[([^\]]*)\]/.exec(raw)?.[1] ?? "";
           const urlNode = node.node.getChild("URL");
           const url = urlNode ? doc.sliceString(urlNode.from, urlNode.to) : "";
+          // A standalone image owns its line, so centre it inside the reading
+          // column. Detect it from the source line instead of the syntax tree:
+          // consecutive badge links are children of ONE multi-line Paragraph,
+          // but each is still alone on its own visual line here.
+          const imageLine = doc.lineAt(nFrom);
+          const rawLine = doc.sliceString(imageLine.from, imageLine.to).trim();
+          if (/^(?:\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)|!\[[^\]]*\]\([^)]*\))$/.test(rawLine)) {
+            styleLine(nFrom, "cm-zn-image-line");
+          }
           markRange(
             nFrom,
             nTo,
