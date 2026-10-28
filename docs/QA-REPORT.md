@@ -149,6 +149,36 @@ Final verification after these fixes: `tsc -b` 0 errors, `lint` 0 errors (same 3
 
 ---
 
+## 10. 0.9.1 hotfix verification — installer-only CSP regression
+
+**User report (0.9.0 installer):** editor preview lost heading/table/code styling; source mode showed line numbers but no text.
+
+**Root cause (verified through the release binary via WebView2 CDP):** Tauri's compile-time CSP modification injected a nonce into `style-src`:
+
+```
+style-src 'self' 'unsafe-inline' 'nonce-<random>'
+```
+
+Per CSP, a nonce/hash in the same directive makes `'unsafe-inline'` ignored, so CodeMirror's runtime-injected `<style>` (base theme + `EditorView.theme`) and React `style` attributes were blocked. The dev browser used for the 28-shot QA has no such CSP, which is why this was invisible there.
+
+**Fix:** `src-tauri/tauri.conf.json` → `app.security.dangerousDisableAssetCspModification: ["style-src"]`, keeping `script-src` nonce/hash protection unchanged. Rebuilt the NSIS installer as 0.9.1.
+
+**Verification against the release `zennote.exe` (CDP, remote debugging):**
+
+| Check | 0.9.0 | 0.9.1 |
+| --- | --- | --- |
+| CM `<style>` sheet | `null` (blocked) | 95 rules active |
+| `.cm-scroller` | `display:block; padding:0` | `display:flex; padding:40px 80px 0` |
+| `.cm-content` | 12.5px / max-width none | 13.5px / 860px |
+| Source mode text | invisible | visible |
+| Preview H1 | unstyled | serif 30px/600 |
+| Preview table | no borders | 1px hairline + 10px radius |
+| React inline styles | blocked | applied |
+
+Evidence: `artifacts/repro-fixed-source.png`, `artifacts/repro-fixed-preview.png`; root-cause evidence captured in `artifacts/` too (CSP header + blocked CM style before the fix). Test suite remains 47 files / 543 tests; `lint` 0 errors; `tsc -b` 0 errors.
+
+---
+
 ## Appendix — artifacts directory listing (PNG)
 
 Pipeline output (28): `01-welcome-light` 17.8 KB · `02-welcome-dark` 17.9 · `03-workspace-light` 88.0 · `04-workspace-dark` 90.8 · `05-settings` 105.0 · `06-search` 179.0 · `07-quickopen` 162.2 · `08-findbar` 98.5 · `09-shortcuts` 130.2 · `10-editor-table` 94.7 · `11-editor-mermaid` 68.8 · `12-workspace-en` 90.2 · `13-settings-dark` 90.1 · `14-search-dark` 157.6 · `15-findbar-dark` 100.0 · `16-shortcuts-dark` 116.8 · `17-workspace-narrow` 72.7 · `18-settings-en` 108.6 · `19-settings-appearance` 114.7 · `20-recent-workspaces` 92.5 · `21-editor-code` 103.2 · `22-code-lang-menu` 95.0 · `23-editor-tasklist` 73.1 · `24-table-menu` 96.1 · `25-image-bar` 198.0 · `26-source-mode` 110.4 · `27-empty-state` 37.9 · `28-empty-state-cold` 36.9.

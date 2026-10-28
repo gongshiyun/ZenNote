@@ -115,6 +115,7 @@ D:\ai-code\ZenNote\.installer-test\uninstall.exe /S
 
 ## 6. 注意
 
+* **不要移除 `app.security.dangerousDisableAssetCspModification: ["style-src"]`**。Tauri 编译期会往 `style-src` 注入 nonce，按 CSP 规范会让同一指令里的 `'unsafe-inline'` 失效，从而拦截 CodeMirror 运行时注入的 `<style>`（编辑器主题/布局）以及 React 内联 `style`，表现为「安装版预览无排版、源码模式文字不可见」。该例外只放宽样式注入，`script-src` 的 nonce/hash 保护保持不变。详见 `docs/RELEASE-NOTES-0.9.1.md`。
 * 安装包**未做 Authenticode 代码签名**（仅 Tauri 更新签名）。Windows SmartScreen 可能提示“未知发布者”，正式分发建议购买代码签名证书后用 `signtool` 签名。
 * 私钥 `src-tauri/keys/zennote.key` 随仓库保存属于历史配置；正式项目应移入 CI Secret，避免私钥入库。
 * 本次构建在项目外留下了用户级 Rust 工具链与 `%LOCALAPPDATA%\tauri` NSIS 缓存；不参与版本控制。

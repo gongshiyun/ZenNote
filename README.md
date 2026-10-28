@@ -186,6 +186,7 @@ ZenNote/
 ## 文档
 
 * [设计规范（Claude Code 桌面端设计语言）](./docs/DESIGN-CLAUDE-CODE.md)
+* [0.9.1 发布说明（修复安装版编辑器样式问题）](./docs/RELEASE-NOTES-0.9.1.md)
 * [0.9.0 发布说明](./docs/RELEASE-NOTES-0.9.0.md)
 * [产品需求](./docs/PRD.md)
 * [技术设计](./docs/TECH-DESIGN.md)

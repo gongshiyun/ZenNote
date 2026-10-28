@@ -1,5 +1,7 @@
 # ZenNote 0.9.0 — 发布说明
 
+> ⚠️ 0.9.0 的正式安装包存在「编辑器样式失效（Tauri CSP nonce 覆盖 'unsafe-inline'）」回归，请使用 **0.9.1**：[RELEASE-NOTES-0.9.1.md](./RELEASE-NOTES-0.9.1.md)。0.9.1 包含本页全部改动。
+>
 > 本轮目标：重新 review 需求与代码、修复问题，并把页面样式整体重做为 **Claude Code 桌面端风格**，交付可验证版本。
 
 ## 1. 视觉与体验（全站重做）

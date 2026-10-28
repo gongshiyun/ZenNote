@@ -186,6 +186,7 @@ ZenNote/
 ## Documentation
 
 - [Design spec (Claude Code desktop design language)](./docs/DESIGN-CLAUDE-CODE.md)
+- [0.9.1 release notes (installer editor-style fix)](./docs/RELEASE-NOTES-0.9.1.md)
 - [0.9.0 release notes](./docs/RELEASE-NOTES-0.9.0.md)
 - [Product requirements](./docs/PRD.md)
 - [Technical design](./docs/TECH-DESIGN.md)
