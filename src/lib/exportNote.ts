@@ -6,7 +6,7 @@
 // everything below. Colour and type come from the app's own resolved custom
 // properties, embedded with a stylesheet written for the exported document.
 
-import { currentFontStack } from "./fontStack";
+import { mermaidConfig } from "./mermaidRender";
 import { resolveImageUrl } from "../services";
 import { sanitizeSvg } from "./sanitize";
 import { useStore } from "../store";
@@ -101,7 +101,7 @@ math{font-size:1.06em;}
  * renderer itself stays a pure function of the markdown and can be unit tested.
  */
 async function buildExportBody(markdown: string): Promise<string> {
-  const { resolvedMode, currentFilePath } = useStore.getState();
+  const { currentFilePath } = useStore.getState();
 
   // Loaded up front so the renderer's maths callback can stay synchronous.
   let katex: typeof import("katex") | null = null;
@@ -131,12 +131,7 @@ async function buildExportBody(markdown: string): Promise<string> {
     renderMermaid: async source => {
       if (!mermaid) return null;
       try {
-        mermaid.initialize({
-          startOnLoad: false,
-          theme: resolvedMode === "dark" ? "dark" : "default",
-          securityLevel: "antiscript",
-          fontFamily: currentFontStack(),
-        });
+        mermaid.initialize(mermaidConfig());
         const id = "zn-exp-" + Math.random().toString(36).slice(2, 8);
         const { svg } = await mermaid.render(id, source);
         return sanitizeSvg(svg);
@@ -174,15 +169,14 @@ function collectResolvedVariables(): string {
 }
 
 function buildExportHtml(bodyHtml: string, title: string): string {
-  // Match the current theme attributes so the emitted variables resolve.
+  // Match the current appearance attributes so the emitted variables resolve.
   const root = document.documentElement;
   const isDark = root.classList.contains("dark");
-  const themeId = root.getAttribute("data-theme") || "claude";
   const dataFont = root.getAttribute("data-font") || "claude";
 
   return (
     "<!DOCTYPE html>\n" +
-    '<html lang="zh-CN" class="' + (isDark ? "dark" : "") + '" data-theme="' + themeId + '" data-font="' + dataFont + '">\n' +
+    '<html lang="zh-CN" class="' + (isDark ? "dark" : "") + '" data-font="' + dataFont + '">\n' +
     "<head>\n" +
     '<meta charset="UTF-8">\n' +
     '<meta name="viewport" content="width=device-width,initial-scale=1">\n' +
@@ -218,7 +212,12 @@ export async function exportToHtml(content: string, filePath: string) {
 function showToast(message: string, isError = false) {
   const host = ensureToastHost();
   const el = document.createElement("div");
-  el.style.cssText = "padding:8px 18px;border-radius:8px;font-size:13px;color:#fff;background:" + (isError ? "#DC2626" : "#16A34A") + ";box-shadow:0 4px 12px rgba(0,0,0,0.25);opacity:0;transition:opacity 200ms ease;white-space:nowrap;";
+  const accent = isError ? "var(--zn-danger)" : "var(--zn-success)";
+  el.style.cssText =
+    "padding:8px 16px;border-radius:var(--zn-radius-lg);font-size:var(--zn-fs-ui);" +
+    "font-family:var(--zn-font-ui);color:var(--zn-text);background:var(--zn-canvas-raised);" +
+    "border:1px solid " + accent + ";box-shadow:var(--zn-shadow-popover);opacity:0;" +
+    "transition:opacity var(--zn-dur-slow) var(--zn-ease);white-space:nowrap;";
   el.textContent = message;
   host.appendChild(el);
   requestAnimationFrame(() => { el.style.opacity = "1"; });
@@ -250,9 +249,17 @@ function showLoadingToast(message: string): () => void {
     document.head.appendChild(style);
   }
   const el = document.createElement("div");
-  el.style.cssText = "display:flex;align-items:center;gap:8px;padding:8px 18px;border-radius:8px;font-size:13px;color:#fff;background:#2563EB;box-shadow:0 4px 12px rgba(0,0,0,0.25);opacity:0;transition:opacity 200ms ease;white-space:nowrap;";
+  el.style.cssText =
+    "display:flex;align-items:center;gap:8px;padding:8px 16px;border-radius:var(--zn-radius-lg);" +
+    "font-size:var(--zn-fs-ui);font-family:var(--zn-font-ui);color:var(--zn-text);" +
+    "background:var(--zn-canvas-raised);border:1px solid var(--zn-border);" +
+    "box-shadow:var(--zn-shadow-popover);opacity:0;" +
+    "transition:opacity var(--zn-dur-slow) var(--zn-ease);white-space:nowrap;";
   const spinner = document.createElement("span");
-  spinner.style.cssText = "width:14px;height:14px;border:2px solid rgba(255,255,255,0.4);border-top-color:#fff;border-radius:50%;animation:zn-toast-spin 0.8s linear infinite;flex-shrink:0;";
+  spinner.style.cssText =
+    "width:14px;height:14px;border:2px solid var(--zn-border);" +
+    "border-top-color:var(--zn-accent);border-radius:50%;" +
+    "animation:zn-toast-spin 0.8s linear infinite;flex-shrink:0;";
   const text = document.createElement("span");
   text.textContent = message;
   el.appendChild(spinner);

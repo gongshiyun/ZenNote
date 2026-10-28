@@ -57,21 +57,34 @@ export async function saveCurrentDocument(): Promise<boolean> {
 function collectDirtySnapshots(): DirtySnapshot[] {
   const s = useStore.getState();
   const docs = new Map<string, string>();
+  // A document with an UNRESOLVED external conflict is never written: the disk
+  // version is the one the banner is protecting, and silently overwriting it
+  // would destroy the external edit. It still counts as unsaved work (see
+  // hasDirtyDocuments) so the close guard prompts instead of exiting silently.
+  const conflicted = s.externalConflict?.path ?? null;
   if (
     s.currentFilePath &&
     s.isDirty &&
-    s.externalConflict?.path !== s.currentFilePath
+    s.currentFilePath !== conflicted
   ) {
     docs.set(s.currentFilePath, s.content);
   }
   for (const [path, state] of s.fileStates) {
-    if (state.dirty) docs.set(path, state.content);
+    if (state.dirty && path !== conflicted) docs.set(path, state.content);
   }
   return Array.from(docs, ([path, content]) => ({ path, content }));
 }
 
 export function hasDirtyDocuments(): boolean {
-  return collectDirtySnapshots().length > 0;
+  const s = useStore.getState();
+  // Any dirty document counts — including one parked behind an unresolved
+  // external conflict. Excluding the conflicted document here used to make the
+  // close handler believe there was nothing to lose and exit without prompting.
+  if (s.currentFilePath && s.isDirty) return true;
+  for (const state of s.fileStates.values()) {
+    if (state.dirty) return true;
+  }
+  return false;
 }
 
 export async function flushDirtyDocuments(): Promise<FlushResult> {

@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useStore } from '../store';
 
-const { checkMock, relaunchMock } = vi.hoisted(() => ({
+const { checkMock, relaunchMock, writeFileMock } = vi.hoisted(() => ({
   checkMock: vi.fn(),
   relaunchMock: vi.fn(),
+  writeFileMock: vi.fn(),
 }));
 
 vi.mock('@tauri-apps/plugin-updater', () => ({
@@ -14,6 +15,13 @@ vi.mock('@tauri-apps/plugin-process', () => ({
   relaunch: (...args: unknown[]) => relaunchMock(...args),
 }));
 
+// saveCoordinator (imported dynamically by installUpdate) writes through this.
+// readFile is exported too because the store's editor slice imports it at load time.
+vi.mock('../services', () => ({
+  writeFile: (...args: unknown[]) => writeFileMock(...args),
+  readFile: vi.fn(),
+}));
+
 import { checkAndDownloadUpdate, installUpdate } from '../lib/updater';
 
 function resetUpdateState() {
@@ -22,6 +30,11 @@ function resetUpdateState() {
     updateVersion: null,
     updateError: null,
     updateProgress: null,
+    currentFilePath: null,
+    content: '',
+    isDirty: false,
+    fileStates: new Map(),
+    externalConflict: null,
   });
 }
 
@@ -29,6 +42,8 @@ describe('updater service', () => {
   beforeEach(() => {
     checkMock.mockReset();
     relaunchMock.mockReset();
+    writeFileMock.mockReset();
+    writeFileMock.mockResolvedValue(undefined);
     resetUpdateState();
   });
 
@@ -156,5 +171,41 @@ describe('updater service', () => {
 
     expect(install).toHaveBeenCalledTimes(1);
     expect(relaunchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('flushes dirty documents before installing', async () => {
+    const install = vi.fn().mockResolvedValue(undefined);
+    checkMock.mockResolvedValue({
+      version: '2.0.0',
+      download: vi.fn().mockResolvedValue(undefined),
+      install,
+    });
+    await checkAndDownloadUpdate();
+    useStore.setState({ currentFilePath: '/notes/a.md', content: 'unsaved', isDirty: true });
+
+    await installUpdate();
+
+    expect(writeFileMock).toHaveBeenCalledWith('/notes/a.md', 'unsaved');
+    expect(install).toHaveBeenCalledTimes(1);
+    expect(relaunchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('aborts the install and reports the error when the pre-install flush fails', async () => {
+    const install = vi.fn().mockResolvedValue(undefined);
+    checkMock.mockResolvedValue({
+      version: '2.0.0',
+      download: vi.fn().mockResolvedValue(undefined),
+      install,
+    });
+    await checkAndDownloadUpdate();
+    useStore.setState({ currentFilePath: '/notes/a.md', content: 'unsaved', isDirty: true });
+    writeFileMock.mockRejectedValue(new Error('disk full'));
+
+    await installUpdate();
+
+    expect(install).not.toHaveBeenCalled();
+    expect(relaunchMock).not.toHaveBeenCalled();
+    expect(useStore.getState().updateState).toBe('error');
+    expect(useStore.getState().updateError).toContain('disk full');
   });
 });

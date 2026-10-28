@@ -10,6 +10,7 @@ describe('Outline', () => {
       sourceMode: false,
       headings: [],
       activeHeadingId: null,
+      headingJumpRequest: null,
     });
     document.body.innerHTML = '';
     Object.defineProperty(Element.prototype, 'scrollIntoView', {
@@ -41,34 +42,29 @@ describe('Outline', () => {
     expect(screen.queryByText('D')).toBeNull();
   });
 
-  it('sets the active heading and scrolls to the matching DOM heading', () => {
-    useStore.setState({
-      content: '# A\n## B',
-    });
+  // Navigation is by SOURCE POSITION, not by a DOM index: CodeMirror only
+  // renders the viewport, so `querySelectorAll(...)[idx]` used to jump to the
+  // wrong heading in any note taller than one screen.
+  it('requests a document-position jump and marks the clicked row active', () => {
+    useStore.setState({ content: '# A\n## B' });
     render(<Outline />);
-
-    // Headings as Live Preview renders them: styled lines inside CodeMirror's
-    // scroller, not `h1`/`h2` elements.
-    const preview = document.createElement('div');
-    preview.className = 'zn-live-preview';
-    const scroller = document.createElement('div');
-    scroller.className = 'cm-scroller';
-    const first = document.createElement('div');
-    first.className = 'cm-line cm-zn-h1';
-    first.textContent = 'A';
-    const second = document.createElement('div');
-    second.className = 'cm-line cm-zn-h2';
-    second.textContent = 'B';
-    scroller.append(first, second);
-    preview.appendChild(scroller);
-    document.body.appendChild(preview);
 
     fireEvent.click(screen.getByTitle('B'));
 
     expect(useStore.getState().activeHeadingId).toBe('1');
-    const scrollSpy = Element.prototype.scrollIntoView as unknown as ReturnType<typeof vi.fn>;
-    // The second rendered heading is the one the second row points at.
-    expect(scrollSpy).toHaveBeenCalledTimes(1);
-    expect(second.scrollIntoView).toBeDefined();
+    const request = useStore.getState().headingJumpRequest;
+    expect(request).not.toBeNull();
+    // `pos` is the 0-based source line of the heading (`## B` is line 2).
+    expect(request?.pos).toBe(1);
+  });
+
+  it('switches out of source mode when jumping so the rendered editor can consume the request', () => {
+    useStore.setState({ content: '# A\n## B', sourceMode: true });
+    render(<Outline />);
+
+    fireEvent.click(screen.getByTitle('A'));
+
+    expect(useStore.getState().sourceMode).toBe(false);
+    expect(useStore.getState().headingJumpRequest?.pos).toBe(0);
   });
 });

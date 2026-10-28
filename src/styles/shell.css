@@ -1,0 +1,586 @@
+/* ==========================================================================
+   ZenNote —Application shell
+   Owner: ui-shell. See docs/DESIGN-CLAUDE-CODE.md 搂5.2, 搂5.3, 搂5.6, 搂5.14.
+
+   Classes owned here:
+     .zn-app, .zn-workspace, .zn-sidebar-slot, .zn-outline-slot,
+     .zn-editor-slot,
+     .zn-titlebar (+ brand/doc/trail/window controls),
+     .zn-tabbar / .zn-tab,
+     .zn-statusbar,
+     .zn-welcome.
+
+   Every colour, size, radius and shadow comes from tokens.css. The two side
+   slots are layout-only: ui-panels paints the sidebar/outline surfaces and
+   their hairlines, so the wrappers must stay transparent.
+   ========================================================================== */
+
+/* ==========================================================================
+   App skeleton
+   ========================================================================== */
+.zn-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--zn-canvas);
+  color: var(--zn-text);
+}
+
+.zn-workspace {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Layout-only wrappers —surface + border belong to .zn-sidebar / .zn-outline
+   inside them (ui-panels), so no double hairlines. */
+.zn-sidebar-slot,
+.zn-outline-slot {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.zn-sidebar-slot {
+  width: var(--zn-sidebar-w);
+}
+.zn-outline-slot {
+  width: var(--zn-outline-w);
+}
+.zn-sidebar-slot > *,
+.zn-outline-slot > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.zn-editor-slot {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--zn-canvas);
+}
+
+/* ==========================================================================
+   Titlebar —40px, one line of quiet chrome
+   ========================================================================== */
+.zn-titlebar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  height: var(--zn-titlebar-h);
+  padding: 0 0 0 10px;
+  background: var(--zn-canvas);
+  border-bottom: 1px solid var(--zn-border-soft);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.zn-titlebar__lead {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.zn-brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-right: 4px;
+  padding-right: 2px;
+  color: var(--zn-text);
+  flex-shrink: 0;
+}
+
+.zn-brand__wordmark {
+  font-family: var(--zn-font-ui);
+  font-size: var(--zn-fs-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* Absolutely centred so the document title does not shift when the side
+   groups change width. */
+.zn-titlebar__doc {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  max-width: 36%;
+  padding: 0 8px;
+  overflow: hidden;
+  color: var(--zn-text-secondary);
+  font-size: var(--zn-fs-ui);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.zn-titlebar__trail {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  gap: 2px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Anchored dropdown: DropdownMenu positions itself against this box. */
+.zn-titlebar__anchor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.zn-titlebar__update {
+  height: 24px;
+  padding: 0 10px;
+  margin-right: 6px;
+  gap: 5px;
+  border-radius: var(--zn-radius-pill);
+  font-size: var(--zn-fs-sm);
+}
+
+.zn-titlebar__lang {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--zn-radius-sm);
+  background: transparent;
+  color: var(--zn-text-secondary);
+  font-family: var(--zn-font-ui);
+  font-size: var(--zn-fs-sm);
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--zn-dur) var(--zn-ease),
+    color var(--zn-dur) var(--zn-ease);
+}
+.zn-titlebar__lang:hover {
+  background: var(--zn-hover);
+  color: var(--zn-text);
+}
+.zn-titlebar__lang:active {
+  background: var(--zn-active);
+}
+
+.zn-titlebar__divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 5px;
+  background: var(--zn-border);
+  flex-shrink: 0;
+}
+
+/* ---- Window controls (46 脳 titlebar height) ----------------------------- */
+.zn-titlebar__window-controls {
+  display: flex;
+  align-self: stretch;
+  gap: 0;
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+
+.zn-win-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--zn-text-secondary);
+  cursor: default;
+  transition: background-color var(--zn-dur) var(--zn-ease),
+    color var(--zn-dur) var(--zn-ease);
+}
+.zn-win-btn:hover {
+  background: var(--zn-hover);
+  color: var(--zn-text);
+}
+.zn-win-btn:active {
+  background: var(--zn-active);
+}
+.zn-win-btn--close:hover,
+.zn-win-btn--close:active {
+  background: var(--titlebar-close-hover);
+  color: var(--titlebar-close-fg);
+}
+.zn-win-btn:focus-visible {
+  outline: 2px solid var(--zn-accent);
+  outline-offset: -2px;
+}
+.zn-win-btn--close:focus-visible {
+  outline: none;
+  background: var(--titlebar-close-hover);
+  color: var(--titlebar-close-fg);
+}
+
+/* ==========================================================================
+   Tab strip —pills floating on the canvas
+   ========================================================================== */
+.zn-tabbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  height: var(--zn-tabbar-h);
+  padding: 0 8px;
+  background: var(--zn-canvas);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.zn-tabbar::-webkit-scrollbar {
+  display: none;
+}
+
+.zn-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  max-width: 220px;
+  height: 30px;
+  padding: 0 8px 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--zn-radius-md);
+  background: transparent;
+  color: var(--zn-text-secondary);
+  font-size: var(--zn-fs-ui);
+  cursor: pointer;
+  transition: background-color var(--zn-dur) var(--zn-ease),
+    color var(--zn-dur) var(--zn-ease), border-color var(--zn-dur) var(--zn-ease),
+    box-shadow var(--zn-dur) var(--zn-ease);
+}
+.zn-tab:hover {
+  background: var(--zn-hover);
+  color: var(--zn-text);
+}
+.zn-tab[data-active="true"] {
+  background: var(--zn-canvas-raised);
+  border-color: var(--zn-border);
+  color: var(--zn-text);
+  box-shadow: var(--zn-shadow-card);
+}
+.zn-tab:focus-visible {
+  outline: 2px solid var(--zn-accent);
+  outline-offset: 1px;
+}
+
+.zn-tab__name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ---- Dirty dot / close affordance -------------------------------------- */
+.zn-tab__close {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-right: -2px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--zn-radius-xs);
+  background: transparent;
+  color: var(--zn-text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--zn-dur) var(--zn-ease),
+    background-color var(--zn-dur) var(--zn-ease),
+    color var(--zn-dur) var(--zn-ease);
+}
+.zn-tab__dot {
+  position: absolute;
+  top: 50%;
+  right: 11px;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: var(--zn-radius-pill);
+  background: var(--zn-accent-fill);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--zn-dur) var(--zn-ease);
+}
+
+.zn-tab:hover .zn-tab__close,
+.zn-tab[data-active="true"] .zn-tab__close {
+  opacity: 1;
+  pointer-events: auto;
+}
+.zn-tab__close:hover {
+  background: var(--zn-active);
+  color: var(--zn-text);
+}
+
+/* A dirty tab shows the clay dot; hovering swaps it for the 脳. */
+.zn-tab[data-dirty="true"] .zn-tab__dot {
+  opacity: 1;
+}
+.zn-tab[data-dirty="true"]:hover .zn-tab__dot {
+  opacity: 0;
+}
+.zn-tab[data-dirty="true"] .zn-tab__close {
+  opacity: 0;
+  pointer-events: none;
+}
+.zn-tab[data-dirty="true"]:hover .zn-tab__close {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* Keyboard focus must always reveal the close control (and hide the dot). */
+.zn-tab .zn-tab__close:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.zn-tab__close:hover + .zn-tab__dot,
+.zn-tab__close:focus-visible + .zn-tab__dot {
+  opacity: 0;
+}
+
+/* ==========================================================================
+   Status bar —26px, metadata only
+   ========================================================================== */
+.zn-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+  height: var(--zn-statusbar-h);
+  padding: 0 12px;
+  background: var(--zn-canvas);
+  border-top: 1px solid var(--zn-border-soft);
+  color: var(--zn-text-tertiary);
+  font-size: var(--zn-fs-sm);
+  line-height: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.zn-statusbar__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  height: 20px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--zn-radius-xs);
+  background: transparent;
+  color: var(--zn-text-secondary);
+  font-size: var(--zn-fs-sm);
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--zn-dur) var(--zn-ease),
+    color var(--zn-dur) var(--zn-ease);
+}
+.zn-statusbar__toggle:hover {
+  background: var(--zn-hover);
+  color: var(--zn-text);
+}
+.zn-statusbar__toggle[data-active="true"] {
+  background: var(--zn-accent-soft);
+  color: var(--zn-accent);
+}
+
+.zn-statusbar__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+.zn-statusbar__position {
+  min-width: 86px;
+  font-variant-numeric: tabular-nums;
+}
+.zn-statusbar__save[data-dirty="true"] {
+  color: var(--zn-warning);
+}
+.zn-statusbar__save-icon {
+  color: var(--zn-success);
+}
+.zn-statusbar__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--zn-radius-pill);
+  background: var(--zn-warning);
+  flex-shrink: 0;
+}
+.zn-statusbar__error {
+  color: var(--zn-danger);
+}
+.zn-statusbar__error-text {
+  max-width: 280px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.zn-statusbar__selection {
+  color: var(--zn-accent);
+}
+.zn-statusbar__stats {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ==========================================================================
+   Welcome screen
+   ========================================================================== */
+.zn-welcome {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 32px 24px;
+  overflow: auto;
+  background: var(--zn-canvas);
+}
+
+.zn-welcome__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 420px;
+  text-align: center;
+}
+
+.zn-welcome__mark {
+  margin-bottom: 22px;
+  color: var(--zn-accent);
+}
+
+.zn-welcome__title {
+  margin: 0 0 10px;
+  font-family: var(--zn-font-serif);
+  font-size: var(--zn-fs-display);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--zn-text);
+  text-wrap: balance;
+}
+
+.zn-welcome__subtitle {
+  margin: 0 0 28px;
+  max-width: 320px;
+  font-size: var(--zn-fs-md);
+  line-height: 1.5;
+  color: var(--zn-text-secondary);
+  text-wrap: balance;
+}
+
+.zn-welcome__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.zn-welcome__loading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--zn-text-tertiary);
+  font-size: var(--zn-fs-md);
+}
+
+/* ==========================================================================
+   Narrow windows —keep the chrome legible, shed the optional labels
+   ========================================================================== */
+@media (max-width: 900px) {
+  .zn-brand__wordmark {
+    display: none;
+  }
+  .zn-titlebar__doc {
+    display: none;
+  }
+  .zn-tab {
+    max-width: 160px;
+  }
+}
+
+@media (max-width: 640px) {
+  .zn-titlebar {
+    padding-left: 6px;
+    gap: 6px;
+  }
+  .zn-titlebar__divider {
+    display: none;
+  }
+  .zn-win-btn {
+    width: 38px;
+  }
+  .zn-tab {
+    max-width: 120px;
+  }
+  .zn-statusbar {
+    gap: 10px;
+    padding: 0 8px;
+  }
+  .zn-statusbar__stats {
+    display: none;
+  }
+}
+
+/* ==========================================================================
+   Editor host — the active CodeMirror surface below the shared find bar
+   ========================================================================== */
+.zn-editor-host {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.zn-editor-host > * {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}

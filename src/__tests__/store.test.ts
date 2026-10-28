@@ -63,6 +63,34 @@ describe('Editor Slice', () => {
     expect(useStore.getState().isDirty).toBe(false);
   });
 
+  it('clears dirty again when content returns to the saved text', () => {
+    useStore.getState().setCurrentFile('/test/note.md', 'saved');
+    useStore.getState().setContent('saved + edit');
+    expect(useStore.getState().isDirty).toBe(true);
+    useStore.getState().setContent('saved');
+    expect(useStore.getState().isDirty).toBe(false);
+  });
+
+  it('uses the saved snapshot as the undo baseline after a save', () => {
+    useStore.getState().setCurrentFile('/test/note.md', 'v1');
+    useStore.getState().setContent('v2');
+    useStore.getState().markSavedSnapshot('/test/note.md', 'v2');
+    expect(useStore.getState().isDirty).toBe(false);
+
+    useStore.getState().setContent('v1');
+    expect(useStore.getState().isDirty).toBe(true);
+    useStore.getState().setContent('v2');
+    expect(useStore.getState().isDirty).toBe(false);
+  });
+
+  it('setSavedContentBaseline aligns dirty with an externally reloaded document', () => {
+    useStore.getState().setCurrentFile('/test/note.md', 'local');
+    useStore.getState().setSavedContentBaseline('external');
+    expect(useStore.getState().lastSavedContent).toBe('external');
+    useStore.getState().setContent('external');
+    expect(useStore.getState().isDirty).toBe(false);
+  });
+
   it('setSourceMode should toggle source mode', () => {
     useStore.getState().setSourceMode(true);
     expect(useStore.getState().sourceMode).toBe(true);

@@ -3,6 +3,8 @@ import { useStore } from "../../store";
 import { t } from "../../i18n";
 import { computeWordCount, WORDS_PER_MINUTE } from "../../domain";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
+import { Spinner } from "../ui";
+import { AlertTriangleIcon, CircleCheckIcon, CodeIcon } from "../ui/icons";
 
 export function StatusBar() {
   const cursorLine = useStore(s => s.cursorLine);
@@ -37,61 +39,64 @@ export function StatusBar() {
   }, [lastSavedAt]);
 
   return (
-    <div style={{
-      height: 24, display: "flex", alignItems: "center",
-      padding: "0 10px", background: "var(--bg-statusbar)",
-      borderTop: "1px solid var(--border)", fontSize: 11.5,
-      color: "var(--text-tertiary)", flexShrink: 0, gap: 14,
-      userSelect: "none",
-    }}>
+    <div className="zn-statusbar">
       {/* Source mode toggle (Typora-style, bottom-left) */}
       <button
-        onClick={() => setSourceMode(!sourceMode)}
+        type="button"
+        className="zn-statusbar__toggle"
+        data-active={sourceMode || undefined}
         title={t().titlebar.toggleSource}
-        style={{
-          border: "none", background: sourceMode ? "var(--bg-sidebar-active)" : "transparent",
-          color: sourceMode ? "var(--text-warning)" : "var(--text-secondary)",
-          cursor: "pointer", fontSize: 11, fontWeight: 500, padding: "2px 7px", borderRadius: 4,
-          display: "flex", alignItems: "center", gap: 4, transition: "all 120ms ease",
-        }}
-        onMouseEnter={e => { if (!sourceMode) e.currentTarget.style.background = "var(--bg-hover)"; }}
-        onMouseLeave={e => { if (!sourceMode) e.currentTarget.style.background = "transparent"; }}>
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="3,6 1,8 3,10"/><polyline points="13,6 15,8 13,10"/><line x1="6" y1="3" x2="10" y2="13"/></svg>
-        {sourceMode ? t().statusbar.source : t().statusbar.preview}
+        aria-label={t().titlebar.toggleSource}
+        aria-pressed={sourceMode}
+        onClick={() => setSourceMode(!sourceMode)}
+      >
+        <CodeIcon size={13} />
+        <span>{sourceMode ? t().statusbar.source : t().statusbar.preview}</span>
       </button>
 
-      {/* Fields are separated by the flex `gap` above rather than by "|" glyphs.
-          Pipe separators are the most dated thing in the old chrome and read as
-          an IDE from 2008; Claude's status strip relies on spacing alone. */}
-      <span style={{ minWidth: 80 }}>Ln {cursorLine}, Col {cursorCol}</span>
+      {/* Fields are separated by the flex `gap` rather than by "|" glyphs; the
+          Claude-style status strip relies on spacing alone. */}
+      {(!currentFilePath && cursorLine === 1 && cursorCol === 1) ? null : (
+        <span className="zn-statusbar__item zn-statusbar__position zn-mono">
+          Ln {cursorLine}, Col {cursorCol}
+        </span>
+      )}
 
       {currentFilePath && (
-        <span style={{ color: isDirty ? "var(--text-warning)" : "var(--text-tertiary)", fontWeight: isDirty ? 500 : 400 }}>
+        <span className="zn-statusbar__item zn-statusbar__save" data-dirty={isDirty || undefined}>
           {isDirty
-            ? "● " + t().statusbar.unsaved
-            : "✓ " + t().statusbar.saved + (savedTimeLabel ? " " + savedTimeLabel : "")}
+            ? <span className="zn-statusbar__dot" aria-hidden="true" />
+            : <CircleCheckIcon size={12} className="zn-statusbar__save-icon" />}
+          <span>
+            {isDirty ? t().statusbar.unsaved : t().statusbar.saved}
+            {!isDirty && savedTimeLabel ? " " + savedTimeLabel : ""}
+          </span>
         </span>
       )}
 
       {saveError && (
-        <span title={saveError} style={{ color: "var(--text-danger)", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {t().statusbar.saveFailed}: {saveError}
+        <span className="zn-statusbar__item zn-statusbar__error" title={saveError}>
+          <AlertTriangleIcon size={12} />
+          <span className="zn-statusbar__error-text">
+            {t().statusbar.saveFailed}: {saveError}
+          </span>
         </span>
       )}
 
       {selectionCharCount > 0 && (
-        <span style={{ color: "var(--text-accent)" }}>
+        <span className="zn-statusbar__item zn-statusbar__selection">
           {t().statusbar.selection} {selectionCharCount} {t().statusbar.chars} / {selectionWordCount} {t().statusbar.words}
         </span>
       )}
 
       {imageUploadCount > 0 && (
-        <span style={{ color: "var(--text-accent)" }}>
+        <span className="zn-statusbar__item zn-statusbar__selection">
+          <Spinner size={10} />
           {t().statusbar.imageProcessing}
         </span>
       )}
 
-      <span style={{ flex: 1, textAlign: "center" }}>
+      <span className="zn-statusbar__stats">
         {totalWords > 0 && <span>{totalWords.toLocaleString()} {t().statusbar.words}</span>}
         {totalChars > 0 && <span> · {totalChars.toLocaleString()} {t().statusbar.chars}</span>}
         {lineCount > 1 && <span> · {lineCount} {t().statusbar.lines}</span>}

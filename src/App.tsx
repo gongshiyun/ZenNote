@@ -1,4 +1,4 @@
-﻿import { useEffect } from 'react';
+import { useEffect } from 'react';
 import { useStore } from './store';
 import { AppShell } from './components/layout/AppShell';
 import { applyEditorFontSize, applyEditorPadding } from './lib/editorAppearance';
@@ -6,7 +6,6 @@ import { applyEditorFontSize, applyEditorPadding } from './lib/editorAppearance'
 function App() {
   const mode = useStore(s => s.mode);
   const setResolvedMode = useStore(s => s.setResolvedMode);
-  const themeId = useStore(s => s.themeId);
   const fontFamily = useStore(s => s.fontFamily);
   const fontSize = useStore(s => s.fontSize);
   const editorPadding = useStore(s => s.editorPadding);
@@ -31,11 +30,7 @@ function App() {
     return () => mq.removeEventListener('change', handler);
   }, [mode, setResolvedMode]);
 
-  // Apply color theme + font attributes
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', themeId);
-  }, [themeId]);
-
+  // Apply font attribute
   useEffect(() => {
     document.documentElement.setAttribute('data-font', fontFamily);
   }, [fontFamily]);

@@ -9,6 +9,7 @@
 import { useStore } from "../../store";
 import { t } from "../../i18n";
 import { keepExternalConflict, reloadExternalConflict } from "../../lib/workspaceWatcher";
+import { AlertTriangleIcon } from "../ui";
 
 export function ConflictBanner() {
   const externalConflict = useStore(s => s.externalConflict);
@@ -17,37 +18,36 @@ export function ConflictBanner() {
   if (!externalConflict || externalConflict.path !== currentFilePath) return null;
 
   const deleted = externalConflict.reason === "deleted";
+  const message = deleted ? t().editor.externalDeleted : t().editor.externalModified;
 
   return (
-    <div style={{
-      padding: "7px 12px", fontSize: 12, display: "flex", alignItems: "center", gap: 10,
-      background: deleted ? "var(--bg-toolbar)" : "#FEF3C7",
-      color: deleted ? "var(--text-secondary)" : "#92400E",
-      borderBottom: "1px solid var(--border)", flexShrink: 0,
-    }}>
-      <span>
-        {deleted ? t().editor.externalDeleted : t().editor.externalModified}
+    <div
+      className="zn-conflict"
+      data-deleted={deleted || undefined}
+      role={deleted ? "status" : "alert"}
+    >
+      <span className="zn-conflict__icon">
+        <AlertTriangleIcon size={15} />
       </span>
-      {!deleted && (
+      <span className="zn-conflict__text" title={message}>{message}</span>
+      <div className="zn-conflict__actions">
+        {!deleted && (
+          <button
+            type="button"
+            className="zn-conflict__btn"
+            onClick={() => reloadExternalConflict(externalConflict.path)}
+          >
+            {t().editor.reloadExternal}
+          </button>
+        )}
         <button
-          onClick={() => reloadExternalConflict(externalConflict.path)}
-          style={{
-            border: "1px solid currentColor", background: "transparent",
-            color: "inherit", borderRadius: 4, padding: "2px 8px", cursor: "pointer",
-          }}
+          type="button"
+          className="zn-conflict__btn"
+          onClick={() => keepExternalConflict(externalConflict.path)}
         >
-          {t().editor.reloadExternal}
+          {t().editor.keepLocal}
         </button>
-      )}
-      <button
-        onClick={() => keepExternalConflict(externalConflict.path)}
-        style={{
-          border: "1px solid var(--border)", background: "var(--bg-editor)",
-          color: "var(--text-primary)", borderRadius: 4, padding: "2px 8px", cursor: "pointer",
-        }}
-      >
-        {t().editor.keepLocal}
-      </button>
+      </div>
     </div>
   );
 }

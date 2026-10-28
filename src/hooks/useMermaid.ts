@@ -1,26 +1,20 @@
 import { useEffect } from "react";
 import { useStore } from "../store";
-import { currentFontStack } from "../lib/fontStack";
+import { mermaidConfig } from "../lib/mermaidRender";
 
 let mermaidReady = false;
-let mermaidTheme = "";
-let mermaidFont = "";
+let mermaidKey = "";
 
-async function ensureMermaid(theme: string, font: string) {
-  if (mermaidReady && mermaidTheme === theme && mermaidFont === font) return;
-  mermaidTheme = theme;
-  mermaidFont = font;
+async function ensureMermaid() {
+  const state = useStore.getState();
+  const key = `${state.resolvedMode}|${state.fontFamily}`;
+  if (mermaidReady && mermaidKey === key) return;
+  mermaidKey = key;
   try {
     const m = await import("mermaid");
-    m.default.initialize({
-      startOnLoad: false,
-      theme: theme === "dark" ? "dark" : "default",
-      securityLevel: "loose",
-      // Follow the user's selected UI font
-      fontFamily: currentFontStack(),
-    });
+    m.default.initialize(mermaidConfig(state.resolvedMode === "dark"));
     mermaidReady = true;
-  } catch { /* */ }
+  } catch { /* mermaid unavailable */ }
 }
 
 export function useMermaid() {
@@ -28,6 +22,8 @@ export function useMermaid() {
   const fontFamily = useStore(s => s.fontFamily);
 
   useEffect(() => {
-    ensureMermaid(resolvedMode, fontFamily);
+    void ensureMermaid();
+    // Re-initialise when the colour scheme or font stack changes; the config
+    // itself is resolved from the live CSS tokens.
   }, [resolvedMode, fontFamily]);
 }

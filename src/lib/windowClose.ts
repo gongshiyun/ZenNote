@@ -15,7 +15,14 @@ export function createCloseRequestHandler(deps: CloseRequestDeps) {
   let closing = false;
 
   return async (event: CloseEventLike): Promise<void> => {
-    if (allowClose || closing) return;
+    // A second close request arrives while the first flush is still running.
+    // It must be prevented too: Tauri destroys the window whenever the handler
+    // returns without preventDefault, which would kill the app mid-save.
+    if (closing) {
+      event.preventDefault();
+      return;
+    }
+    if (allowClose) return;
     if (!deps.hasDirtyDocuments()) return;
 
     event.preventDefault();

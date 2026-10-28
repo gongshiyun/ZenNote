@@ -1,34 +1,28 @@
-import { useEffect, useMemo, useCallback, useRef } from "react";
+import { useEffect, useMemo, type CSSProperties } from "react";
 import { useStore } from "../../store";
 import { t } from "../../i18n";
 import { parseHeadings, displayableHeadings } from "../../domain";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 
 /**
- * The rendered headings, as the Live Preview editor draws them.
+ * Document outline panel.
  *
- * This used to query `.ProseMirror h1, h2, h3` — the Crepe editor's markup.
- * Live Preview renders headings as styled lines rather than `h1`/`h2`/`h3`
- * elements, so once it became the only editor those lookups found nothing and
- * the outline silently did nothing: no row followed the scroll, and clicking a
- * row did not move the document.
- *
- * `displayableHeadings` keeps levels 1-3 in document order, which is exactly the
- * order these selectors return, so the row index and the element index line up.
+ * Navigation is by DOCUMENT POSITION, not by DOM node: Live Preview renders with
+ * CodeMirror, which virtualises the document to roughly one viewport, so
+ * `querySelectorAll(".cm-zn-h2")[idx]` used to target the wrong heading (or
+ * nothing) in any note taller than a screen. The panel now asks the editor to
+ * jump to `heading.pos` (a source line index) through `requestHeadingJump`;
+ * the editor owns the position mapping and also drives the active row while the
+ * user scrolls.
  */
-const HEADING_SELECTOR =
-  ".zn-live-preview .cm-zn-h1, .zn-live-preview .cm-zn-h2, .zn-live-preview .cm-zn-h3";
-/** CodeMirror's scroller, which is what actually scrolls the document. */
-const SCROLLER_SELECTOR = ".zn-live-preview .cm-scroller";
-
 export function Outline() {
   const content = useStore(s => s.content);
   const activeHeadingId = useStore(s => s.activeHeadingId);
   const setHeadings = useStore(s => s.setHeadings);
   const setActiveHeading = useStore(s => s.setActiveHeading);
+  const requestHeadingJump = useStore(s => s.requestHeadingJump);
   const sourceMode = useStore(s => s.sourceMode);
   const setSourceMode = useStore(s => s.setSourceMode);
-  const scrollTimer = useRef<number>(0);
 
   // 大纲解析是全文扫描（split + 逐行正则），不能压在每次按键的热路径上；
   // 防抖 400ms 后重新解析（初始值立即返回，打开面板首屏不延迟）。
@@ -40,107 +34,44 @@ export function Outline() {
 
   useEffect(() => { setHeadings(headings); }, [headings, setHeadings]);
 
-  // Auto-highlight active heading based on scroll position
-  useEffect(() => {
-    if (sourceMode || displayHeadings.length === 0) return;
-
-    // CodeMirror's scroller is what actually scrolls the document. This used to
-    // walk up from `.ProseMirror` looking for a scrollable ancestor, because
-    // Crepe wrapped the editable in non-scrolling divs.
-    const scrollEl = document.querySelector<HTMLElement>(SCROLLER_SELECTOR);
-    if (!scrollEl) return;
-
-    const handleScroll = () => {
-      if (scrollTimer.current) clearTimeout(scrollTimer.current);
-      scrollTimer.current = window.setTimeout(() => {
-        const headingEls = Array.from(document.querySelectorAll<HTMLElement>(HEADING_SELECTOR));
-        let activeIdx = -1;
-        const scrollTop = scrollEl.scrollTop + 100;
-
-        headingEls.forEach((el, i) => {
-          const rect = el.getBoundingClientRect();
-          const containerRect = scrollEl.getBoundingClientRect();
-          const elTop = rect.top - containerRect.top + scrollEl.scrollTop;
-          if (elTop <= scrollTop) activeIdx = i;
-        });
-
-        setActiveHeading(activeIdx >= 0 ? String(activeIdx) : null);
-      }, 100);
-    };
-
-    scrollEl.addEventListener("scroll", handleScroll, { passive: true });
-    handleScroll();
-    return () => {
-      scrollEl.removeEventListener("scroll", handleScroll);
-      if (scrollTimer.current) clearTimeout(scrollTimer.current);
-    };
-  }, [displayHeadings, sourceMode, setActiveHeading]);
-
-  const handleClick = useCallback((displayIdx: number) => {
-    setActiveHeading(String(displayIdx));
+  const handleClick = (displayIdx: number) => {
     const heading = displayHeadings[displayIdx];
     if (!heading) return;
-
-    // Scroll to the heading inside the rendered (preview) editor.
-    const scrollToHeading = (idx: number): boolean => {
-      const target = document.querySelectorAll<HTMLElement>(HEADING_SELECTOR)[idx];
-      if (!target) return false;
-      // The nearest scrollable ancestor is CodeMirror's scroller.
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-      return true;
-    };
-
-    // Clicking the outline always navigates in the rendered view — never the
-    // markdown source. If we are in source mode, switch back to preview first,
-    // then scroll once the editor has re-rendered.
-    if (sourceMode) {
-      setSourceMode(false);
-      let tries = 0;
-      const timer = window.setInterval(() => {
-        tries++;
-        if (scrollToHeading(displayIdx) || tries > 40) window.clearInterval(timer);
-      }, 100);
-      return;
-    }
-
-    scrollToHeading(displayIdx);
-  }, [setActiveHeading, displayHeadings, sourceMode, setSourceMode]);
+    setActiveHeading(String(displayIdx));
+    requestHeadingJump(heading.pos);
+    // Clicking the outline always navigates the rendered view. Switching back
+    // from source mode re-mounts the live editor, which then consumes the
+    // pending jump request.
+    if (sourceMode) setSourceMode(false);
+  };
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      <div style={{ height: 32, display: "flex", alignItems: "center", padding: "0 12px", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", flexShrink: 0 }}>
-        Outline
+    <aside className="zn-outline" aria-label={t().outline.title}>
+      <div className="zn-outline__head">
+        <span className="zn-label">{t().outline.title}</span>
       </div>
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "4px 0" }}>
+      <div className="zn-outline__body">
         {displayHeadings.length === 0 ? (
-          <div style={{ padding: "16px 12px", fontSize: 12, color: "var(--text-tertiary)", textAlign: "center" }}>{t().outline.noHeadings}</div>
+          <div className="zn-empty zn-outline__empty">{t().outline.noHeadings}</div>
         ) : (
           displayHeadings.map((h, idx) => {
             const isActive = activeHeadingId === String(idx);
-            const pl = 12 + (h.level - 1) * 14;
             return (
-              <div key={idx} onClick={() => handleClick(idx)}
-                style={{
-                  height: 26, display: "flex", alignItems: "center",
-                  paddingLeft: pl, paddingRight: 12,
-                  cursor: "pointer",
-                  background: isActive ? "var(--bg-sidebar-active)" : "transparent",
-                  fontSize: 12, fontWeight: h.level <= 2 ? 600 : 400,
-                  color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
-                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                  transition: "background-color 100ms ease, color 100ms ease",
-                  userSelect: "none",
-                  borderLeft: isActive ? "2px solid var(--text-accent)" : "2px solid transparent",
-                }}
-                onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = "var(--bg-sidebar-hover)"; }}
-                onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}
-                title={h.text}>
-                {h.text}
+              <div
+                key={idx}
+                className="zn-outline-row"
+                data-active={isActive || undefined}
+                data-level={h.level}
+                style={{ "--zn-level": h.level - 1 } as CSSProperties}
+                onClick={() => handleClick(idx)}
+                title={h.text}
+              >
+                <span className="zn-outline-row__label">{h.text}</span>
               </div>
             );
           })
         )}
       </div>
-    </div>
+    </aside>
   );
 }

@@ -8,7 +8,7 @@ import type { FileEditorState } from "../domain";
 
 import { createEditorSlice, type EditorSlice } from "./slices/editorSlice";
 import { createFileTreeSlice, createOutlineSlice, type FileTreeSlice, type OutlineSlice } from "./slices/fileTreeSlice";
-import { createThemeSlice, createConfigSlice, type ThemeSlice, type ConfigSlice } from "./slices/appearanceSlice";
+import { createAppearanceSlice, createConfigSlice, type AppearanceSlice, type ConfigSlice } from "./slices/appearanceSlice";
 import { createLocaleSlice, createUpdateSlice, createUISlice, type LocaleSlice, type UpdateSlice, type UISlice } from "./slices/systemSlice";
 import { affectedOpenPaths, remapPathPrefix } from "../lib/filePaths";
 
@@ -16,12 +16,12 @@ import { affectedOpenPaths, remapPathPrefix } from "../lib/filePaths";
 export type { FileNode, Heading, ThemeMode, UpdateState } from "../domain";
 
 // Re-export slice interfaces for consumers that need them.
-export type { EditorSlice, FileTreeSlice, OutlineSlice, ThemeSlice, ConfigSlice, LocaleSlice, UpdateSlice, UISlice };
+export type { EditorSlice, FileTreeSlice, OutlineSlice, AppearanceSlice, ConfigSlice, LocaleSlice, UpdateSlice, UISlice };
 
 export type AppStore = EditorSlice
   & FileTreeSlice
   & OutlineSlice
-  & ThemeSlice
+  & AppearanceSlice
   & ConfigSlice
   & LocaleSlice
   & UpdateSlice
@@ -31,7 +31,7 @@ export const useStore = create<AppStore>()((...a) => ({
   ...createEditorSlice(...a),
   ...createFileTreeSlice(...a),
   ...createOutlineSlice(...a),
-  ...createThemeSlice(...a),
+  ...createAppearanceSlice(...a),
   ...createConfigSlice(...a),
   ...createLocaleSlice(...a),
   ...createUpdateSlice(...a),

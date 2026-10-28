@@ -10,6 +10,8 @@ import { prepareImageUpload } from "../../lib/imageUpload";
 import { znCodeHighlightStyle } from "./codeHighlight";
 import { offsetAtLineCol } from "../../lib/textPosition";
 import { computeWordCount } from "../../domain";
+import { t } from "../../i18n";
+import { AppMark } from "../ui/icons";
 
 /**
  * Source mode editor — CodeMirror 6 with Markdown syntax highlighting.
@@ -124,30 +126,60 @@ export function SourceEditor({ viewRef }: Props) {
             },
           }),
           EditorView.theme({
+            // Source mode is the same warm page as live preview, with the same
+            // centred reading column and the same margin setting — switching
+            // between the two must not reflow the document.
             "&": {
               height: "100%",
-              fontSize: "var(--zn-editor-font-size, 15px)",
-              background: "var(--bg-editor)",
-              color: "var(--text-primary)",
+              background: "transparent",
+              color: "var(--zn-editor-text)",
+              fontSize: "13.5px",
             },
             ".cm-scroller": {
-              fontFamily: '"Cascadia Code","Fira Code",Consolas,"Microsoft YaHei",monospace',
-              lineHeight: "1.7",
+              fontFamily: "var(--zn-font-mono)",
+              lineHeight: "1.8",
+              padding: `40px ${editorPadding}px 0`,
             },
             ".cm-content": {
-              padding: "40px " + editorPadding + "px",
-              caretColor: "var(--text-primary)",
-              maxWidth: "var(--zn-editor-content-width, 980px)",
+              maxWidth: "var(--zn-editor-content-width, 860px)",
               margin: "0 auto",
+              padding: "0 0 30vh",
+              caretColor: "var(--zn-accent)",
             },
+            ".cm-line": { padding: "0" },
+            // Gutters are page chrome, not a separate lane: no background, no
+            // rule, tertiary line numbers that recede behind the code.
             ".cm-gutters": {
-              background: "var(--bg-editor)", color: "var(--text-tertiary)",
-              border: "none", borderRight: "1px solid var(--border-light)",
+              background: "transparent",
+              color: "var(--zn-text-tertiary)",
+              border: "none",
+              fontSize: "11px",
+              paddingRight: "10px",
             },
-            ".cm-activeLine": { backgroundColor: "var(--bg-hover)" },
-            ".cm-activeLineGutter": { backgroundColor: "transparent" },
-            ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: "var(--bg-sidebar-active) !important" },
-            ".cm-cursor": { borderLeftColor: "var(--text-primary)" },
+            ".cm-lineNumbers .cm-gutterElement": {
+              padding: "0 8px 0 0",
+              minWidth: "28px",
+              color: "var(--zn-text-tertiary)",
+            },
+            // The current line gets a whisper of hover tint, never a band.
+            ".cm-activeLine": { backgroundColor: "var(--zn-hover)" },
+            ".cm-activeLineGutter": {
+              backgroundColor: "transparent",
+              color: "var(--zn-text-secondary)",
+            },
+            ".cm-cursor, .cm-dropCursor": {
+              borderLeftColor: "var(--zn-accent)",
+              borderLeftWidth: "2px",
+            },
+            // Selection carries a little clay over the neutral selection token.
+            ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection": {
+              backgroundColor: "color-mix(in srgb, var(--zn-accent) 18%, var(--zn-selection))",
+            },
+            ".cm-foldPlaceholder": {
+              background: "var(--zn-surface)",
+              border: "1px solid var(--zn-border-soft)",
+              color: "var(--zn-text-tertiary)",
+            },
           }),
         ],
       }),
@@ -211,5 +243,30 @@ export function SourceEditor({ viewRef }: Props) {
     });
   }, [reloadTick, content, viewRef]);
 
-  return <div ref={hostRef} className="zn-source-editor" style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }} />;
+  // Nothing to edit yet: show the same quiet prompt the live preview shows, so
+  // flipping to source mode on an empty workspace is not a blank void.
+  const showEmptyState = !currentFilePath || content.trim() === "";
+
+  return (
+    <div
+      className="zn-source-editor zn-editor-surface"
+      style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}
+    >
+      {showEmptyState && (
+        <div className="zn-editor-empty" role="note">
+          <AppMark size={24} />
+          <p className="zn-editor-empty__title">{t().editor.openNote}</p>
+          <p className="zn-editor-empty__hint">
+            <kbd className="zn-kbd">Ctrl</kbd>
+            <span className="zn-editor-empty__plus" aria-hidden="true">+</span>
+            <kbd className="zn-kbd">P</kbd>
+          </p>
+        </div>
+      )}
+      <div
+        ref={hostRef}
+        style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+      />
+    </div>
+  );
 }

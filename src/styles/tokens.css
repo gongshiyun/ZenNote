@@ -1,0 +1,383 @@
+/* ==========================================================================
+   ZenNote — Design Tokens
+   Claude Code desktop design language. See docs/DESIGN-CLAUDE-CODE.md.
+
+   One chromatic accent (clay) reserved for attention: focus, links, active
+   indicators, switches, brand marks. Large fills are ink. Never pure black or
+   pure white for large surfaces.
+
+   Every colour, size, radius, shadow and motion curve used by the UI must come
+   from here. Do not introduce hard-coded hex values in component CSS.
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* ---- Surfaces ------------------------------------------------------- */
+  --zn-canvas: #faf9f5;
+  --zn-canvas-raised: #ffffff;
+  --zn-sidebar: #f0eee6;
+  --zn-surface: #f3f1e9;
+  --zn-surface-strong: #ebe8dd;
+  --zn-hover: rgba(31, 30, 29, 0.045);
+  --zn-active: rgba(31, 30, 29, 0.085);
+  --zn-selected: rgba(217, 119, 87, 0.1);
+
+  /* ---- Lines ---------------------------------------------------------- */
+  --zn-border: rgba(31, 30, 29, 0.1);
+  --zn-border-soft: rgba(31, 30, 29, 0.06);
+  --zn-border-strong: rgba(31, 30, 29, 0.2);
+
+  /* ---- Text ----------------------------------------------------------- */
+  --zn-text: #1f1e1d;
+  --zn-text-secondary: #6b6862;
+  --zn-text-tertiary: #9a968c;
+  --zn-text-disabled: #b8b4a9;
+  --zn-text-inverse: #faf9f5;
+
+  /* ---- Accent: clay ---------------------------------------------------- */
+  --zn-accent: #c2603f;
+  --zn-accent-strong: #a94b2c;
+  --zn-accent-fill: #d97757;
+  --zn-accent-fill-hover: #c96a4b;
+  --zn-on-accent: #ffffff;
+  --zn-accent-soft: rgba(217, 119, 87, 0.1);
+  --zn-accent-ring: rgba(217, 119, 87, 0.3);
+
+  /* ---- Semantic ------------------------------------------------------- */
+  --zn-success: #3e7a4e;
+  --zn-success-soft: rgba(62, 122, 78, 0.1);
+  --zn-warning: #8a6318;
+  --zn-warning-soft: rgba(138, 99, 24, 0.12);
+  --zn-danger: #a8402a;
+  --zn-danger-soft: rgba(168, 64, 42, 0.1);
+  --zn-info: var(--zn-accent);
+
+  /* ---- Primary action (ink, not clay) --------------------------------- */
+  --zn-btn-primary-bg: #1f1e1d;
+  --zn-btn-primary-bg-hover: #33312c;
+  --zn-btn-primary-fg: #faf9f5;
+
+  /* ---- Code ----------------------------------------------------------- */
+  --zn-code-inline-bg: #f0ede3;
+  --zn-code-inline-fg: #a64a2e;
+  --zn-code-block-bg: #f3f1e8;
+
+  /* ---- Selection / scrollbar ------------------------------------------ */
+  --zn-selection: #dfe4e8;
+  --zn-scrollbar-thumb: #cfcbbe;
+  --zn-scrollbar-thumb-hover: #b5b0a2;
+
+  /* ---- Elevation ------------------------------------------------------ */
+  --zn-shadow-card: 0 1px 2px rgba(58, 46, 34, 0.06);
+  --zn-shadow-popover: 0 10px 30px rgba(58, 46, 34, 0.14), 0 1px 2px rgba(58, 46, 34, 0.08);
+  --zn-shadow-modal: 0 24px 64px rgba(58, 46, 34, 0.2), 0 2px 8px rgba(58, 46, 34, 0.06);
+  --zn-scrim: rgba(31, 30, 29, 0.32);
+
+  /* ---- Sizing --------------------------------------------------------- */
+  --zn-titlebar-h: 40px;
+  --zn-tabbar-h: 38px;
+  --zn-statusbar-h: 26px;
+  --zn-sidebar-w: 260px;
+  --zn-outline-w: 200px;
+
+  --zn-radius-xs: 4px;
+  --zn-radius-sm: 6px;
+  --zn-radius-md: 8px;
+  --zn-radius-lg: 10px;
+  --zn-radius-xl: 14px;
+  --zn-radius-pill: 999px;
+
+  --zn-space-1: 4px;
+  --zn-space-2: 8px;
+  --zn-space-3: 12px;
+  --zn-space-4: 16px;
+  --zn-space-5: 20px;
+  --zn-space-6: 24px;
+  --zn-space-8: 32px;
+
+  /* ---- Typography ----------------------------------------------------- */
+  --zn-font-ui: "Inter", "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont,
+    "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --zn-font-serif: "Tiempos Text", "Anthropic Serif", "Source Serif 4", Georgia, "Noto Serif SC",
+    "Songti SC", "SimSun", serif;
+  --zn-font-mono: "Berkeley Mono", "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Consolas,
+    "Microsoft YaHei", monospace;
+
+  --zn-fs-2xs: 10px;
+  --zn-fs-xs: 10.5px;
+  --zn-fs-sm: 11.5px;
+  --zn-fs-ui: 12.5px;
+  --zn-fs-md: 13px;
+  --zn-fs-lg: 15px;
+  --zn-fs-xl: 18px;
+  --zn-fs-display: 32px;
+  --zn-lh-ui: 1.4;
+  --zn-lh-prose: 1.75;
+
+  /* ---- Motion --------------------------------------------------------- */
+  --zn-ease: cubic-bezier(0.2, 0, 0, 1);
+  --zn-dur: 140ms;
+  --zn-dur-slow: 200ms;
+
+  /* ---- Layers --------------------------------------------------------- */
+  --zn-z-popover: 1000;
+  --zn-z-modal: 1100;
+  --zn-z-toast: 1200;
+
+  /* ---- Editor --------------------------------------------------------- */
+  --zn-editor-font-size: 16px;
+  --zn-editor-content-width: 860px;
+  --zn-editor-padding: 80px;
+
+  /* ---- Warm syntax palette (fenced code, source mode) ----------------- */
+  --zn-code-plain: #2e2c26;
+  --zn-code-keyword: #b4573a;
+  --zn-code-string: #66794a;
+  --zn-code-comment: #98948a;
+  --zn-code-constant: #8f6a26;
+  --zn-code-function: #4e7595;
+  --zn-code-type: #8a6440;
+  --zn-code-ident: #2e2c26;
+  --zn-code-punct: #6a665c;
+
+  /* ---- Editor prose --------------------------------------------------- */
+  --zn-editor-text: #2a2823;
+  --zn-editor-heading: #1f1e1d;
+  --zn-editor-muted: #7c7a72;
+  --zn-editor-rule: #e1ded2;
+  --zn-editor-rule-strong: #cfc9b8;
+  --zn-editor-rule-soft: #e1ded2;
+  --zn-editor-surface: #f3f1e9;
+  --zn-editor-link: #a85234;
+  --zn-editor-code-bg: #f0ede3;
+  --zn-editor-code-fg: #a64a2e;
+
+  /* ---- Floating editor UI (slash menu, table menus, tooltips) --------- */
+  --zn-float-bg: #ffffff;
+  --zn-float-fg: #1f1e1d;
+  --zn-float-fg-dim: #6b6862;
+  --zn-float-border: rgba(31, 30, 29, 0.12);
+  --zn-float-shadow: var(--zn-shadow-popover);
+  --zn-float-input-bg: #faf9f5;
+  --zn-float-input-border: rgba(31, 30, 29, 0.16);
+  --zn-float-hover: rgba(31, 30, 29, 0.055);
+  --zn-float-selected: rgba(31, 30, 29, 0.09);
+  --zn-float-accent: #c2603f;
+  --zn-float-accent-bg: rgba(217, 119, 87, 0.12);
+  --zn-float-muted: #9a968c;
+  --zn-float-handle: #cfc9b8;
+
+  /* ---- Mermaid -------------------------------------------------------- */
+  --zn-mermaid-bg: #faf9f5;
+  --zn-mermaid-fill: #f3f1e9;
+  --zn-mermaid-stroke: #cfc9b8;
+  --zn-mermaid-line: #8a867a;
+
+  /* ======================================================================
+     Legacy aliases. Components that still read the old variable names (and
+     the CodeMirror theme in livePreviewTheme.ts) keep working and inherit the
+     new palette automatically. New code should use the --zn-* tokens above.
+     ====================================================================== */
+  --bg-editor: var(--zn-canvas);
+  --bg-sidebar: var(--zn-sidebar);
+  --bg-statusbar: var(--zn-canvas);
+  --bg-toolbar: var(--zn-canvas);
+  --bg-hover: var(--zn-hover);
+  --bg-sidebar-hover: var(--zn-hover);
+  --bg-sidebar-active: var(--zn-active);
+  --bg-code: var(--zn-surface);
+  --bg-drop-overlay: var(--zn-accent-soft);
+
+  --text-primary: var(--zn-text);
+  --text-secondary: var(--zn-text-secondary);
+  --text-tertiary: var(--zn-text-tertiary);
+  --text-accent: var(--zn-accent);
+  --text-markdown-mark: rgba(31, 30, 29, 0.26);
+  --text-danger: var(--zn-danger);
+  --text-warning: var(--zn-warning);
+  --text-success: var(--zn-success);
+
+  --border: var(--zn-border);
+  --border-light: var(--zn-border-soft);
+  --selection-bg: var(--zn-selection);
+  --scrollbar-thumb: var(--zn-scrollbar-thumb);
+
+  --titlebar-btn-hover: var(--zn-hover);
+  --titlebar-close-hover: #c0392b;
+  --titlebar-close-fg: #ffffff;
+
+  --btn-primary-bg: var(--zn-btn-primary-bg);
+  --btn-primary-fg: var(--zn-btn-primary-fg);
+
+  --shadow-popover: var(--zn-shadow-popover);
+  --zn-radius-menu: var(--zn-radius-lg);
+  --zn-font-stack: var(--zn-font-ui);
+  --zn-font-code: var(--zn-font-mono);
+
+  /* Old names consumed by widgets.ts / renderedBlockActions.ts */
+  --zn-editor-font: var(--zn-font-ui);
+}
+
+/* ==========================================================================
+   Dark theme — warm charcoal, never neutral black.
+   ========================================================================== */
+.dark {
+  color-scheme: dark;
+
+  --zn-canvas: #262624;
+  --zn-canvas-raised: #2b2b29;
+  --zn-sidebar: #1f1e1d;
+  --zn-surface: #30302e;
+  --zn-surface-strong: #383835;
+  --zn-hover: rgba(250, 249, 245, 0.055);
+  --zn-active: rgba(250, 249, 245, 0.1);
+  --zn-selected: rgba(217, 119, 87, 0.16);
+
+  --zn-border: rgba(250, 249, 245, 0.1);
+  --zn-border-soft: rgba(250, 249, 245, 0.06);
+  --zn-border-strong: rgba(250, 249, 245, 0.18);
+
+  --zn-text: #f5f4ed;
+  --zn-text-secondary: #b8b5ac;
+  --zn-text-tertiary: #8a887f;
+  --zn-text-disabled: #66645d;
+  --zn-text-inverse: #1f1e1d;
+
+  --zn-accent: #d97757;
+  --zn-accent-strong: #ef9a7b;
+  --zn-accent-fill: #d97757;
+  --zn-accent-fill-hover: #e08b6b;
+  --zn-on-accent: #1f1e1d;
+  --zn-accent-soft: rgba(217, 119, 87, 0.16);
+  --zn-accent-ring: rgba(217, 119, 87, 0.4);
+
+  --zn-success: #7fb08a;
+  --zn-success-soft: rgba(127, 176, 138, 0.14);
+  --zn-warning: #d9a25f;
+  --zn-warning-soft: rgba(217, 162, 95, 0.14);
+  --zn-danger: #e08069;
+  --zn-danger-soft: rgba(224, 128, 105, 0.14);
+
+  --zn-btn-primary-bg: #f5f4ed;
+  --zn-btn-primary-bg-hover: #ffffff;
+  --zn-btn-primary-fg: #1f1e1d;
+
+  --zn-code-inline-bg: #33322e;
+  --zn-code-inline-fg: #e3a57f;
+  --zn-code-block-bg: #2b2b29;
+
+  --zn-selection: #3b4249;
+  --zn-scrollbar-thumb: #4a4a45;
+  --zn-scrollbar-thumb-hover: #5f5f58;
+
+  --zn-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --zn-shadow-popover: 0 10px 32px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.4);
+  --zn-shadow-modal: 0 28px 80px rgba(0, 0, 0, 0.65), 0 2px 10px rgba(0, 0, 0, 0.4);
+  --zn-scrim: rgba(10, 10, 9, 0.6);
+
+  --zn-editor-font-size: 16px;
+  --zn-editor-content-width: 860px;
+  --zn-editor-padding: 80px;
+
+  --zn-code-plain: #d6d2c6;
+  --zn-code-keyword: #e08b6b;
+  --zn-code-string: #9db47f;
+  --zn-code-comment: #6f6d64;
+  --zn-code-constant: #d0a360;
+  --zn-code-function: #83a9cc;
+  --zn-code-type: #c99a72;
+  --zn-code-ident: #d6d2c6;
+  --zn-code-punct: #a8a59a;
+
+  --zn-editor-text: #e4e1d6;
+  --zn-editor-heading: #f5f2e8;
+  --zn-editor-muted: #a5a297;
+  --zn-editor-rule: #3a3a36;
+  --zn-editor-rule-strong: #4e4e48;
+  --zn-editor-rule-soft: #3f3f3a;
+  --zn-editor-surface: #30302e;
+  --zn-editor-link: #e08b6b;
+  --zn-editor-code-bg: #33322e;
+  --zn-editor-code-fg: #e3a57f;
+
+  --zn-float-bg: #2e2e2b;
+  --zn-float-fg: #f5f4ed;
+  --zn-float-fg-dim: #b8b5ac;
+  --zn-float-border: rgba(250, 249, 245, 0.12);
+  --zn-float-shadow: var(--zn-shadow-popover);
+  --zn-float-input-bg: #242422;
+  --zn-float-input-border: rgba(250, 249, 245, 0.16);
+  --zn-float-hover: rgba(250, 249, 245, 0.07);
+  --zn-float-selected: rgba(250, 249, 245, 0.11);
+  --zn-float-accent: #d97757;
+  --zn-float-accent-bg: rgba(217, 119, 87, 0.2);
+  --zn-float-muted: #8a887f;
+  --zn-float-handle: #4a4a45;
+
+  --zn-mermaid-bg: #262624;
+  --zn-mermaid-fill: #30302e;
+  --zn-mermaid-stroke: #4a4a45;
+  --zn-mermaid-line: #a5a297;
+
+  /* Legacy aliases that need a different *literal* in dark mode. */
+  --text-markdown-mark: rgba(250, 249, 245, 0.26);
+  --titlebar-close-hover: #a8402a;
+}
+
+/* ==========================================================================
+   Font families — data-font attribute on <html>
+   "claude" is the product default: the Anthropic-style stack when the licensed
+   faces are installed, otherwise the closest free / system faces.
+   ========================================================================== */
+:root[data-font="claude"] {
+  --zn-font-stack: var(--zn-font-ui);
+}
+:root[data-font="sans"] {
+  --zn-font-stack: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont,
+    "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+:root[data-font="serif"] {
+  --zn-font-stack: var(--zn-font-serif);
+}
+:root[data-font="mono"] {
+  --zn-font-stack: var(--zn-font-mono);
+}
+:root[data-font="kai"] {
+  --zn-font-stack: "KaiTi", "楷体", "STKaiti", Georgia, "Noto Serif SC", serif;
+}
+:root[data-font="song"] {
+  --zn-font-stack: "SimSun", "宋体", "Noto Serif SC", "Times New Roman", serif;
+}
+:root[data-font="heiti"] {
+  --zn-font-stack: "SimHei", "黑体", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+}
+:root[data-font="fangsong"] {
+  --zn-font-stack: "FangSong", "仿宋", "STFangsong", "SimSun", serif;
+}
+:root[data-font="rounded"] {
+  --zn-font-stack: "Yuanti SC", "YouYuan", "幼圆", "Microsoft YaHei", sans-serif;
+}
+:root[data-font="humanist"] {
+  --zn-font-stack: "Segoe UI Variable Text", "Segoe UI", Verdana, "Helvetica Neue",
+    "Microsoft YaHei", sans-serif;
+}
+:root[data-font="geometric"] {
+  --zn-font-stack: "Century Gothic", "Futura", "Avenir Next", "Microsoft YaHei", sans-serif;
+}
+:root[data-font="literary"] {
+  --zn-font-stack: "Palatino Linotype", "Book Antiqua", Palatino, "Noto Serif SC", "SimSun", serif;
+}
+:root[data-font="slab"] {
+  --zn-font-stack: Rockwell, "Roboto Slab", "Courier New", "Microsoft YaHei", serif;
+}
+
+/* ==========================================================================
+   Shared motion / focus helpers
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --zn-dur: 0ms;
+    --zn-dur-slow: 0ms;
+  }
+}

@@ -24,6 +24,17 @@ describe("file path helpers", () => {
     expect(remapPathPrefix("/notes/older/a.md", "/notes/old", "/notes/new")).toBe("/notes/older/a.md");
   });
 
+  it("matches prefixes across Windows case and separator differences", () => {
+    expect(remapPathPrefix("C:\\Notes\\a.md", "c:/notes", "C:\\Renamed")).toBe("C:\\Renamed\\a.md");
+    expect(remapPathPrefix("c:/notes/sub/b.md", "C:\\Notes", "C:\\Renamed")).toBe("C:\\Renamed\\sub/b.md");
+    expect(remapPathPrefix("C:\\Notes", "c:/notes", "C:\\Renamed")).toBe("C:\\Renamed");
+    expect(remapPathPrefix("C:\\Notes2\\a.md", "C:\\Notes", "C:\\Renamed")).toBe("C:\\Notes2\\a.md");
+  });
+
+  it("does not treat a traversal as a descendant", () => {
+    expect(remapPathPrefix("C:\\Notes\\..\\secret.md", "C:\\Notes", "C:\\Renamed")).toBe("C:\\Notes\\..\\secret.md");
+  });
+
   it("finds all open paths affected by a file or folder deletion", () => {
     expect(affectedOpenPaths(
       ["/notes/a.md", "/notes/sub/b.md", "/other/c.md"],
@@ -33,5 +44,13 @@ describe("file path helpers", () => {
       ["/notes/a.md", "/notes/a.md.bak"],
       "/notes/a.md",
     )).toEqual(["/notes/a.md"]);
+  });
+
+  it("finds affected paths case-insensitively on Windows but not on POSIX", () => {
+    expect(affectedOpenPaths(
+      ["C:\\Notes\\a.md", "C:\\Notes2\\b.md", "/notes/c.md"],
+      "c:/notes",
+    )).toEqual(["C:\\Notes\\a.md"]);
+    expect(affectedOpenPaths(["/ws/a/x.md", "/ws/A/x.md"], "/ws/a")).toEqual(["/ws/a/x.md"]);
   });
 });

@@ -38,7 +38,12 @@ export function buildFindRegex(query: string, opts: FindOptions): RegExp | null 
   if (!query) return null;
   let src: string;
   if (opts.regex) {
-    src = query;
+    // The UI lets regex and whole-word be enabled together; wrapping the user
+    // pattern (non-capturing, so capture numbering is unchanged) is the least
+    // surprising way to honour both instead of silently dropping whole-word.
+    src = opts.wholeWord
+      ? "(?<![\\p{L}\\p{N}_])(?:" + query + ")(?![\\p{L}\\p{N}_])"
+      : query;
   } else {
     src = escapeRegExp(query);
     if (opts.wholeWord) {

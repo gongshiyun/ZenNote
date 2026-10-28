@@ -11,6 +11,7 @@ vi.mock("../services", () => ({
 
 import {
   flushDirtyDocuments,
+  hasDirtyDocuments,
   saveCurrentDocument,
   saveDocumentSnapshot,
 } from "../lib/saveCoordinator";
@@ -141,5 +142,43 @@ describe("saveCoordinator", () => {
 
     expect(saved).toBe(false);
     expect(writeFileMock).not.toHaveBeenCalled();
+  });
+
+  // Regression: the close guard used to exclude a conflicted document from
+  // hasDirtyDocuments(), so closing the window silently dropped the local edit.
+  it("treats a dirty document blocked by an external conflict as unsaved work", async () => {
+    useStore.getState().setCurrentFile("/notes/conflict.md", "local");
+    useStore.getState().setContent("local edited");
+    useStore.getState().setExternalConflict({
+      path: "/notes/conflict.md",
+      diskContent: "external",
+      reason: "modified",
+    });
+
+    expect(hasDirtyDocuments()).toBe(true);
+  });
+
+  // Regression: a conflicted CURRENT document that got cached into fileStates
+  // after a tab switch used to be flushed over the external version on exit.
+  it("never flushes a conflicted cached document on top of the disk version", async () => {
+    writeFileMock.mockResolvedValue(undefined);
+
+    useStore.getState().setCurrentFile("/notes/a.md", "A local");
+    useStore.getState().setContent("A local edited");
+    useStore.getState().setExternalConflict({
+      path: "/notes/a.md",
+      diskContent: "A external",
+      reason: "modified",
+    });
+    // Switch away: A's dirty snapshot is cached, B becomes current.
+    useStore.getState().setCurrentFile("/notes/b.md", "B");
+    useStore.getState().setContent("B edited");
+
+    const result = await flushDirtyDocuments();
+
+    expect(writeFileMock).toHaveBeenCalledWith("/notes/b.md", "B edited");
+    expect(writeFileMock).not.toHaveBeenCalledWith("/notes/a.md", "A local edited");
+    expect(result.ok).toBe(false);
+    expect(useStore.getState().fileStates.get("/notes/a.md")?.dirty).toBe(true);
   });
 });

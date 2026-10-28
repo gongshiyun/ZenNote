@@ -1,0 +1,686 @@
+/* ==========================================================================
+   ZenNote — Side panels
+   Owner: ui-panels. See docs/DESIGN-CLAUDE-CODE.md §5.4, §5.5, §5.10.
+
+   Classes owned here:
+     .zn-sidebar, .zn-panel-head, .zn-panel-section, .zn-tree, .zn-tree-row,
+     .zn-tree-rename, .zn-tree-prompt, .zn-recent-menu, .zn-outline,
+     .zn-outline-row, .zn-search-overlay, .zn-search, .zn-search-result,
+     .zn-quickopen.
+
+   Rules: tokens only (no literal colours), hairlines instead of boxes, one clay
+   accent reserved for the active indicator / selection, mono for paths, serif
+   never used inside the compact panel chrome.
+   ========================================================================== */
+
+/* ==========================================================================
+   Sidebar shell / workspace header
+   ========================================================================== */
+.zn-sidebar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding-top: 6px;
+  overflow: hidden;
+  background: var(--zn-sidebar);
+  border-right: 1px solid var(--zn-border);
+  color: var(--zn-text);
+  font-family: var(--zn-font-ui);
+}
+
+/* Header + section label. A container query scopes the narrow-panel layout;
+   this wrapper is deliberately outside the tree so fixed-position context menus
+   stay viewport-anchored instead of being contained by it. */
+.zn-panel-top {
+  position: relative;
+  flex-shrink: 0;
+  container-type: inline-size;
+}
+
+.zn-panel-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 6px 0 10px;
+  flex-shrink: 0;
+}
+
+.zn-panel-head__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 5px;
+  border-radius: var(--zn-radius-sm);
+  background: transparent;
+  color: var(--zn-text-secondary);
+  font-size: var(--zn-fs-ui);
+  font-weight: 600;
+  text-align: left;
+  user-select: none;
+  transition: background-color var(--zn-dur) var(--zn-ease),
+    color var(--zn-dur) var(--zn-ease);
+}
+.zn-panel-head__title:hover {
+  background: var(--zn-hover);
+  color: var(--zn-text);
+}
+
+.zn-panel-head__icon {
+  flex-shrink: 0;
+  color: var(--zn-text-tertiary);
+}
+
+.zn-panel-head__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zn-panel-head__actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.zn-panel-head__actions .zn-icon-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--zn-radius-xs);
+}
+
+/* Uppercase section label ("工作区"). */
+.zn-panel-section {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  flex-shrink: 0;
+}
+
+/* Recent-workspaces dropdown: menu anchored under the header, panel-wide. */
+.zn-sidebar .zn-menu--dropdown {
+  top: 100% !important; /* flush with the header instead of the primitive's gap */
+  right: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.zn-recent-menu__empty {
+  padding: 8px 10px;
+  font-size: var(--zn-fs-sm);
+  color: var(--zn-text-tertiary);
+}
+
+.zn-recent-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: var(--zn-radius-sm);
+}
+.zn-recent-menu__item:hover {
+  background: var(--zn-hover);
+}
+
+.zn-recent-menu__select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 4px 0 10px;
+  border-radius: var(--zn-radius-sm);
+  background: transparent;
+  color: var(--zn-text-secondary);
+  font-size: var(--zn-fs-ui);
+  text-align: left;
+}
+.zn-recent-menu__item[data-current="true"] .zn-recent-menu__select {
+  color: var(--zn-text);
+  font-weight: 500;
+}
+
+.zn-recent-menu__icon {
+  flex-shrink: 0;
+  color: var(--zn-text-tertiary);
+}
+
+.zn-recent-menu__name {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zn-recent-menu__path {
+  margin-left: auto;
+  max-width: 52%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--zn-fs-2xs);
+  color: var(--zn-text-tertiary);
+}
+
+.zn-recent-menu__remove {
+  width: 20px;
+  height: 20px;
+  margin-right: 4px;
+  color: var(--zn-text-tertiary);
+  opacity: 0.65;
+}
+.zn-recent-menu__remove:hover {
+  color: var(--zn-danger);
+  opacity: 1;
+}
+
+/* ==========================================================================
+   File tree
+   ========================================================================== */
+.zn-tree {
+  flex: 1;
+  min-height: 0;
+  padding: 2px 0 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.zn-tree:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--zn-accent-ring);
+}
+
+.zn-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  margin: 0 6px;
+  padding-right: 8px;
+  /* 6px base + 14px per nesting level; depth is passed as a custom property. */
+  padding-left: calc(6px + var(--zn-depth, 0) * 14px);
+  border-radius: var(--zn-radius-sm);
+  color: var(--zn-text-secondary);
+  font-size: var(--zn-fs-ui);
+  line-height: 1;
+  white-space: nowrap;
+  user-select: none;
+  cursor: pointer;
+  transition: background-color var(--zn-dur) var(--zn-ease),
+    color var(--zn-dur) var(--zn-ease);
+}
+.zn-tree-row[data-dir="true"] {
+  color: var(--zn-text);
+  font-weight: 500;
+}
+.zn-tree-row:hover {
+  background: var(--zn-hover);
+  color: var(--zn-text);
+}
+.zn-tree-row[data-selected="true"] {
+  background: var(--zn-active);
+  color: var(--zn-text);
+}
+/* Keyboard cursor (↑↓ inside the tree) — a clay inset ring, never a fill. */
+.zn-tree-row[data-focused="true"] {
+  color: var(--zn-text);
+  box-shadow: inset 0 0 0 1px var(--zn-accent);
+}
+
+.zn-tree-row__chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--zn-text-tertiary);
+  transition: transform var(--zn-dur) var(--zn-ease);
+}
+.zn-tree-row[data-expanded="true"] > .zn-tree-row__chevron {
+  transform: rotate(90deg);
+}
+
+.zn-tree-row__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--zn-text-tertiary);
+}
+.zn-tree-row[data-dir="true"] > .zn-tree-row__icon,
+.zn-tree-row[data-selected="true"] > .zn-tree-row__icon,
+.zn-tree-row[data-focused="true"] > .zn-tree-row__icon {
+  color: var(--zn-text-secondary);
+}
+
+.zn-tree-row__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zn-tree-row--loading {
+  gap: 7px;
+  color: var(--zn-text-tertiary);
+  font-size: var(--zn-fs-sm);
+  cursor: default;
+  pointer-events: none;
+}
+.zn-tree-row--loading:hover {
+  background: transparent;
+  color: var(--zn-text-tertiary);
+}
+
+/* Inline rename / new-item editor, both inside a tree row. */
+.zn-tree-rename {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--zn-accent);
+  border-radius: var(--zn-radius-xs);
+  background: var(--zn-canvas-raised);
+  color: var(--zn-text);
+  font-family: var(--zn-font-ui);
+  font-size: var(--zn-fs-ui);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--zn-accent-ring);
+}
+
+/* Inline "new note / new folder" prompt above the tree. */
+.zn-tree-prompt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  margin: 0 6px 4px;
+  padding: 0 8px 0 6px;
+  border-radius: var(--zn-radius-sm);
+  background: var(--zn-surface);
+}
+.zn-tree-prompt .zn-tree-rename {
+  height: 20px;
+}
+
+.zn-tree__state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 28px 12px;
+  color: var(--zn-text-tertiary);
+  font-size: var(--zn-fs-sm);
+}
+
+.zn-tree__empty {
+  padding: 28px 12px;
+  font-size: var(--zn-fs-sm);
+}
+
+/* Narrow sidebar: tighten the header so the workspace name keeps room. */
+@container (max-width: 224px) {
+  .zn-panel-head {
+    gap: 2px;
+    padding: 0 4px 0 8px;
+  }
+  .zn-panel-head__title {
+    gap: 4px;
+    font-size: var(--zn-fs-sm);
+  }
+  .zn-panel-head__actions .zn-icon-btn {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+/* ==========================================================================
+   Outline
+   ========================================================================== */
+.zn-outline {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--zn-sidebar);
+  border-left: 1px solid var(--zn-border);
+  color: var(--zn-text);
+  font-family: var(--zn-font-ui);
+}
+
+.zn-outline__head {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 12px;
+  flex-shrink: 0;
+}
+
+.zn-outline__body {
+  flex: 1;
+  min-height: 0;
+  padding: 2px 0 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.zn-outline-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 26px;
+  margin: 0 6px;
+  padding-right: 8px;
+  /* 12px base + 14px per heading level. */
+  padding-left: calc(12px + var(--zn-level, 0) * 14px);
+  border-radius: var(--zn-radius-sm);
+  color: var(--zn-text-secondary);
+  font-size: var(--zn-fs-ui);
+  line-height: 1;
+  white-space: nowrap;
+  user-select: none;
+  cursor: pointer;
+  transition: background-color var(--zn-dur) var(--zn-ease),
+    color var(--zn-dur) var(--zn-ease);
+}
+.zn-outline-row[data-level="1"],
+.zn-outline-row[data-level="2"] {
+  font-weight: 500;
+}
+.zn-outline-row:hover {
+  background: var(--zn-hover);
+  color: var(--zn-text);
+}
+.zn-outline-row[data-active="true"] {
+  background: var(--zn-active);
+  color: var(--zn-text);
+}
+/* 2px clay rail marking the heading the reader is currently in. */
+.zn-outline-row::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--zn-accent);
+  opacity: 0;
+  transition: opacity var(--zn-dur) var(--zn-ease);
+}
+.zn-outline-row[data-active="true"]::before {
+  opacity: 1;
+}
+
+.zn-outline-row__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zn-outline__empty {
+  padding: 28px 12px;
+  font-size: var(--zn-fs-sm);
+}
+
+/* ==========================================================================
+   Search / quick open command palette (§5.10)
+   ========================================================================== */
+.zn-search-overlay {
+  align-items: flex-start;
+}
+
+.zn-search {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, 100%);
+  max-height: min(70vh, 620px);
+  overflow: hidden;
+  background: var(--zn-canvas-raised);
+  border: 1px solid var(--zn-border);
+  border-radius: var(--zn-radius-xl);
+  box-shadow: var(--zn-shadow-modal);
+  animation: zn-modal-in var(--zn-dur-slow) var(--zn-ease);
+}
+
+.zn-search__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 12px 0 16px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--zn-border-soft);
+}
+
+.zn-search__icon {
+  flex-shrink: 0;
+  color: var(--zn-text-tertiary);
+}
+
+.zn-search__input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--zn-text);
+  font-family: var(--zn-font-ui);
+  font-size: var(--zn-fs-lg);
+}
+.zn-search__input::placeholder {
+  color: var(--zn-text-tertiary);
+}
+/* The palette itself is the focus target; a second ring around the input would
+   double-frame the dialog. The caret communicates focus. */
+.zn-search__input:focus,
+.zn-search__input:focus-visible {
+  outline: none;
+}
+
+.zn-search__esc {
+  flex-shrink: 0;
+}
+
+.zn-search__body {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+}
+
+.zn-search__state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 14px;
+  color: var(--zn-text-tertiary);
+  font-size: var(--zn-fs-ui);
+}
+
+.zn-search__empty {
+  padding: 24px 14px;
+  font-size: var(--zn-fs-sm);
+}
+
+.zn-search-result {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--zn-text);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--zn-dur) var(--zn-ease);
+}
+.zn-search-result:hover {
+  background: var(--zn-hover);
+}
+.zn-search-result[data-selected="true"] {
+  background: var(--zn-active);
+}
+/* 2px clay rail on the selected result, matching the outline/active language. */
+.zn-search-result[data-selected="true"]::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--zn-accent);
+}
+
+.zn-search-result__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.zn-search-result__icon {
+  flex-shrink: 0;
+  color: var(--zn-text-tertiary);
+  align-self: center;
+}
+
+.zn-search-result__title {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--zn-fs-md);
+  font-weight: 500;
+  color: var(--zn-text);
+}
+
+.zn-search-result__line {
+  margin-left: 1px;
+  font-family: var(--zn-font-mono);
+  font-size: var(--zn-fs-2xs);
+  color: var(--zn-text-tertiary);
+}
+
+.zn-search-result__badge {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: var(--zn-radius-xs);
+  background: var(--zn-surface-strong);
+  color: var(--zn-text-tertiary);
+  font-size: var(--zn-fs-2xs);
+  font-weight: 500;
+  vertical-align: 1px;
+}
+
+.zn-search-result__path {
+  margin-left: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--zn-font-mono);
+  font-size: var(--zn-fs-sm);
+  color: var(--zn-text-tertiary);
+}
+
+.zn-search-result__snippet {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--zn-fs-sm);
+  color: var(--zn-text-secondary);
+}
+
+.zn-search-result mark {
+  padding: 0 1px;
+  border-radius: 3px;
+  background: var(--zn-accent-soft);
+  color: var(--zn-accent-strong);
+}
+
+.zn-search__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+  padding: 0 14px 0 16px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--zn-border-soft);
+  color: var(--zn-text-tertiary);
+  font-size: var(--zn-fs-2xs);
+}
+.zn-search__count {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zn-search__hints {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* Quick open shares the palette chrome, with a tighter one-line row. */
+.zn-quickopen .zn-search-result {
+  min-height: 38px;
+  padding: 6px 14px;
+  justify-content: center;
+}
+.zn-quickopen .zn-search-result__head {
+  align-items: center;
+}
+.zn-quickopen .zn-search-result__title {
+  flex: 0 1 auto;
+}
+
+/* ---- Palette responsiveness ------------------------------------------- */
+@media (max-width: 720px) {
+  .zn-search-overlay {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+  .zn-search {
+    width: 100%;
+    max-height: 78vh;
+  }
+  .zn-search-result__path {
+    display: none;
+  }
+}
+
+@media (max-width: 420px) {
+  .zn-search__head {
+    gap: 8px;
+    padding: 0 10px 0 12px;
+  }
+  .zn-search__footer .zn-search__count {
+    display: none;
+  }
+}

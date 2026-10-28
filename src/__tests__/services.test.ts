@@ -24,6 +24,7 @@ import {
   saveImage,
   resolveImageUrl,
 } from '../services';
+import { MAX_LAST_WRITTEN_ENTRIES } from '../services/fileService';
 
 describe('fileService IPC wrappers', () => {
   beforeEach(() => {
@@ -51,6 +52,29 @@ describe('fileService IPC wrappers', () => {
     await vi.waitFor(() => expect(resolveWrite).toBeTypeOf('function'));
     resolveWrite();
     await saving;
+  });
+
+  it('restores the previous self-write record when a write fails', async () => {
+    await writeFile('C:\\guarded.md', 'v1');
+    invokeMock.mockRejectedValueOnce(new Error('locked'));
+    await expect(writeFile('C:\\guarded.md', 'v2')).rejects.toThrow('locked');
+    expect(getLastWritten('C:\\guarded.md')).toBe('v1');
+  });
+
+  it('caps the self-write cache without losing the most recent entry', async () => {
+    for (let i = 0; i < MAX_LAST_WRITTEN_ENTRIES + 8; i++) {
+      await writeFile(`C:\\cache\\note-${i}.md`, `content-${i}`);
+    }
+    expect(getLastWritten('C:\\cache\\note-0.md')).toBeUndefined();
+    expect(getLastWritten(`C:\\cache\\note-${MAX_LAST_WRITTEN_ENTRIES + 7}.md`)).toBe(
+      `content-${MAX_LAST_WRITTEN_ENTRIES + 7}`,
+    );
+    // Re-writing an old path makes it the most recent entry, so the next
+    // evictions take the entries after it instead of that path.
+    await writeFile('C:\\cache\\note-8.md', 'again');
+    for (let i = 0; i < 3; i++) await writeFile(`C:\\cache\\fresh-${i}.md`, 'x');
+    expect(getLastWritten('C:\\cache\\note-8.md')).toBe('again');
+    expect(getLastWritten('C:\\cache\\note-9.md')).toBeUndefined();
   });
 
   it('createFile/createFolder/renameFile/deleteFile use the expected commands', async () => {

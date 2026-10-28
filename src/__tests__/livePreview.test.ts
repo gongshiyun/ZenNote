@@ -105,6 +105,24 @@ describe('live preview — math scanning', () => {
   it('handles escaped dollars', () => {
     expect(math('price \\$5 and \\$6')).toEqual([]);
   });
+
+  it('ignores math inside inline code', () => {
+    expect(math('use `$x$` and `$$y$$` here')).toEqual([]);
+    const found = math('`a` then $b$');
+    expect(found.map((f) => f.source)).toEqual(['b']);
+  });
+
+  it('ignores math inside fenced code blocks', () => {
+    expect(math('```md\n$x$\n$$y$$\n```')).toEqual([]);
+    expect(math('~~~\n$$\nz\n$$\n~~~')).toEqual([]);
+    expect(math('````\n```\n$x$\n```\n````')).toEqual([]);
+  });
+
+  it('ignores math in an unclosed fence and still finds math after a closed one', () => {
+    expect(math('```\n$x$\nnever closed')).toEqual([]);
+    const found = math('```\n$x$\n```\n\n$y$');
+    expect(found.map((f) => f.source)).toEqual(['y']);
+  });
 });
 
 // ---------------------------------------------------------------------------

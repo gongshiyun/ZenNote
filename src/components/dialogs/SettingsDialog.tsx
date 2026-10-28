@@ -1,19 +1,31 @@
-import { useStore } from "../../store";
+import { useState, type ReactNode } from "react";
+import { useStore, type ThemeMode } from "../../store";
 import { t, setLocale } from "../../i18n";
-import { useRef, useEffect } from "react";
 import { checkAndDownloadUpdate, installUpdate } from "../../lib/updater";
-
-const SETTINGS_THEMES = [
-  { id: "claude", label: "Claude", colors: ["#C2603F", "#FAF9F5", "#262624"] },
-  { id: "zen", label: "Zen", colors: ["#3B82F6", "#FFFFFF", "#1E1E1E"] },
-  { id: "github", label: "GitHub", colors: ["#0969DA", "#F6F8FA", "#0D1117"] },
-  { id: "notion", label: "Notion", colors: ["#2383E2", "#F7F7F5", "#191919"] },
-  { id: "paper", label: "Paper", colors: ["#B4823C", "#FBF7F0", "#2A2520"] },
-  { id: "ocean", label: "Ocean", colors: ["#1E64B4", "#F5F8FC", "#0F1923"] },
-];
+import {
+  AppMark,
+  Button,
+  Field,
+  FolderIcon,
+  FormSection,
+  InfoIcon,
+  Modal,
+  MonitorIcon,
+  MoonIcon,
+  PaletteIcon,
+  RefreshIcon,
+  Segmented,
+  SettingsIcon,
+  SliderField,
+  Spinner,
+  SunIcon,
+  Switch,
+  TypeIcon,
+} from "../ui";
+import type { SegmentedOption } from "../ui";
 
 // Curated font styles. `stack` is a representative preview stack (the full stack
-// lives in globals.css under :root[data-font="..."]).
+// lives in styles/tokens.css under :root[data-font="..."]).
 const FONT_OPTIONS = [
   { value: "claude", labelKey: "fontClaude", stack: '"Anthropic Sans", "Inter", "Segoe UI", sans-serif' },
   { value: "sans", labelKey: "fontSans", stack: '"Microsoft YaHei", "Segoe UI", sans-serif' },
@@ -29,6 +41,15 @@ const FONT_OPTIONS = [
   { value: "literary", labelKey: "fontLiterary", stack: '"Palatino Linotype", Palatino, serif' },
   { value: "slab", labelKey: "fontSlab", stack: 'Rockwell, "Roboto Slab", serif' },
 ];
+
+type SectionId = "general" | "appearance" | "editor" | "fileTree" | "update" | "about";
+
+/** Auto-save delay formatter (0 = off, sub-second in ms, otherwise seconds). */
+function formatAutoSaveDelay(value: number): string {
+  if (value === 0) return "Off";
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}s`;
+  return `${value}ms`;
+}
 
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const fontSize = useStore(s => s.fontSize);
@@ -47,8 +68,6 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const setDefaultSourceMode = useStore(s => s.setDefaultSourceMode);
   const mode = useStore(s => s.mode);
   const setMode = useStore(s => s.setMode);
-  const themeId = useStore(s => s.themeId);
-  const setThemeId = useStore(s => s.setThemeId);
   const fontFamily = useStore(s => s.fontFamily);
   const setFontFamily = useStore(s => s.setFontFamily);
   const locale = useStore(s => s.locale);
@@ -62,305 +81,258 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const updateError = useStore(s => s.updateError);
   const updateProgress = useStore(s => s.updateProgress);
 
-  const dialogRef = useRef<HTMLDivElement>(null);
+  // Modal owns Escape + backdrop dismissal; the pane is the only local state.
+  const [section, setSection] = useState<SectionId>("general");
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+  const settings = t().settings;
+  const fontLabels = settings as Record<string, string>;
+  const selectedFont = FONT_OPTIONS.find(f => f.value === fontFamily) ?? FONT_OPTIONS[0];
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (dialogRef.current && !dialogRef.current.contains(e.target as Node)) onClose();
-    };
-    // Delay to avoid immediate close from the click that opened it
-    const timer = setTimeout(() => document.addEventListener("mousedown", handler), 100);
-    return () => { clearTimeout(timer); document.removeEventListener("mousedown", handler); };
-  }, [onClose]);
-
-  const themes: { label: string; value: "light" | "dark" | "system" }[] = [
-    { label: t().statusbar.light, value: "light" },
-    { label: t().statusbar.dark, value: "dark" },
-    { label: t().statusbar.system, value: "system" },
+  const navItems: Array<{ id: SectionId; label: string; icon: ReactNode }> = [
+    { id: "general", label: settings.general, icon: <SettingsIcon size={15} /> },
+    { id: "appearance", label: settings.appearance, icon: <PaletteIcon size={15} /> },
+    { id: "editor", label: settings.editorLabel, icon: <TypeIcon size={15} /> },
+    { id: "fileTree", label: settings.fileTree, icon: <FolderIcon size={15} /> },
+    { id: "update", label: settings.update, icon: <RefreshIcon size={15} /> },
+    { id: "about", label: settings.about, icon: <InfoIcon size={15} /> },
   ];
 
+  const modeOptions: Array<SegmentedOption<ThemeMode>> = [
+    { value: "light", label: t().statusbar.light, icon: <SunIcon size={15} /> },
+    { value: "dark", label: t().statusbar.dark, icon: <MoonIcon size={15} /> },
+    { value: "system", label: t().statusbar.system, icon: <MonitorIcon size={15} /> },
+  ];
+
+  const languageOptions: Array<SegmentedOption<string>> = [
+    { value: "zh-CN", label: "中文" },
+    { value: "en-US", label: "English" },
+  ];
+
+  const updateBusy =
+    updateState === "checking" || updateState === "downloading" || updateState === "installing";
+
+  const updateLabel =
+    updateState === "checking" ? settings.checking
+      : updateState === "downloading"
+        ? settings.downloading + (updateProgress != null ? " " + updateProgress + "%" : "")
+        : updateState === "ready" ? settings.updateReady.replace("{v}", updateVersion || "")
+          : updateState === "installing" ? settings.installing
+            : updateState === "error" ? settings.retry
+              : updateState === "uptodate" ? settings.uptodate
+                : settings.checkNow;
+
   return (
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 950,
-      display: "flex", alignItems: "center", justifyContent: "center",
-      background: "var(--zn-scrim)",
-    }}>
-      <div ref={dialogRef} style={{
-        width: 480, maxHeight: "80vh", overflow: "auto",
-        background: "var(--zn-float-bg)", borderRadius: "var(--zn-radius-menu)",
-        boxShadow: "var(--shadow-popover)",
-        border: "1px solid var(--zn-float-border)",
-      }}>
-        {/* Header */}
-        <div style={{
-          padding: "16px 20px", borderBottom: "1px solid var(--border)",
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-        }}>
-          <span style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)" }}>{t().settings.title}</span>
-          <button onClick={onClose} style={{
-            width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center",
-            border: "none", borderRadius: 6, background: "transparent", color: "var(--text-secondary)",
-            cursor: "pointer", fontSize: 16,
-          }}
-            onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-            onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
-            <svg width="16" height="16" viewBox="0 0 14 14"><line x1="1" y1="1" x2="13" y2="13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="13" y1="1" x2="1" y2="13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+    <Modal
+      title={settings.title}
+      onClose={onClose}
+      size="lg"
+      className="zn-settings"
+      bodyClassName="zn-settings__body"
+      closeLabel={t().titlebar.close}
+    >
+      <nav className="zn-settings__nav" aria-label={settings.title}>
+        {navItems.map(item => (
+          <button
+            key={item.id}
+            type="button"
+            className="zn-settings__nav-item"
+            data-autofocus={item.id === "general" || undefined}
+            data-active={section === item.id || undefined}
+            aria-current={section === item.id ? "page" : undefined}
+            onClick={() => setSection(item.id)}
+          >
+            <span className="zn-settings__nav-icon">{item.icon}</span>
+            <span className="zn-settings__nav-label">{item.label}</span>
           </button>
-        </div>
+        ))}
+      </nav>
 
-        {/* Body */}
-        <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
+      <div className="zn-settings__content">
+        {section === "general" && (
+          <div className="zn-settings__pane">
+            <FormSection title={settings.general}>
+              <Field label={settings.language}>
+                <Segmented<string>
+                  value={locale}
+                  options={languageOptions}
+                  onChange={(value) => { storeSetLocale(value); setLocale(value); }}
+                  ariaLabel={settings.language}
+                />
+              </Field>
+              <SliderField
+                label={settings.autoSaveDelay}
+                value={autoSaveDelay}
+                min={0}
+                max={10000}
+                step={500}
+                onChange={setAutoSaveDelay}
+                format={formatAutoSaveDelay}
+              />
+            </FormSection>
+          </div>
+        )}
 
-          {/* Section: Appearance */}
-          <Section title={t().settings.appearance}>
-            <Row label={t().settings.theme}>
-              <div style={{ display: "flex", gap: 4, background: "var(--bg-sidebar)", borderRadius: 6, padding: 2 }}>
-                {themes.map(t => (
-                  <button key={t.value} onClick={() => setMode(t.value)} style={{
-                    padding: "5px 14px", border: "none", borderRadius: 4,
-                    fontSize: 12, fontWeight: mode === t.value ? 600 : 400,
-                    background: mode === t.value ? "var(--bg-toolbar)" : "transparent",
-                    color: mode === t.value ? "var(--text-accent)" : "var(--text-secondary)",
-                    cursor: "pointer", transition: "all 120ms ease",
-                    boxShadow: mode === t.value ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
-                  }}>{t.label}</button>
-                ))}
+        {section === "appearance" && (
+          <div className="zn-settings__pane">
+            <FormSection title={settings.appearance}>
+              <Field label={settings.theme}>
+                <Segmented<ThemeMode>
+                  value={mode}
+                  options={modeOptions}
+                  onChange={setMode}
+                  ariaLabel={settings.theme}
+                />
+              </Field>
+              <Field label={settings.fontFamily}>
+                <select
+                  className="zn-select zn-settings__select"
+                  value={fontFamily}
+                  title={settings.fontFamily}
+                  aria-label={settings.fontFamily}
+                  onChange={(event) => setFontFamily(event.target.value)}
+                >
+                  {FONT_OPTIONS.map(font => (
+                    <option key={font.value} value={font.value}>{fontLabels[font.labelKey]}</option>
+                  ))}
+                </select>
+              </Field>
+              <SliderField
+                label={settings.fontSize}
+                value={fontSize}
+                min={12}
+                max={24}
+                step={1}
+                onChange={setFontSize}
+                format={(value) => `${value}px`}
+              />
+            </FormSection>
+            <div
+              className="zn-settings__font-preview"
+              style={{ fontFamily: selectedFont.stack }}
+              title={fontLabels[selectedFont.labelKey]}
+            >
+              <span className="zn-settings__font-sample">{t().welcome.subtitle}</span>
+              <span className="zn-settings__font-name">{fontLabels[selectedFont.labelKey]}</span>
+            </div>
+          </div>
+        )}
+
+        {section === "editor" && (
+          <div className="zn-settings__pane">
+            <FormSection title={settings.editorLabel}>
+              <SliderField
+                label={settings.tabSize}
+                value={tabSize}
+                min={2}
+                max={8}
+                step={2}
+                onChange={setTabSize}
+                format={(value) => `${value}`}
+              />
+              <SliderField
+                label={settings.editorPadding}
+                value={editorPadding}
+                min={0}
+                max={500}
+                step={4}
+                onChange={setEditorPadding}
+                format={(value) => `${value}px`}
+              />
+              <Field label={settings.defaultSourceMode}>
+                <Switch
+                  checked={defaultSourceMode}
+                  onChange={setDefaultSourceMode}
+                  label={settings.defaultSourceMode}
+                />
+              </Field>
+            </FormSection>
+          </div>
+        )}
+
+        {section === "fileTree" && (
+          <div className="zn-settings__pane">
+            <FormSection title={settings.fileTree}>
+              <Field label={settings.showHiddenFiles}>
+                <Switch
+                  checked={showHiddenFiles}
+                  onChange={setShowHiddenFiles}
+                  label={settings.showHiddenFiles}
+                />
+              </Field>
+              <Field label={settings.showFileExtensions}>
+                <Switch
+                  checked={showFileExtensions}
+                  onChange={setShowFileExtensions}
+                  label={settings.showFileExtensions}
+                />
+              </Field>
+            </FormSection>
+          </div>
+        )}
+
+        {section === "update" && (
+          <div className="zn-settings__pane">
+            <FormSection title={settings.update}>
+              <Field label={settings.autoCheckUpdate}>
+                <Switch
+                  checked={autoCheckUpdate}
+                  onChange={setAutoCheckUpdate}
+                  label={settings.autoCheckUpdate}
+                />
+              </Field>
+              <Field label={settings.updateInterval}>
+                <select
+                  className="zn-select zn-settings__select zn-settings__select--short"
+                  value={updateCheckInterval}
+                  disabled={!autoCheckUpdate}
+                  title={settings.updateInterval}
+                  aria-label={settings.updateInterval}
+                  onChange={(event) => setUpdateCheckInterval(Number(event.target.value))}
+                >
+                  <option value={30}>{settings.interval30m}</option>
+                  <option value={60}>{settings.interval1h}</option>
+                  <option value={360}>{settings.interval6h}</option>
+                  <option value={1440}>{settings.interval24h}</option>
+                </select>
+              </Field>
+              <Field label={settings.checkNow}>
+                <Button
+                  variant={updateState === "ready" ? "primary" : "secondary"}
+                  size="sm"
+                  className="zn-settings__update-btn"
+                  disabled={updateBusy}
+                  title={updateLabel}
+                  onClick={() => {
+                    // ready 状态点击 = 安装；其余状态点击 = （重新）检查。
+                    if (updateState === "ready") void installUpdate();
+                    else void checkAndDownloadUpdate(true);
+                  }}
+                >
+                  {updateBusy ? <Spinner size={12} /> : null}
+                  <span className="zn-settings__update-label">{updateLabel}</span>
+                </Button>
+              </Field>
+            </FormSection>
+            {updateError ? (
+              <div className="zn-settings__error" role="alert" title={updateError}>
+                {settings.updateFailed}: {updateError}
               </div>
-            </Row>
-            <Row label={t().settings.themeStyle}>
-              <div style={{ display: "flex", gap: 6 }}>
-                {SETTINGS_THEMES.map(th => (
-                  <button key={th.id} onClick={() => setThemeId(th.id)} title={th.label} style={{
-                    width: 32, height: 32, borderRadius: 8, cursor: "pointer", padding: 0,
-                    border: themeId === th.id ? "2px solid var(--text-accent)" : "1px solid var(--border)",
-                    background: "linear-gradient(135deg, " + th.colors[1] + " 50%, " + th.colors[2] + " 50%)",
-                    position: "relative", overflow: "hidden", transition: "border 120ms ease",
-                  }}>
-                    <span style={{ position: "absolute", top: 3, left: 3, width: 8, height: 8, borderRadius: "50%", background: th.colors[0] }} />
-                  </button>
-                ))}
-              </div>
-            </Row>
-            <div style={{ padding: "6px 0" }}>
-              <div style={{ fontSize: 13, color: "var(--text-primary)", marginBottom: 8 }}>{t().settings.fontFamily}</div>
-              <div style={{
-                display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6,
-                maxHeight: 240, overflowY: "auto", paddingRight: 2,
-              }}>
-                {FONT_OPTIONS.map(f => {
-                  const active = fontFamily === f.value;
-                  return (
-                    <div key={f.value} onClick={() => setFontFamily(f.value)}
-                      onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = "var(--text-accent)"; }}
-                      onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = "var(--border)"; }}
-                      style={{
-                        padding: "8px 10px", borderRadius: 8, cursor: "pointer",
-                        border: "1px solid " + (active ? "var(--text-accent)" : "var(--border)"),
-                        background: active ? "var(--bg-sidebar-active)" : "var(--bg-sidebar)",
-                        transition: "border-color 120ms ease, background 120ms ease",
-                      }}>
-                      <div style={{
-                        fontFamily: f.stack, fontSize: 16, color: "var(--text-primary)",
-                        lineHeight: 1.4, marginBottom: 3, whiteSpace: "nowrap",
-                        overflow: "hidden", textOverflow: "ellipsis",
-                      }}>
-                        字体预览 Aa
-                      </div>
-                      <div style={{ fontSize: 10, color: active ? "var(--text-accent)" : "var(--text-tertiary)" }}>
-                        {(t().settings as Record<string, string>)[f.labelKey]}
-                      </div>
-                    </div>
-                  );
-                })}
+            ) : null}
+          </div>
+        )}
+
+        {section === "about" && (
+          <div className="zn-settings__pane zn-settings__pane--about">
+            <div className="zn-settings__about-head">
+              <AppMark size={38} />
+              <div className="zn-settings__about-wordmark">
+                <div className="zn-settings__about-title">{t().app.title}</div>
+                <div className="zn-settings__about-subtitle">{t().welcome.subtitle}</div>
               </div>
             </div>
-            <Row label={t().settings.fontSize}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <input type="range" min={12} max={24} step={1} value={fontSize}
-                  onChange={e => setFontSize(Number(e.target.value))}
-                  style={{ width: 100, accentColor: "var(--text-accent)" }} />
-                <span style={{ fontSize: 12, color: "var(--text-secondary)", minWidth: 28, textAlign: "center" }}>{fontSize}px</span>
-              </div>
-            </Row>
-          </Section>
-
-          {/* Section: Editor */}
-          <Section title={t().settings.editorLabel}>
-            <Row label={t().settings.tabSize}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <input type="range" min={2} max={8} step={2} value={tabSize}
-                  onChange={e => setTabSize(Number(e.target.value))}
-                  style={{ width: 100, accentColor: "var(--text-accent)" }} />
-                <span style={{ fontSize: 12, color: "var(--text-secondary)", minWidth: 20, textAlign: "center" }}>{tabSize}</span>
-              </div>
-            </Row>
-            <Row label={t().settings.editorPadding}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <input type="range" min={0} max={500} step={4} value={editorPadding}
-                  onChange={e => setEditorPadding(Number(e.target.value))}
-                  style={{ width: 100, accentColor: "var(--text-accent)" }} />
-                <span style={{ fontSize: 12, color: "var(--text-secondary)", minWidth: 36, textAlign: "center" }}>{editorPadding}px</span>
-              </div>
-            </Row>
-            <Row label={t().settings.autoSaveDelay}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <input type="range" min={0} max={10000} step={500} value={autoSaveDelay}
-                  onChange={e => setAutoSaveDelay(Number(e.target.value))}
-                  style={{ width: 100, accentColor: "var(--text-accent)" }} />
-                <span style={{ fontSize: 12, color: "var(--text-secondary)", minWidth: 42, textAlign: "center" }}>
-                  {autoSaveDelay === 0 ? "Off" : autoSaveDelay >= 1000 ? (autoSaveDelay / 1000).toFixed(1) + "s" : autoSaveDelay + "ms"}
-                </span>
-              </div>
-            </Row>
-            <Row label={t().settings.defaultSourceMode}>
-              <Toggle checked={defaultSourceMode} onChange={setDefaultSourceMode} />
-            </Row>
-          </Section>
-
-
-          {/* Section: Locale */}
-          <Section title={t().settings.language}>
-            <Row label={t().settings.language}>
-              <div style={{ display: "flex", gap: 4, background: "var(--bg-sidebar)", borderRadius: 6, padding: 2 }}>
-                <button onClick={() => { storeSetLocale("zh-CN"); setLocale("zh-CN"); }} style={{
-                  padding: "5px 14px", border: "none", borderRadius: 4,
-                  fontSize: 12, fontWeight: locale === "zh-CN" ? 600 : 400,
-                  background: locale === "zh-CN" ? "var(--bg-toolbar)" : "transparent",
-                  color: locale === "zh-CN" ? "var(--text-accent)" : "var(--text-secondary)",
-                  cursor: "pointer", transition: "all 120ms ease",
-                  boxShadow: locale === "zh-CN" ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
-                }}>中文</button>
-                <button onClick={() => { storeSetLocale("en-US"); setLocale("en-US"); }} style={{
-                  padding: "5px 14px", border: "none", borderRadius: 4,
-                  fontSize: 12, fontWeight: locale === "en-US" ? 600 : 400,
-                  background: locale === "en-US" ? "var(--bg-toolbar)" : "transparent",
-                  color: locale === "en-US" ? "var(--text-accent)" : "var(--text-secondary)",
-                  cursor: "pointer", transition: "all 120ms ease",
-                  boxShadow: locale === "en-US" ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
-                }}>English</button>
-              </div>
-            </Row>
-          </Section>
-
-          {/* Section: Update */}
-          <Section title={t().settings.update}>
-            <Row label={t().settings.autoCheckUpdate}>
-              <Toggle checked={autoCheckUpdate} onChange={setAutoCheckUpdate} />
-            </Row>
-            <Row label={t().settings.updateInterval}>
-              <select value={updateCheckInterval} onChange={e => setUpdateCheckInterval(Number(e.target.value))}
-                disabled={!autoCheckUpdate}
-                style={{
-                  padding: "4px 8px", fontSize: 12, borderRadius: 6,
-                  border: "1px solid var(--border)", background: "var(--bg-sidebar)",
-                  color: "var(--text-primary)", cursor: "pointer", outline: "none",
-                  opacity: autoCheckUpdate ? 1 : 0.5,
-                }}>
-                <option value={30}>{t().settings.interval30m}</option>
-                <option value={60}>{t().settings.interval1h}</option>
-                <option value={360}>{t().settings.interval6h}</option>
-                <option value={1440}>{t().settings.interval24h}</option>
-              </select>
-            </Row>
-            <Row label={t().settings.checkNow}>
-              <button
-                onClick={() => {
-                  // ready 状态点击 = 安装；其余状态点击 = （重新）检查。
-                  if (updateState === "ready") void installUpdate();
-                  else void checkAndDownloadUpdate(true);
-                }}
-                disabled={updateState === "checking" || updateState === "downloading" || updateState === "installing"}
-                style={{
-                  padding: "5px 14px", border: "1px solid var(--border)", borderRadius: 6,
-                  fontSize: 12, background: "var(--bg-sidebar)",
-                  color: updateState === "ready" ? "var(--text-accent)" : "var(--text-primary)",
-                  cursor: updateState === "checking" || updateState === "downloading" || updateState === "installing" ? "default" : "pointer",
-                  transition: "all 120ms ease",
-                  opacity: updateState === "checking" || updateState === "downloading" || updateState === "installing" ? 0.6 : 1,
-                  fontWeight: updateState === "ready" || updateState === "error" ? 600 : 400,
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-                onMouseLeave={e => { e.currentTarget.style.background = "var(--bg-sidebar)"; }}>
-                {updateState === "checking" ? t().settings.checking
-                  : updateState === "downloading" ? t().settings.downloading + (updateProgress != null ? " " + updateProgress + "%" : "")
-                  : updateState === "ready" ? t().settings.updateReady.replace("{v}", updateVersion || "")
-                  : updateState === "installing" ? t().settings.installing
-                  : updateState === "error" ? t().settings.retry
-                  : updateState === "uptodate" ? t().settings.uptodate
-                  : t().settings.checkNow}
-              </button>
-            </Row>
-            {updateError && (
-              <div title={updateError} style={{
-                margin: "-4px 0 8px", fontSize: 12, color: "var(--text-danger)",
-                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-              }}>
-                {t().settings.updateFailed}: {updateError}
-              </div>
-            )}
-          </Section>
-
-          {/* Section: File Tree */}
-          <Section title={t().settings.fileTree}>
-            <Row label={t().settings.showHiddenFiles}>
-              <Toggle checked={showHiddenFiles} onChange={setShowHiddenFiles} />
-            </Row>
-            <Row label={t().settings.showFileExtensions}>
-              <Toggle checked={showFileExtensions} onChange={setShowFileExtensions} />
-            </Row>
-          </Section>
-
-        </div>
+          </div>
+        )}
       </div>
-    </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>
-        {title}
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0" }}>
-      <span style={{ fontSize: 13, color: "var(--text-primary)" }}>{label}</span>
-      {children}
-    </div>
-  );
-}
-
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button onClick={() => onChange(!checked)} style={{
-      width: 36, height: 20, borderRadius: 10, border: "none",
-      background: checked ? "var(--text-accent)" : "var(--border)",
-      cursor: "pointer", position: "relative", transition: "background 150ms ease",
-      flexShrink: 0,
-    }}>
-      <div style={{
-        width: 16, height: 16, borderRadius: "50%",
-        background: "#fff",
-        position: "absolute", top: 2,
-        left: checked ? 18 : 2,
-        transition: "left 150ms ease",
-      }} />
-    </button>
+    </Modal>
   );
 }

@@ -1,10 +1,27 @@
-﻿<!doctype html>
-<html lang="en">
+<!doctype html>
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#FAF9F5" />
     <title>ZenNote</title>
+    <!--
+      Paint the correct canvas colour before the bundle loads. The full CSS
+      arrives with the app bundle, so without this a dark-mode user sees a
+      white flash on every cold start. Inline <script> is blocked by the Tauri
+      CSP (script-src 'self'), hence the tiny external file.
+    -->
+    <style>
+      html {
+        background: #faf9f5;
+      }
+      html.dark {
+        background: #262624;
+      }
+    </style>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

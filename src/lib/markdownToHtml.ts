@@ -23,7 +23,6 @@ import { Text } from "@codemirror/state";
 import { Highlight } from "../components/editor/livepreview/markdownExtensions";
 import { findMath, frontmatterRange, type MathRange } from "../components/editor/livepreview/livePreview";
 import { scanFootnotes } from "../components/editor/livepreview/footnotes";
-import { parseHeadings } from "../domain";
 import { renderHtmlValue } from "./htmlRender";
 import { sanitizeHtmlFragment } from "./sanitize";
 
@@ -104,10 +103,37 @@ const HEADING_LEVELS: Record<string, number> = {
   SetextHeading2: 2,
 };
 
+interface TocHeading {
+  level: number;
+  id: string;
+  text: string;
+}
+
+interface TocNode extends TocHeading {
+  children: TocNode[];
+}
+
 /** Every child node, in order. `getChildren()` requires a type in this version. */
 function childrenOf(node: SyntaxNode): SyntaxNode[] {
   const out: SyntaxNode[] = [];
   for (let child = node.firstChild; child; child = child.nextSibling) out.push(child);
+  return out;
+}
+
+/**
+ * Ranges that are code in the exported document: fenced, indented and inline.
+ *
+ * Export-side safety net for constructs that are scanned by range rather than by
+ * the grammar ($…$, [^id]): a dollar or caret inside a code sample is data and
+ * must never become a formula/footnote. The syntax tree is already parsed here,
+ * so this stays exact even where a textual scan (e.g. `findMath`) might lag.
+ */
+function collectCodeRanges(node: SyntaxNode, out: Array<{ from: number; to: number }> = []) {
+  if (node.name === "FencedCode" || node.name === "CodeBlock" || node.name === "InlineCode") {
+    out.push({ from: node.from, to: node.to });
+    return out;
+  }
+  for (const child of childrenOf(node)) collectCodeRanges(child, out);
   return out;
 }
 
@@ -131,7 +157,8 @@ class HtmlRenderer {
   private readonly usedHeadingIds = new Set<string>();
   /** Ids assigned to heading nodes before the walk, in document order. */
   private readonly headingIdByFrom = new Map<number, string>();
-  private readonly headingIds: string[] = [];
+  /** Every heading in document order, the single source for the TOC and ids. */
+  private readonly headings: TocHeading[] = [];
 
   constructor(src: string, doc: Text, opts: RenderMarkdownOptions) {
     this.src = src;
@@ -146,7 +173,14 @@ class HtmlRenderer {
   }
 
   async render(): Promise<string> {
-    const scan = scanFootnotes(this.doc);
+    const tree = mdParser.parse(this.src);
+    const codeRanges = collectCodeRanges(tree.topNode);
+    const inCode = (pos: number): boolean =>
+      codeRanges.some(range => pos >= range.from && pos < range.to);
+
+    // Footnotes and maths are recognised by range, not by the grammar, so both
+    // need the code ranges above: `[^1]` / `$x$` inside a sample stay literal.
+    const scan = scanFootnotes(this.doc, codeRanges);
 
     // Footnote numbering follows definition order, matching the editor.
     scan.defs.forEach((def, i) => {
@@ -162,10 +196,10 @@ class HtmlRenderer {
     // markdown, so the parser reads them as ordinary text. TeX that fails to
     // render keeps its source rather than disappearing.
     for (const m of this.math) {
+      if (inCode(m.from) || inCode(m.to - 1)) continue;
       this.maths.push({ from: m.from, to: m.to, source: m.source, display: m.display, html: this.tex(m.source, m.display) });
     }
 
-    const tree = mdParser.parse(this.src);
     this.assignHeadingIds(tree.topNode);
     this.emitChildren(tree.topNode, 0, this.src.length);
     if (this.footnotes.length) this.emitFootnotes();
@@ -199,19 +233,38 @@ class HtmlRenderer {
    * A `[TOC]` usually sits above the headings it links to, so ids assigned during
    * the walk would reach the outline first and the headings themselves would then
    * take the `-2` suffix — leaving every outline link dead.
+   *
+   * The same collection feeds the TOC entries, so the outline and the heading
+   * anchors can never disagree (Setext headings included: `parseHeadings()` only
+   * scans ATX lines). Skipped heading levels are kept in source order; the TOC
+   * serialiser nests them instead of emitting unbalanced lists.
    */
   private assignHeadingIds(root: SyntaxNode): void {
     const visit = (node: SyntaxNode): void => {
       const level = HEADING_LEVELS[node.name];
       if (level) {
-        const id = this.headingId(level, this.src.slice(node.from, node.to));
+        const text = this.headingText(node);
+        const id = this.headingId(level, text);
         this.headingIdByFrom.set(node.from, id);
-        this.headingIds.push(id);
+        this.headings.push({ level, id, text });
         return;
       }
       for (const child of childrenOf(node)) visit(child);
     };
     visit(root);
+  }
+
+  /** Plain heading text: syntax marks are stripped, inline markup is kept. */
+  private headingText(node: SyntaxNode): string {
+    const raw = this.src.slice(node.from, node.to);
+    if (node.name.startsWith("ATX")) {
+      return raw
+        .replace(/^\s{0,3}#{1,6}[ \t]*/, "")
+        .replace(/[ \t]+#+[ \t]*$/, "")
+        .trim();
+    }
+    // A Setext heading's node covers the text line and the underline.
+    return (raw.split("\n")[0] ?? "").trim();
   }
 
   /** Render a sub-range on its own so its outer whitespace can be trimmed. */
@@ -530,28 +583,41 @@ class HtmlRenderer {
     this.out.push("</tbody></table>");
   }
 
+  /**
+   * `[TOC]` as a nested, balanced list.
+   *
+   * Entries come from the same pre-walk heading collection as the heading ids, so
+   * an anchor can never point at a different heading. Levels are nested by a
+   * stack; skipped levels (h1 → h3) simply nest one list deeper instead of
+   * emitting `<ul><ul>` or a stray `</li>` (the old linear emitter did both).
+   */
   private emitToc(): void {
-    const headings = parseHeadings(this.src);
-    if (!headings.length) return;
+    if (!this.headings.length) return;
+    const roots: TocNode[] = [];
+    const stack: TocNode[] = [];
+    for (const heading of this.headings) {
+      const node: TocNode = { ...heading, children: [] };
+      while (stack.length && stack[stack.length - 1].level >= node.level) stack.pop();
+      const parent = stack[stack.length - 1];
+      if (parent) parent.children.push(node);
+      else roots.push(node);
+      stack.push(node);
+    }
+    const renderList = (nodes: TocNode[], root = false): string =>
+      `<ul${root ? ' class="zn-toc-list"' : ""}>` +
+      nodes
+        .map(node =>
+          `<li><a href="#${node.id}">${escapeHtml(node.text)}</a>` +
+          (node.children.length ? renderList(node.children) : "") +
+          "</li>",
+        )
+        .join("") +
+      "</ul>";
     this.out.push(
       `<nav class="zn-toc"><div class="zn-toc-title">${escapeHtml(this.opts.tocTitle ?? "目录")}</div>` +
-        '<ul class="zn-toc-list">',
+        renderList(roots, true) +
+        "</nav>",
     );
-    let level = 0;
-    headings.forEach((h, i) => {
-      if (h.level > level) {
-        this.out.push("<ul>".repeat(h.level - level));
-      } else {
-        this.out.push("</li>");
-        this.out.push("</ul></li>".repeat(level - h.level));
-      }
-      level = h.level;
-      // The pre-assigned ids, in the same document order, so each entry lands on
-      // the heading it names.
-      const id = this.headingIds[i] ?? this.headingId(h.level, h.text);
-      this.out.push(`<li><a href="#${id}">${escapeHtml(h.text)}</a>`);
-    });
-    this.out.push("</li>" + "</ul></li>".repeat(Math.max(0, level - 1)) + "</ul></nav>");
   }
 
   private emitFootnotes(): void {

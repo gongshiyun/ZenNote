@@ -169,6 +169,18 @@ describe('filesystem helpers', () => {
       expect(isWithinWorkspace('C:\\other', 'C:\\ws')).toBe(false);
       expect(isWithinWorkspace('C:\\ws', null)).toBe(false);
     });
+
+    it('ignores Windows drive-letter case and separator style', () => {
+      expect(isWithinWorkspace('c:/notes/x.md', 'C:\\Notes')).toBe(true);
+      expect(isWithinWorkspace('C:/Notes/sub\\x.md', 'c:\\notes')).toBe(true);
+      expect(isWithinWorkspace('C:\\Notes', 'c:/notes/')).toBe(true);
+    });
+
+    it('resolves .. before deciding and keeps POSIX comparisons case-sensitive', () => {
+      expect(isWithinWorkspace('C:\\Notes\\..\\secret.md', 'C:\\Notes')).toBe(false);
+      expect(isWithinWorkspace('C:\\Notes\\sub\\..\\x.md', 'C:\\Notes')).toBe(true);
+      expect(isWithinWorkspace('/ws/Notes/x.md', '/ws/notes')).toBe(false);
+    });
   });
 
   describe('noteName', () => {

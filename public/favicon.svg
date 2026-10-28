@@ -1,6 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <rect x="4" y="4" width="120" height="120" rx="28" fill="#000000"/>
-  <text x="64" y="92" text-anchor="middle" font-size="88" fill="#FFFFFF"
-    font-family="'Brush Script MT','Segoe Script','STXingkai','KaiTi',cursive"
-    font-style="italic" font-weight="700">Z</text>
+  <rect x="2" y="2" width="124" height="124" rx="30" fill="#FAF9F5"/>
+  <g stroke="#D97757" stroke-width="9" stroke-linecap="round" fill="none">
+    <path d="M64 24v22"/>
+    <path d="M64 82v22"/>
+    <path d="M24 64h22"/>
+    <path d="M82 64h22"/>
+    <path d="M35.7 35.7l15.6 15.6"/>
+    <path d="M76.7 76.7l15.6 15.6"/>
+    <path d="M92.3 35.7L76.7 51.3"/>
+    <path d="M51.3 76.7L35.7 92.3"/>
+  </g>
 </svg>

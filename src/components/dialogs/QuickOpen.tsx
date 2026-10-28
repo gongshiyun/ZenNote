@@ -5,6 +5,17 @@ import { openDocumentWithSave } from "../../lib/openDocument";
 import { useStore } from "../../store";
 import * as fs from "../../services";
 import { fuzzyScore } from "../../lib/fuzzy";
+import { FileTextIcon, Kbd, SearchIcon } from "../ui";
+
+/** Directory part of a workspace-relative quick-open path; empty for root files. */
+function relativeDir(filePath: string, workspacePath: string | null): string {
+  let relative = filePath;
+  if (workspacePath && filePath.startsWith(workspacePath)) {
+    relative = filePath.slice(workspacePath.length).replace(/^[\\/]/, "");
+  }
+  const index = Math.max(relative.lastIndexOf("/"), relative.lastIndexOf("\\"));
+  return index > 0 ? relative.slice(0, index) : "";
+}
 
 export function QuickOpen({ onClose }: { onClose: () => void }) {
   const workspacePath = useStore(s => s.workspacePath);
@@ -13,6 +24,8 @@ export function QuickOpen({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [focusIdx, setFocusIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!workspacePath) return;
@@ -23,8 +36,11 @@ export function QuickOpen({ onClose }: { onClose: () => void }) {
     return () => { cancelled = true; };
   }, [workspacePath, showHiddenFiles]);
 
+  // Move focus into the palette on open, and hand it back on close.
   useEffect(() => {
+    restoreFocusRef.current = document.activeElement as HTMLElement | null;
     inputRef.current?.focus();
+    return () => { restoreFocusRef.current?.focus?.(); };
   }, []);
 
   const results = useMemo(() => {
@@ -46,6 +62,13 @@ export function QuickOpen({ onClose }: { onClose: () => void }) {
     setFocusIdx(index => Math.min(index, Math.max(0, results.length - 1)));
   }, [results.length]);
 
+  // Auto-scroll the keyboard cursor into view.
+  useEffect(() => {
+    if (focusIdx < 0) return;
+    const items = listRef.current?.querySelectorAll<HTMLElement>("[data-search-item]");
+    items?.[focusIdx]?.scrollIntoView?.({ block: "nearest" });
+  }, [focusIdx]);
+
   const open = useCallback(async (file: FileNode | undefined) => {
     if (!file) return;
     const s = useStore.getState();
@@ -59,6 +82,8 @@ export function QuickOpen({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Never hijack keys while an IME candidate window is open.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === "Escape") {
         e.preventDefault();
         onClose();
@@ -78,64 +103,64 @@ export function QuickOpen({ onClose }: { onClose: () => void }) {
   }, [focusIdx, onClose, open, results]);
 
   return (
-    <div
-      style={{
-        position: "fixed", inset: 0, zIndex: 940,
-        display: "flex", justifyContent: "center", paddingTop: "12vh",
-        background: "var(--zn-scrim)",
-      }}
-      onClick={onClose}
-    >
+    <div className="zn-overlay zn-overlay--top zn-search-overlay" onClick={onClose}>
       <div
-        style={{
-          width: 580, maxHeight: "68vh", background: "var(--zn-float-bg)",
-          border: "1px solid var(--zn-float-border)", borderRadius: "var(--zn-radius-menu)",
-          boxShadow: "var(--shadow-popover)", overflow: "hidden",
-          display: "flex", flexDirection: "column",
-        }}
+        className="zn-search zn-quickopen"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t().quickOpen.placeholder}
         onClick={event => event.stopPropagation()}
       >
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={event => setQuery(event.target.value)}
-          placeholder={t().quickOpen.placeholder}
-          style={{
-            border: "none", outline: "none", padding: "13px 16px",
-            background: "transparent", color: "var(--text-primary)",
-            borderBottom: "1px solid var(--border)", fontSize: 15,
-          }}
-        />
-        <div style={{ overflowY: "auto", padding: "4px 0" }}>
+        {/* File-name input row */}
+        <div className="zn-search__head">
+          <SearchIcon size={18} className="zn-search__icon" />
+          <input
+            ref={inputRef}
+            className="zn-search__input"
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+            placeholder={t().quickOpen.placeholder}
+            aria-label={t().quickOpen.placeholder}
+          />
+          <span className="zn-search__esc"><Kbd>Esc</Kbd></span>
+        </div>
+
+        {/* Fuzzy-filtered note list */}
+        <div ref={listRef} className="zn-search__body" role="listbox" aria-label={t().quickOpen.placeholder}>
           {results.length === 0 ? (
-            <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>
-              {t().quickOpen.noResults}
-            </div>
+            <div className="zn-empty zn-search__empty">{t().quickOpen.noResults}</div>
           ) : results.map((file, index) => {
-            const relative = workspacePath
-              ? file.path.slice(workspacePath.length).replace(/^[\\/]/, "")
-              : file.path;
+            const dir = relativeDir(file.path, workspacePath);
             return (
-              <div
+              <button
                 key={file.path}
+                type="button"
+                role="option"
+                aria-selected={index === focusIdx}
+                data-search-item
+                data-selected={index === focusIdx || undefined}
+                className="zn-search-result"
                 onMouseEnter={() => setFocusIdx(index)}
                 onClick={() => { void open(file); }}
-                style={{
-                  padding: "7px 16px", cursor: "pointer",
-                  background: index === focusIdx ? "var(--bg-sidebar-active)" : "transparent",
-                  display: "flex", alignItems: "baseline", gap: 10,
-                }}
               >
-                <span style={{ color: "var(--text-primary)", fontSize: 13 }}>{file.name}</span>
-                <span style={{
-                  color: "var(--text-tertiary)", fontSize: 11,
-                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                }}>
-                  {relative}
+                <span className="zn-search-result__head">
+                  <FileTextIcon size={15} className="zn-search-result__icon" />
+                  <span className="zn-search-result__title">{file.name}</span>
+                  {dir ? <span className="zn-search-result__path">{dir}</span> : null}
                 </span>
-              </div>
+              </button>
             );
           })}
+        </div>
+
+        {/* Footer hint bar */}
+        <div className="zn-search__footer">
+          <span className="zn-search__count" />
+          <span className="zn-search__hints">
+            <Kbd>↑↓</Kbd>
+            <Kbd>↵</Kbd>
+            <Kbd>Esc</Kbd>
+          </span>
         </div>
       </div>
     </div>

@@ -13,8 +13,7 @@ describe('SettingsDialog', () => {
     useStore.setState({
       locale: 'zh-CN',
       mode: 'system',
-      themeId: 'zen',
-      fontFamily: 'sans',
+      fontFamily: 'claude',
       fontSize: 16,
       tabSize: 2,
       editorPadding: 80,

@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { t } from "../../i18n";
 import { findAllMatches, wrapIndex, defaultFindOptions, type FindOptions } from "../../lib/findQuery";
+import { ArrowDownIcon, ArrowUpIcon, Button, IconButton, Kbd, SearchIcon } from "../ui";
 
 /**
  * Document find & replace bar.
@@ -52,7 +53,6 @@ export function FindReplaceBar({ visible, onClose, preset, documentKey, getCmVie
     const idx = wrapIndex(index, matches.length);
     const m = matches[idx];
     view.dispatch({ selection: { anchor: m.from, head: m.to }, scrollIntoView: true });
-    view.focus();
     setCurrentIdx(idx);
   }, [getCmView, cmMatches]);
 
@@ -91,18 +91,34 @@ export function FindReplaceBar({ visible, onClose, preset, documentKey, getCmVie
 
     const matches = cmMatches();
     setMatchCount(matches.length);
-    const targetIndex = jumpToLine
-      ? matches.findIndex(m => {
-        const view = getCmView();
-        return !!view?.state?.doc?.lineAt && view.state.doc.lineAt(m.from).number >= jumpToLine;
-      })
-      : 0;
-    if (targetIndex > 0) cmGoto(targetIndex);
-    else setCurrentIdx(matches.length ? 0 : -1);
+    if (matches.length === 0) {
+      setCurrentIdx(-1);
+      return;
+    }
+    if (!jumpToLine) {
+      setCurrentIdx(0);
+      return;
+    }
+    // The first match at/after the target line must be SELECTED too; the old
+    // `targetIndex > 0` guard skipped selection entirely when the match was the
+    // first one, so "jump to search result" never moved the viewport.
+    const targetIndex = matches.findIndex(m => {
+      const view = getCmView();
+      return !!view?.state?.doc?.lineAt && view.state.doc.lineAt(m.from).number >= jumpToLine;
+    });
+    cmGoto(targetIndex >= 0 ? targetIndex : 0);
   }, [findText, opts, getCmView, cmMatches, cmGoto]);
 
-  const findNext = useCallback(() => cmGoto(currentIdx + 1), [currentIdx, cmGoto]);
-  const findPrev = useCallback(() => cmGoto(currentIdx - 1), [currentIdx, cmGoto]);
+  // Jumping updates the CodeMirror selection but keeps focus in the find field,
+  // so Enter/typing continues in the bar rather than moving into the document.
+  const findNext = useCallback(() => {
+    cmGoto(currentIdx + 1);
+    findRef.current?.focus();
+  }, [currentIdx, cmGoto]);
+  const findPrev = useCallback(() => {
+    cmGoto(currentIdx - 1);
+    findRef.current?.focus();
+  }, [currentIdx, cmGoto]);
 
   const replaceOne = useCallback(() => cmReplaceOne(), [cmReplaceOne]);
   const replaceAll = useCallback(() => cmReplaceAll(), [cmReplaceAll]);
@@ -137,24 +153,33 @@ export function FindReplaceBar({ visible, onClose, preset, documentKey, getCmVie
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentKey]);
 
-  // Keyboard handling.
+  // Escape closes the bar from anywhere while it is open. Enter / replace
+  // shortcuts are handled on the bar container below, so typing Enter in any
+  // other field is never hijacked.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!visible) return;
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === "Escape") { e.preventDefault(); onClose(); }
-      else if (e.key === "Enter" && !e.shiftKey && findText) { e.preventDefault(); findNext(); }
-      else if (e.key === "Enter" && e.shiftKey && findText) { e.preventDefault(); findPrev(); }
-      else if ((e.ctrlKey || e.metaKey) && e.key === "h") {
-        e.preventDefault();
-        setShowReplace(true);
-      }
-      else if ((e.ctrlKey || e.metaKey) && e.key === "r" && findText) {
-        e.preventDefault(); setShowReplace(v => !v);
-      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [visible, onClose, findText, findNext, findPrev]);
+  }, [visible, onClose]);
+
+  const handleBarKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+    if (e.key === "Enter" && findText) {
+      e.preventDefault();
+      if (e.shiftKey) findPrev();
+      else findNext();
+    } else if ((e.ctrlKey || e.metaKey) && e.key === "h") {
+      e.preventDefault();
+      setShowReplace(true);
+    } else if ((e.ctrlKey || e.metaKey) && e.key === "r" && findText) {
+      e.preventDefault();
+      setShowReplace(v => !v);
+    }
+  };
 
   if (!visible) return null;
 
@@ -162,55 +187,116 @@ export function FindReplaceBar({ visible, onClose, preset, documentKey, getCmVie
     setOpts(o => ({ ...o, [key]: !o[key] }));
   };
 
+  const counter = invalidRegex
+    ? t().find.invalidRegex
+    : matchCount > 0
+      ? `${Math.max(currentIdx, 0) + 1}/${matchCount}`
+      : findText ? "0" : "";
+
   return (
-    <div style={{
-      minHeight: 36, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
-      padding: "4px 12px", background: "var(--bg-statusbar)",
-      borderBottom: "1px solid var(--border)", flexShrink: 0, fontSize: 13,
-    }}>
-      <input ref={findRef} value={findText} onChange={e => setFindText(e.target.value)}
-        placeholder={t().find.find}
-        style={{
-          width: 160, border: "1px solid " + (invalidRegex ? "var(--text-danger)" : "var(--border)"), borderRadius: 4,
-          padding: "3px 8px", background: "var(--bg-editor)",
-          color: "var(--text-primary)", fontSize: 13, outline: "none", fontFamily: "inherit",
-        }}
-      />
-      <span style={{ color: invalidRegex ? "var(--text-danger)" : "var(--text-tertiary)", minWidth: 40, fontSize: 12, textAlign: "center" }}>
-        {invalidRegex ? t().find.invalidRegex : (matchCount > 0 ? (Math.max(currentIdx, 0) + 1) + "/" + matchCount : findText ? "0" : "")}
-      </span>
-      <button onClick={findPrev} title={t().find.previous + " (Shift+Enter)"} style={btnStyle}>
-        <svg width="14" height="14" viewBox="0 0 12 12"><polyline points="3,8 1,6 3,4" fill="none" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="6" x2="11" y2="6" stroke="currentColor" strokeWidth="1.5"/></svg>
-      </button>
-      <button onClick={findNext} title={t().find.next + " (Enter)"} style={btnStyle}>
-        <svg width="14" height="14" viewBox="0 0 12 12"><polyline points="9,4 11,6 9,8" fill="none" stroke="currentColor" strokeWidth="1.5"/><line x1="11" y1="6" x2="1" y2="6" stroke="currentColor" strokeWidth="1.5"/></svg>
-      </button>
-      {/* Matching options */}
-      <OptButton label="Aa" active={opts.caseSensitive} title={t().find.caseSensitive} onClick={() => toggleOpt("caseSensitive")} />
-      <OptButton label="W" active={opts.wholeWord} title={t().find.wholeWord} onClick={() => toggleOpt("wholeWord")} />
-      <OptButton label=".*" active={opts.regex} title={t().find.regex} onClick={() => toggleOpt("regex")} />
-      <button onClick={() => setShowReplace(v => !v)} title={t().find.replace + " (Ctrl+R)"}
-        style={{ ...btnStyle, background: showReplace ? "var(--bg-sidebar-active)" : "transparent", width: "auto", padding: "0 8px", fontSize: 11 }}>
-        {t().find.replace}
-      </button>
-      {showReplace && (
-        <>
-          <input value={replaceText} onChange={e => setReplaceText(e.target.value)}
+    <div className="zn-findbar" role="search" onKeyDown={handleBarKeyDown}>
+      <div className="zn-findbar__row">
+        <SearchIcon size={15} className="zn-findbar__search-icon" />
+        <input
+          ref={findRef}
+          value={findText}
+          placeholder={t().find.find}
+          aria-label={t().find.find}
+          aria-invalid={invalidRegex || undefined}
+          className="zn-input zn-findbar__field"
+          data-invalid={invalidRegex || undefined}
+          onChange={(e) => setFindText(e.target.value)}
+        />
+        <span
+          className="zn-findbar__count"
+          data-invalid={invalidRegex || undefined}
+          title={counter}
+          aria-live="polite"
+        >
+          {counter}
+        </span>
+        <IconButton
+          label={`${t().find.previous} (Shift+Enter)`}
+          size="sm"
+          onClick={findPrev}
+        >
+          <ArrowUpIcon size={15} />
+        </IconButton>
+        <IconButton
+          label={`${t().find.next} (Enter)`}
+          size="sm"
+          onClick={findNext}
+        >
+          <ArrowDownIcon size={15} />
+        </IconButton>
+        <span className="zn-findbar__sep" aria-hidden="true" />
+        <IconButton
+          label={t().find.caseSensitive}
+          size="sm"
+          className="zn-findbar__opt"
+          active={opts.caseSensitive}
+          onClick={() => toggleOpt("caseSensitive")}
+        >
+          Aa
+        </IconButton>
+        <IconButton
+          label={t().find.wholeWord}
+          size="sm"
+          className="zn-findbar__opt"
+          active={opts.wholeWord}
+          onClick={() => toggleOpt("wholeWord")}
+        >
+          W
+        </IconButton>
+        <IconButton
+          label={t().find.regex}
+          size="sm"
+          className="zn-findbar__opt"
+          active={opts.regex}
+          onClick={() => toggleOpt("regex")}
+        >
+          .*
+        </IconButton>
+        <span className="zn-findbar__sep" aria-hidden="true" />
+        <Button
+          variant="ghost"
+          size="sm"
+          className="zn-findbar__toggle"
+          data-active={showReplace || undefined}
+          title={`${t().find.replace} (Ctrl+R)`}
+          onClick={() => setShowReplace(v => !v)}
+        >
+          {t().find.replace}
+        </Button>
+        <div className="zn-findbar__spacer" />
+        <button
+          type="button"
+          className="zn-findbar__esc"
+          title={t().find.close}
+          aria-label={t().find.close}
+          onClick={onClose}
+        >
+          <Kbd>Esc</Kbd>
+        </button>
+      </div>
+
+      {showReplace ? (
+        <div className="zn-findbar__row zn-findbar__row--replace">
+          <input
+            value={replaceText}
             placeholder={t().find.replaceWith}
-            style={{
-              width: 140, border: "1px solid var(--border)", borderRadius: 4,
-              padding: "3px 8px", background: "var(--bg-editor)",
-              color: "var(--text-primary)", fontSize: 13, outline: "none", fontFamily: "inherit",
-            }}
+            aria-label={t().find.replaceWith}
+            className="zn-input zn-findbar__field zn-findbar__field--replace"
+            onChange={(e) => setReplaceText(e.target.value)}
           />
-          <button onClick={replaceOne} style={{ ...btnStyle, width: "auto", padding: "0 8px", fontSize: 12 }}>{t().find.replaceOne}</button>
-          <button onClick={replaceAll} style={{ ...btnStyle, width: "auto", padding: "0 8px", fontSize: 12 }}>{t().find.replaceAll}</button>
-        </>
-      )}
-      <div style={{ flex: 1 }} />
-      <button onClick={onClose} title={t().find.previous + " (Esc)"} style={btnStyle}>
-        <svg width="14" height="14" viewBox="0 0 12 12"><line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" strokeWidth="1.5"/><line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" strokeWidth="1.5"/></svg>
-      </button>
+          <Button variant="secondary" size="sm" onClick={replaceOne}>
+            {t().find.replaceOne}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={replaceAll}>
+            {t().find.replaceAll}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -219,22 +305,3 @@ export function FindReplaceBar({ visible, onClose, preset, documentKey, getCmVie
 function buildFails(query: string): boolean {
   try { new RegExp(query, "u"); return false; } catch { return true; }
 }
-
-function OptButton({ label, active, title, onClick }: { label: string; active: boolean; title: string; onClick: () => void }) {
-  return (
-    <button onClick={onClick} title={title}
-      style={{
-        ...btnStyle, width: 30, fontSize: 11, fontWeight: 700, fontFamily: "Consolas, monospace",
-        background: active ? "var(--bg-sidebar-active)" : "transparent",
-        color: active ? "var(--text-accent)" : "var(--text-secondary)",
-      }}>
-      {label}
-    </button>
-  );
-}
-
-const btnStyle: React.CSSProperties = {
-  width: 28, height: 24, display: "flex", alignItems: "center", justifyContent: "center",
-  border: "none", borderRadius: 4, background: "transparent", color: "var(--text-secondary)",
-  cursor: "pointer", fontSize: 13, fontFamily: "inherit",
-};

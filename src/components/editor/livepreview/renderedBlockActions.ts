@@ -33,7 +33,6 @@ import {
   rectContains,
   rowOf,
   setColumnAlign,
-  withImageAlign,
   type CellPos,
   type CellRect,
   type ImageAlign,
@@ -43,6 +42,65 @@ import { parseAlign } from "./livePreview";
 const ZOOM_ICON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">' +
   '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35M11 8v6M8 11h6"/></svg>';
+
+/* ------------------------------------------------------------ image alignment */
+
+/** Alignment metadata marker written into the image's optional title. */
+const ALIGN_TITLE_RE = /\bzn:align=(left|center|right)\b/gi;
+
+/** Documents written before the fix stored `"<ratio>|<align>"` in the ALT. */
+const LEGACY_ALT_RE = /^\d+(?:\.\d+)?\|(left|center|right)$/i;
+
+/**
+ * Read an image node's current alignment.
+ *
+ * The alignment is stored as a `zn:align=` marker in the image title. Notes
+ * written by the previous editor kept it in the alt text (`"<ratio>|<align>"`),
+ * so that form is still read as a fallback; anything unparseable is centred.
+ */
+function imageAlignOf(text: string): ImageAlign {
+  const title = /"([^"]*)"\s*\)$/.exec(text)?.[1] ?? "";
+  const fromTitle = /\bzn:align=(left|center|right)\b/i.exec(title)?.[1]?.toLowerCase();
+  if (fromTitle === "left" || fromTitle === "right" || fromTitle === "center") {
+    return fromTitle;
+  }
+  const alt = /^!\[([^\]]*)\]/.exec(text)?.[1] ?? "";
+  return parseImageAlt(alt).align;
+}
+
+/**
+ * Rewrite an image's markdown with a new alignment.
+ *
+ * The author's alt text is NEVER touched. The old implementation replaced the
+ * whole alt with `<ratio>|<align>`, so nudging an image's alignment silently
+ * destroyed the author's description and the image's accessible name; the
+ * alignment now lives in the optional title as a `zn:align=` marker instead.
+ *
+ * Returns null when the source does not have the shape `![alt](url "title")`,
+ * in which case the caller leaves the document alone rather than risk
+ * corrupting markdown this helper cannot round-trip.
+ */
+function withImageAlignSource(text: string, align: ImageAlign): string | null {
+  if (!text.startsWith("![") || !text.endsWith(")")) return null;
+  const close = text.indexOf("](");
+  if (close < 0) return null;
+  const alt = text.slice(2, close);
+  const dest = text.slice(close + 2, -1);
+  // The optional title is the last double-quoted run; everything before it is
+  // the URL. Single-quoted / parenthesised titles are not round-tripped here.
+  const titleMatch = /^(.*?)(?:\s+"([^"]*)")?$/.exec(dest);
+  if (!titleMatch) return null;
+  const url = titleMatch[1].trim();
+  if (!url) return null;
+  // A leftover quoted run means an unsupported title form: don't touch it.
+  if (/\s/.test(url) && !/^<.*>$/.test(url)) return null;
+  if (/['"]\s*$/.test(url)) return null;
+  const existingTitle = (titleMatch[2] ?? "").replace(ALIGN_TITLE_RE, "").trim();
+  const nextTitle = existingTitle ? `${existingTitle} zn:align=${align}` : `zn:align=${align}`;
+  // A legacy-encoded alt was never author copy; clear it so it stops leaking.
+  const nextAlt = LEGACY_ALT_RE.test(alt.trim()) ? "" : alt;
+  return `![${nextAlt}](${url} "${nextTitle}")`;
+}
 
 /* ------------------------------------------------------------- table editing */
 
@@ -341,6 +399,13 @@ function wireCell(
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
+    // Never intercept a keystroke that belongs to an IME composition: Enter
+    // would commit the cell mid-word (and Tab would skip cells) while Chinese
+    // candidates are still being chosen.
+    if (e.isComposing || e.keyCode === 229) {
+      e.stopPropagation();
+      return;
+    }
     if (e.key === "Escape") {
       e.preventDefault();
       finish("none", true);
@@ -821,15 +886,14 @@ class RenderedBlockManager {
     this.closeImageBar();
     const node = nodeRangeAt(this.view, "Image", pos);
     if (!node) return;
-    const altMatch = /^!\[([^\]]*)\]/.exec(node.text);
-    const current = parseImageAlt(altMatch ? altMatch[1] : "").align;
+    const current = imageAlignOf(node.text);
 
     const bar = document.createElement("div");
     bar.className = "zn-lp-image-bar";
     const labels: Array<[ImageAlign, string]> = [
-      ["left", "左对齐"],
-      ["center", "居中"],
-      ["right", "右对齐"],
+      ["left", t().table.alignLeft],
+      ["center", t().table.alignCenter],
+      ["right", t().table.alignRight],
     ];
     for (const [align, title] of labels) {
       const b = document.createElement("button");
@@ -868,13 +932,12 @@ class RenderedBlockManager {
   }
 
   private applyImageAlign(from: number, text: string, align: ImageAlign): void {
-    const m = /^!\[([^\]]*)\]/.exec(text);
-    if (!m) return;
-    const newAlt = withImageAlign(m[1], align);
-    // Replace only the alt run, leaving the url and title untouched.
-    const altFrom = from + 2;
+    // Keep the author's alt text and store the alignment in the image title, so
+    // an alignment click never costs the reader their description.
+    const next = withImageAlignSource(text, align);
+    if (!next) return;
     this.view.dispatch({
-      changes: { from: altFrom, to: altFrom + m[1].length, insert: newAlt },
+      changes: { from, to: from + text.length, insert: next },
     });
   }
 

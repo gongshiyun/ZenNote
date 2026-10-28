@@ -30,12 +30,17 @@ export interface UpdateSlice {
 export interface UISlice {
   sidebarVisible: boolean;
   outlineVisible: boolean;
+  /** Persisted px widths of the two side panels. */
+  sidebarWidth: number;
+  outlineWidth: number;
   searchVisible: boolean;
   settingsVisible: boolean;
   saveError: string | null;
   imageUploadCount: number;
   toggleSidebar: () => void;
   toggleOutline: () => void;
+  setSidebarWidth: (width: number) => void;
+  setOutlineWidth: (width: number) => void;
   setSearchVisible: (visible: boolean) => void;
   setSettingsVisible: (visible: boolean) => void;
   setSaveError: (message: string | null) => void;
@@ -64,15 +69,23 @@ export const createUpdateSlice: StateCreator<UpdateSlice, [], [], UpdateSlice> =
 });
 
 export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({
-  // 默认不展示侧边栏和大纲，由用户在会话中手动开启
-  sidebarVisible: false,
+  // A note app should open with its workspace tree visible; the outline panel is
+  // an opt-in reading aid. Both settings are restored from the session.
+  sidebarVisible: true,
   outlineVisible: false,
+  // Defaults mirror --zn-sidebar-w / --zn-outline-w in tokens.css. Once the user
+  // drags a handle the resolved px width is stored here so it survives panel
+  // toggles and relaunches.
+  sidebarWidth: 260,
+  outlineWidth: 200,
   searchVisible: false,
   settingsVisible: false,
   saveError: null,
   imageUploadCount: 0,
   toggleSidebar: () => set(s => ({ sidebarVisible: !s.sidebarVisible })),
   toggleOutline: () => set(s => ({ outlineVisible: !s.outlineVisible })),
+  setSidebarWidth: (width) => set({ sidebarWidth: Math.max(180, Math.min(480, width)) }),
+  setOutlineWidth: (width) => set({ outlineWidth: Math.max(150, Math.min(360, width)) }),
   setSearchVisible: (visible) => set({ searchVisible: visible }),
   setSettingsVisible: (visible) => set({ settingsVisible: visible }),
   setSaveError: (message) => set({ saveError: message }),

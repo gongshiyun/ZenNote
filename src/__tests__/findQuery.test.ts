@@ -55,6 +55,21 @@ describe('buildFindRegex', () => {
       { from: 10, to: 12 },
     ]);
   });
+
+  it('honours wholeWord in regex mode instead of silently ignoring it', () => {
+    const rxww = { ...rx, wholeWord: true };
+    expect(findAllMatches('cat concat a cat', 'cat', rxww).map(m => [m.from, m.to])).toEqual([
+      [0, 3],
+      [13, 16],
+    ]);
+    // Alternation must be wrapped as a unit, not just the first branch.
+    expect(findAllMatches('cat dog scatter', 'cat|dog', rxww).map(m => [m.from, m.to])).toEqual([
+      [0, 3],
+      [4, 7],
+    ]);
+    // Unchanged regex semantics otherwise: still invalid regex -> null.
+    expect(buildFindRegex('(unclosed', rxww)).toBeNull();
+  });
 });
 
 describe('findAllMatches — whole word', () => {

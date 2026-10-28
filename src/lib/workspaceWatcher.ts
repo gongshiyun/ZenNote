@@ -100,6 +100,8 @@ export function reloadExternalConflict(path: string): void {
   useStore.setState({
     content: conflict.diskContent,
     isDirty: false,
+    // The reloaded text is now the on-disk baseline (so undo back to it is clean).
+    lastSavedContent: conflict.diskContent,
     reloadTick: s.reloadTick + 1,
     externalConflict: null,
     fileStates: new Map(s.fileStates),

@@ -1,0 +1,348 @@
+/* ==========================================================================
+   ZenNote — Editor surface
+   Owner: ui-editor. See docs/DESIGN-CLAUDE-CODE.md §5.13 and §5.9.
+
+   This file owns:
+     - the CodeMirror host surface (live preview + source mode)
+     - the editor's empty state
+     - Mermaid diagram chrome and the zoom overlay rules
+   Prose typography itself lives in `livePreviewTheme.ts` (the CodeMirror theme
+   is generated from tokens so both schemes and every font stack apply at once)
+   and the widget chrome injected by that module. What remains here is page-level
+   layout: the warm canvas, the centred reading column shell, and the floating
+   diagram viewer.
+   ========================================================================== */
+
+/* ---- Editor page ------------------------------------------------------- */
+.zn-editor-surface {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--zn-canvas);
+}
+
+.zn-live-preview,
+.zn-source-editor {
+  min-height: 0;
+  background: var(--zn-canvas);
+}
+
+.zn-live-preview .cm-editor,
+.zn-source-editor .cm-editor {
+  height: 100%;
+  outline: none;
+  background: transparent;
+}
+
+.zn-live-preview .cm-editor.cm-focused,
+.zn-source-editor .cm-editor.cm-focused {
+  outline: none;
+}
+
+.zn-live-preview .cm-scroller,
+.zn-source-editor .cm-scroller {
+  overflow: auto;
+}
+
+/* The source-mode column needs one more gutter than the prose column; both are
+   centred by their CodeMirror theme at --zn-editor-content-width. */
+.zn-source-editor .cm-scroller {
+  font-family: var(--zn-font-mono);
+}
+
+/* ---- Empty editor state ------------------------------------------------ */
+/* Shows over the canvas when no file is open (or a note is still empty). Purely
+   presentational: pointer-events stay off, so clicking the page still puts the
+   caret in the empty document. */
+.zn-editor-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  pointer-events: none;
+  user-select: none;
+  animation: zn-editor-empty-in var(--zn-dur-slow) var(--zn-ease);
+}
+
+.zn-editor-empty .zn-appmark {
+  color: var(--zn-accent);
+  opacity: 0.9;
+}
+
+.zn-editor-empty__title {
+  margin: 0;
+  font-family: var(--zn-font-serif);
+  font-size: var(--zn-fs-xl);
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--zn-text-secondary);
+}
+
+.zn-editor-empty__hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--zn-fs-sm);
+  color: var(--zn-text-tertiary);
+}
+
+.zn-editor-empty__plus {
+  font-family: var(--zn-font-mono);
+  font-size: var(--zn-fs-2xs);
+  color: var(--zn-text-tertiary);
+}
+
+@keyframes zn-editor-empty-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ---- Mermaid diagrams --------------------------------------------------
+   Mermaid bakes a palette into the SVG it generates (its stock light theme is a
+   lavender IDE look that fights the warm page), so the diagram is re-tinted from
+   tokens in both schemes. The live preview renders its SVG with an `lp-` id and
+   the zoom overlay keeps that id on the clone, hence the two scopes below; the
+   legacy `mermaid-` id prefix is kept for older cached markup. The block
+   container supplies the surface, so the SVG stays transparent in light mode and
+   only takes a fill in dark, where the chart would otherwise glow. */
+:is(.cm-zn-mermaid, .zn-mermaid-zoom-body) svg .node rect,
+:is(.cm-zn-mermaid, .zn-mermaid-zoom-body) svg .node circle,
+:is(.cm-zn-mermaid, .zn-mermaid-zoom-body) svg .node ellipse,
+:is(.cm-zn-mermaid, .zn-mermaid-zoom-body) svg .node polygon,
+:is(.cm-zn-mermaid, .zn-mermaid-zoom-body) svg .actor,
+:is(.cm-zn-mermaid, .zn-mermaid-zoom-body) svg .label-container,
+[id^="mermaid-"] svg .node rect,
+[id^="mermaid-"] svg .node circle,
+[id^="mermaid-"] svg .node ellipse,
+[id^="mermaid-"] svg .node polygon,
+[id^="mermaid-"] svg .actor,
+[id^="mermaid-"] svg .label-container {
+  fill: var(--zn-canvas) !important;
+  stroke: var(--zn-mermaid-stroke) !important;
+}
+
+:is(.cm-zn-mermaid, .zn-mermaid-zoom-body) svg .cluster rect,
+[id^="mermaid-"] svg .cluster rect {
+  fill: var(--zn-surface) !important;
+  stroke: var(--zn-border) !important;
+}
+
+:is(.cm-zn-mermaid, .zn-mermaid-zoom-body) svg text,
+[id^="mermaid-"] svg text {
+  fill: var(--zn-editor-text) !important;
+}
+
+:is(.cm-zn-mermaid, .zn-mermaid-zoom-body) svg .edgeLabel,
+:is(.cm-zn-mermaid, .zn-mermaid-zoom-body) svg .nodeLabel,
+[id^="mermaid-"] svg .edgeLabel,
+[id^="mermaid-"] svg .nodeLabel {
+  color: var(--zn-editor-text) !important;
+}
+
+:is(.cm-zn-mermaid, .zn-mermaid-zoom-body) svg .edgeLabel rect,
+[id^="mermaid-"] svg .edgeLabel rect {
+  fill: var(--zn-mermaid-fill) !important;
+  stroke: none !important;
+}
+
+:is(.cm-zn-mermaid, .zn-mermaid-zoom-body) svg .edgePath .path,
+:is(.cm-zn-mermaid, .zn-mermaid-zoom-body) svg .flowchart-link,
+[id^="mermaid-"] svg .edgePath .path,
+[id^="mermaid-"] svg .flowchart-link {
+  stroke: var(--zn-mermaid-line) !important;
+}
+
+:is(.cm-zn-mermaid, .zn-mermaid-zoom-body) svg .arrowheadPath,
+:is(.cm-zn-mermaid, .zn-mermaid-zoom-body) svg marker path,
+[id^="mermaid-"] svg .arrowheadPath,
+[id^="mermaid-"] svg marker path {
+  fill: var(--zn-mermaid-line) !important;
+  stroke: var(--zn-mermaid-line) !important;
+}
+
+.dark [id^="mermaid-"] svg {
+  background: var(--zn-mermaid-bg);
+  border-radius: var(--zn-radius-md);
+}
+
+/* ---- Diagram / image zoom button ---------------------------------------
+   A quiet icon button that only materialises while its block is hovered. It
+   floats over the illustration, so it needs its own surface tint. */
+.zn-mermaid-zoom-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--zn-border);
+  border-radius: var(--zn-radius-sm);
+  background: color-mix(in srgb, var(--zn-canvas-raised) 88%, transparent);
+  color: var(--zn-text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+  opacity: 0.8;
+  transition: opacity var(--zn-dur) var(--zn-ease),
+    color var(--zn-dur) var(--zn-ease),
+    background-color var(--zn-dur) var(--zn-ease);
+}
+.zn-mermaid-zoom-btn:hover {
+  opacity: 1;
+  color: var(--zn-text);
+  background: var(--zn-canvas-raised);
+}
+.zn-mermaid-zoom-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ---- Zoom overlay ------------------------------------------------------ */
+.zn-mermaid-zoom-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--zn-scrim);
+  z-index: var(--zn-z-toast);
+  animation: zn-fade-in var(--zn-dur-slow) var(--zn-ease);
+}
+
+.zn-mermaid-zoom-box {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  background: var(--zn-canvas);
+  border: 1px solid var(--zn-border);
+  border-radius: var(--zn-radius-xl);
+  box-shadow: var(--zn-shadow-modal);
+  overflow: hidden;
+  animation: zn-zoom-box-in var(--zn-dur-slow) var(--zn-ease);
+}
+
+@keyframes zn-zoom-box-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.zn-mermaid-zoom-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--zn-radius-sm);
+  background: var(--zn-hover);
+  color: var(--zn-text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  transition: background-color var(--zn-dur) var(--zn-ease),
+    color var(--zn-dur) var(--zn-ease);
+}
+.zn-mermaid-zoom-close:hover {
+  background: var(--zn-active);
+  color: var(--zn-text);
+}
+.zn-mermaid-zoom-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+.zn-mermaid-zoom-body {
+  flex: 1;
+  overflow: hidden;
+  padding: 44px 16px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: move;
+}
+.zn-mermaid-zoom-body svg {
+  cursor: grab;
+}
+.zn-mermaid-zoom-body svg:active {
+  cursor: grabbing;
+}
+
+/* Resize handles for the zoom box */
+.zn-mermaid-zoom-handle {
+  position: absolute;
+  z-index: 3;
+}
+.zn-mermaid-zoom-handle-n {
+  top: -4px;
+  left: 10px;
+  right: 10px;
+  height: 8px;
+  cursor: n-resize;
+}
+.zn-mermaid-zoom-handle-s {
+  bottom: -4px;
+  left: 10px;
+  right: 10px;
+  height: 8px;
+  cursor: s-resize;
+}
+.zn-mermaid-zoom-handle-e {
+  right: -4px;
+  top: 10px;
+  bottom: 10px;
+  width: 8px;
+  cursor: e-resize;
+}
+.zn-mermaid-zoom-handle-w {
+  left: -4px;
+  top: 10px;
+  bottom: 10px;
+  width: 8px;
+  cursor: w-resize;
+}
+.zn-mermaid-zoom-handle-ne {
+  top: -5px;
+  right: -5px;
+  width: 14px;
+  height: 14px;
+  cursor: ne-resize;
+}
+.zn-mermaid-zoom-handle-nw {
+  top: -5px;
+  left: -5px;
+  width: 14px;
+  height: 14px;
+  cursor: nw-resize;
+}
+.zn-mermaid-zoom-handle-se {
+  bottom: -5px;
+  right: -5px;
+  width: 14px;
+  height: 14px;
+  cursor: se-resize;
+}
+.zn-mermaid-zoom-handle-sw {
+  bottom: -5px;
+  left: -5px;
+  width: 14px;
+  height: 14px;
+  cursor: sw-resize;
+}

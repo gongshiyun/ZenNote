@@ -93,10 +93,38 @@ export async function checkAndDownloadUpdate(manual = false): Promise<void> {
 }
 
 // Install the downloaded update and relaunch into the new version.
+//
+// Unsaved documents must reach disk before the installer terminates the process:
+// install() closes the app without emitting the window close-requested event, so
+// the normal close-save guard never runs. A failed flush aborts the install and
+// surfaces the save error instead of silently losing the edits.
+let installInFlight = false;
+
+async function flushBeforeInstall(): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    const { flushDirtyDocuments } = await import("./saveCoordinator");
+    const result = await flushDirtyDocuments();
+    if (result.ok) return { ok: true };
+    const first = result.failures[0];
+    const detail = first ? ` (${first.path}: ${errMessage(first.error)})` : "";
+    return { ok: false, message: `保存未完成，已取消更新${detail}` };
+  } catch (err) {
+    return { ok: false, message: `保存未完成，已取消更新: ${errMessage(err)}` };
+  }
+}
+
 export async function installUpdate(): Promise<void> {
-  if (!pendingUpdate) return;
+  if (!pendingUpdate || installInFlight) return;
+  installInFlight = true;
   const update = pendingUpdate;
   try {
+    const flushed = await flushBeforeInstall();
+    if (!flushed.ok) {
+      console.warn("update-install-cancelled-by-save-failure", flushed.message);
+      useStore.getState().setUpdateError(flushed.message);
+      useStore.getState().setUpdateState("error");
+      return;
+    }
     useStore.getState().setUpdateState("installing");
     await update.install();
     const { relaunch } = await import("@tauri-apps/plugin-process");
@@ -105,5 +133,7 @@ export async function installUpdate(): Promise<void> {
     console.warn("update-install-failed", err);
     useStore.getState().setUpdateError(errMessage(err));
     useStore.getState().setUpdateState("error");
+  } finally {
+    installInFlight = false;
   }
 }

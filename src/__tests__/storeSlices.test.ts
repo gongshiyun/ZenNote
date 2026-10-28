@@ -1,15 +1,14 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createStore } from 'zustand';
 import { useStore } from '../store';
-import { createThemeSlice, createConfigSlice, DEFAULT_AUTO_SAVE_DELAY } from '../store/slices/appearanceSlice';
-import { migrateAppearance } from '../lib/appearanceMigration';
+import { createAppearanceSlice, createConfigSlice, DEFAULT_AUTO_SAVE_DELAY } from '../store/slices/appearanceSlice';
 
 // A minimal store carrying only the appearance slices, so tests can read the
 // real initial values instead of whatever a previous test left behind.
 const appearanceInitial = (
-  ...a: Parameters<typeof createThemeSlice>
-): ReturnType<typeof createThemeSlice> & ReturnType<typeof createConfigSlice> => ({
-  ...createThemeSlice(...a),
+  ...a: Parameters<typeof createAppearanceSlice>
+): ReturnType<typeof createAppearanceSlice> & ReturnType<typeof createConfigSlice> => ({
+  ...createAppearanceSlice(...a),
   ...createConfigSlice(...(a as Parameters<typeof createConfigSlice>)),
 });
 
@@ -18,8 +17,7 @@ describe('Appearance slices', () => {
     useStore.setState({
       mode: 'system',
       resolvedMode: 'light',
-      themeId: 'zen',
-      fontFamily: 'sans',
+      fontFamily: 'claude',
       fontSize: 16,
       tabSize: 2,
       editorPadding: 80,
@@ -30,14 +28,13 @@ describe('Appearance slices', () => {
     });
   });
 
-  it('exposes theme defaults', () => {
+  it('exposes appearance defaults', () => {
     // Build a fresh store so this asserts the REAL slice defaults rather than
     // whatever beforeEach injected.
     const fresh = createStore()((...a) => appearanceInitial(...a));
     const s = fresh.getState();
     expect(s.mode).toBe('system');
     expect(s.resolvedMode).toBe('light');
-    expect(s.themeId).toBe('claude');
     expect(s.fontFamily).toBe('claude');
   });
 
@@ -45,55 +42,16 @@ describe('Appearance slices', () => {
     expect(DEFAULT_AUTO_SAVE_DELAY).toBe(500);
   });
 
-  it('updates theme state', () => {
+  it('updates appearance state', () => {
     const s = useStore.getState();
     s.setMode('dark');
     s.setResolvedMode('dark');
-    s.setThemeId('ocean');
     s.setFontFamily('serif');
 
     const next = useStore.getState();
     expect(next.mode).toBe('dark');
     expect(next.resolvedMode).toBe('dark');
-    expect(next.themeId).toBe('ocean');
     expect(next.fontFamily).toBe('serif');
-  });
-
-  // Regression guard for the one-time zen/sans -> claude migration. It must
-  // fire for pre-v2 sessions and then stop firing, otherwise a user who
-  // deliberately picks "zen" is reverted to "claude" on every relaunch.
-  describe('appearance migration', () => {
-    it('moves a pre-v2 session off the old defaults', () => {
-      expect(migrateAppearance({ themeId: 'zen', fontFamily: 'sans' })).toEqual({
-        themeId: 'claude',
-        fontFamily: 'claude',
-      });
-    });
-
-    it('treats a missing version marker as pre-v2', () => {
-      expect(migrateAppearance({ themeId: 'zen', fontFamily: 'serif' })).toEqual({
-        themeId: 'claude',
-        fontFamily: 'serif',
-      });
-    });
-
-    it('leaves an already-migrated session untouched', () => {
-      expect(
-        migrateAppearance({ themeId: 'zen', fontFamily: 'sans', appearanceVersion: 2 }),
-      ).toEqual({ themeId: 'zen', fontFamily: 'sans' });
-    });
-
-    it('never touches non-default values on a pre-v2 session', () => {
-      expect(
-        migrateAppearance({ themeId: 'github', fontFamily: 'mono', appearanceVersion: 1 }),
-      ).toEqual({ themeId: 'github', fontFamily: 'mono' });
-    });
-
-    it('is idempotent', () => {
-      const once = migrateAppearance({ themeId: 'zen', fontFamily: 'sans' });
-      const twice = migrateAppearance({ ...once, appearanceVersion: 2 });
-      expect(twice).toEqual(once);
-    });
   });
 
   it('updates editor configuration', () => {
@@ -299,5 +257,22 @@ describe('Editor slice edge cases', () => {
     useStore.getState().closeTab('/notes/b.md');
     expect(useStore.getState().openTabs).toEqual(['/notes/a.md', '/notes/c.md']);
     expect(useStore.getState().currentFilePath).toBe('/notes/c.md');
+  });
+
+  // The status bar used to keep showing the closed note's Ln/Col on the empty
+  // editor state after closing the last tab.
+  it('closing the last tab resets cursor metadata with the document', () => {
+    const s = useStore.getState();
+    s.setCurrentFile('/notes/a.md', 'alpha');
+    s.setCursorPosition(9, 3);
+    s.setScrollPosition(240);
+
+    useStore.getState().closeAllTabs();
+
+    const next = useStore.getState();
+    expect(next.currentFilePath).toBeNull();
+    expect(next.cursorLine).toBe(1);
+    expect(next.cursorCol).toBe(1);
+    expect(next.scrollPosition).toBe(0);
   });
 });

@@ -12,13 +12,28 @@ dist
 dist-ssr
 *.local
 
+# Rust / Tauri build output
+src-tauri/target/
+src-tauri/gen/
+
+# Local release bundles, QA screenshots and build tooling
+release/
+artifacts/
+.installer-test/
+.installer-final-test/
+ZenNoteTools/
+
 # Updater signing keys (NEVER commit the private key or password)
 src-tauri/keys/*
 !src-tauri/keys/*.key.pub
 
 # Local debug/verification artifacts
 export-monitor/
-.qoder/better-harness/
+.qoder/
+.codegraph/
+tasks/
+*.tmpdir/
+语法全量验证.pdf
 
 # Temp icon source
 src-tauri/icons/icon-source.png

@@ -16,11 +16,21 @@ export interface EditorSlice {
   content: string;
   isDirty: boolean;
   sourceMode: boolean;
+  /**
+   * True once the user (or a restored session) has chosen an editing mode.
+   * While false, opening a document applies the "default source mode" setting;
+   * once true, in-session opens keep the mode the user is already in (PRD
+   * §3.3.2 — remember the last used mode).
+   */
+  sourceModeTouched: boolean;
   cursorLine: number;
   cursorCol: number;
   scrollPosition: number;
   /** Timestamp (ms) of the last successful save; null when never saved this session */
   lastSavedAt: number | null;
+  /** Content that was last on disk for the CURRENT document (null = unknown).
+   * Lets `setContent` clear dirty again when undo returns to the saved text. */
+  lastSavedContent: string | null;
   fileStates: Map<string, FileEditorState>;
   /** Paths of open tabs, in display order */
   openTabs: string[];
@@ -43,6 +53,8 @@ export interface EditorSlice {
   setCursorPosition: (line: number, col: number) => void;
   setScrollPosition: (pos: number) => void;
   setLastSavedAt: (ts: number | null) => void;
+  /** Set the on-disk baseline explicitly (external reload / conflict resolution). */
+  setSavedContentBaseline: (content: string | null) => void;
   /** Marks a successful disk snapshot without clobbering newer in-memory edits. */
   markSavedSnapshot: (path: string, content: string) => void;
   cacheCurrentFileState: () => void;
@@ -95,6 +107,12 @@ function removeTabsImpl(
       content: "",
       isDirty: false,
       lastSavedAt: null,
+      lastSavedContent: null,
+      // Reset the caret metadata with the document: the status bar used to keep
+      // showing the closed tab's "Ln 9, Col 1" while no note was open.
+      cursorLine: 1,
+      cursorCol: 1,
+      scrollPosition: 0,
       openTabs: tabs,
       fileStates: states,
       documentRequestId: nextRequestId,
@@ -127,10 +145,12 @@ export const createEditorSlice: StateCreator<EditorSlice, [], [], EditorSlice> =
   content: "",
   isDirty: false,
   sourceMode: false,
+  sourceModeTouched: false,
   cursorLine: 1,
   cursorCol: 1,
   scrollPosition: 0,
   lastSavedAt: null,
+  lastSavedContent: null,
   fileStates: new Map(),
   openTabs: [],
   reloadTick: 0,
@@ -152,6 +172,11 @@ export const createEditorSlice: StateCreator<EditorSlice, [], [], EditorSlice> =
       currentFilePath: path,
       content: restored ? restored.content : content,
       isDirty: restored ? !!restored.dirty : false,
+      // A cached dirty state has no trustworthy disk baseline; null keeps every
+      // subsequent edit dirty until the next save/reload provides one.
+      lastSavedContent: restored
+        ? (restored.dirty ? null : restored.content)
+        : content,
       scrollPosition: restored ? restored.scrollPos : 0,
       cursorLine: restored ? restored.cursorLine : 1,
       cursorCol: restored ? restored.cursorCol : 1,
@@ -179,14 +204,26 @@ export const createEditorSlice: StateCreator<EditorSlice, [], [], EditorSlice> =
     if (get().documentRequestId !== requestId) return false;
 
     get().setCurrentFile(path, nextContent);
-    if (options?.sourceMode !== undefined && previousPath !== path) {
+    if (
+      options?.sourceMode !== undefined &&
+      previousPath !== path &&
+      !get().sourceModeTouched
+    ) {
       set({ sourceMode: options.sourceMode });
     }
     return true;
   },
-  setContent: (content) => set({ content, isDirty: true }),
-  setDirty: (dirty) => set({ isDirty: dirty }),
-  setSourceMode: (mode) => set({ sourceMode: mode }),
+  setContent: (content) => {
+    const baseline = get().lastSavedContent;
+    // Undo (or a find/replace that restores the saved text) returns to clean.
+    set({ content, isDirty: baseline === null ? true : content !== baseline });
+  },
+  setDirty: (dirty) => dirty
+    // An explicitly-dirty document (e.g. a restored crash draft) cannot claim a
+    // trustworthy baseline, so edits stay dirty until it is saved again.
+    ? set({ isDirty: true, lastSavedContent: null })
+    : set({ isDirty: false }),
+  setSourceMode: (mode) => set({ sourceMode: mode, sourceModeTouched: true }),
   setCursorPosition: (line, col) => {
     const s = get();
     if (s.cursorLine !== line || s.cursorCol !== col) set({ cursorLine: line, cursorCol: col });
@@ -197,11 +234,12 @@ export const createEditorSlice: StateCreator<EditorSlice, [], [], EditorSlice> =
     if (get().scrollPosition !== pos) set({ scrollPosition: pos });
   },
   setLastSavedAt: (ts) => set({ lastSavedAt: ts }),
+  setSavedContentBaseline: (content) => set({ lastSavedContent: content }),
   markSavedSnapshot: (path, content) => {
     const s = get();
     if (s.currentFilePath === path) {
       if (s.content !== content) return;
-      set({ isDirty: false, lastSavedAt: Date.now() });
+      set({ isDirty: false, lastSavedAt: Date.now(), lastSavedContent: content });
       return;
     }
     const cached = s.fileStates.get(path);

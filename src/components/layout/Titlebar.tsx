@@ -1,8 +1,25 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useStore } from "../../store";
 import { t, setLocale } from "../../i18n";
 import { exportToHtml, exportToPdf } from "../../lib/exportNote";
 import { installUpdate } from "../../lib/updater";
+import {
+  AppMark,
+  ArrowUpIcon,
+  CloseIcon,
+  ExportIcon,
+  MaximizeIcon,
+  MinusIcon,
+  MonitorIcon,
+  MoonIcon,
+  PanelLeftIcon,
+  PanelRightIcon,
+  RestoreIcon,
+  SettingsIcon,
+  SunIcon,
+} from "../ui/icons";
+import { Button, DropdownMenu, IconButton, MenuItem, MenuLabel } from "../ui";
 
 // Tauri window API - lazy init to survive browser dev
 let _appWindow: any = null;
@@ -17,6 +34,32 @@ async function getAppWindow() {
   }
 }
 
+/**
+ * Anchored-menu toggle. `DropdownMenu` dismisses itself on the same mousedown
+ * that a second click on the trigger starts, so a plain `setOpen(!open)` would
+ * close and instantly reopen. Remembering whether the menu was open when the
+ * pointer went down distinguishes "close" from "open" across that boundary.
+ */
+function useAnchoredMenu() {
+  const [open, setOpen] = useState(false);
+  const openAtPress = useRef(false);
+  const close = useCallback(() => setOpen(false), []);
+  const triggerProps = {
+    onMouseDown: () => {
+      openAtPress.current = open;
+    },
+    onClick: () => {
+      if (openAtPress.current) {
+        openAtPress.current = false;
+        setOpen(false);
+      } else {
+        setOpen(v => !v);
+      }
+    },
+  };
+  return { open, close, triggerProps };
+}
+
 export function Titlebar() {
   const currentFilePath = useStore(s => s.currentFilePath);
   const toggleSidebar = useStore(s => s.toggleSidebar);
@@ -24,17 +67,13 @@ export function Titlebar() {
   const setSettingsVisible = useStore(s => s.setSettingsVisible);
   const mode = useStore(s => s.mode);
   const setMode = useStore(s => s.setMode);
-  const themeId = useStore(s => s.themeId);
-  const setThemeId = useStore(s => s.setThemeId);
   const locale = useStore(s => s.locale);
   const storeSetLocale = useStore(s => s.setLocale);
   const updateState = useStore(s => s.updateState);
   const updateVersion = useStore(s => s.updateVersion);
   const [isMaximized, setIsMaximized] = useState(false);
-  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
-  const themeMenuRef = useRef<HTMLDivElement>(null);
-  const [exportMenuOpen, setExportMenuOpen] = useState(false);
-  const exportMenuRef = useRef<HTMLDivElement>(null);
+  const appearanceMenu = useAnchoredMenu();
+  const exportMenu = useAnchoredMenu();
 
   useEffect(() => {
     getAppWindow().then(win => {
@@ -42,26 +81,6 @@ export function Titlebar() {
       win.isMaximized().then(setIsMaximized).catch(() => {});
     });
   }, []);
-
-  // Close theme dropdown on outside click
-  useEffect(() => {
-    if (!themeMenuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (themeMenuRef.current && !themeMenuRef.current.contains(e.target as Node)) setThemeMenuOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [themeMenuOpen]);
-
-  // Close export dropdown on outside click
-  useEffect(() => {
-    if (!exportMenuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) setExportMenuOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [exportMenuOpen]);
 
   const minimize = useCallback(() => {
     getAppWindow().then(win => win?.minimize().catch(() => {}));
@@ -76,187 +95,200 @@ export function Titlebar() {
     getAppWindow().then(win => win?.close().catch(() => {}));
   }, []);
 
-  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+  const handleDoubleClick = useCallback((e: ReactMouseEvent) => {
     const target = e.target as HTMLElement;
-    if (target.tagName === "BUTTON" || target.closest("button")) return;
+    if (target.closest("button")) return;
     toggleMax();
   }, [toggleMax]);
 
+  const toggleLocale = useCallback(() => {
+    const next = locale === "zh-CN" ? "en-US" : "zh-CN";
+    storeSetLocale(next);
+    setLocale(next);
+  }, [locale, storeSetLocale]);
+
+  const { close: closeExportMenu } = exportMenu;
+  const runExport = useCallback((kind: "html" | "pdf") => {
+    closeExportMenu();
+    const s = useStore.getState();
+    if (!s.currentFilePath || !s.content) return;
+    if (kind === "pdf") void exportToPdf(s.content, s.currentFilePath);
+    else void exportToHtml(s.content, s.currentFilePath);
+  }, [closeExportMenu]);
+
   const fileName = currentFilePath ? currentFilePath.split(/[\\/]/).pop() || "ZenNote" : "ZenNote";
+  const AppearanceIcon = mode === "light" ? SunIcon : mode === "dark" ? MoonIcon : MonitorIcon;
 
   return (
-    <div className="titlebar-drag" onDoubleClick={handleDoubleClick}
-      style={{ height: 34, display: "flex", alignItems: "center", background: "var(--bg-toolbar)", borderBottom: "1px solid var(--border)", flexShrink: 0, userSelect: "none" }}>
-      <div className="titlebar-no-drag" style={{ display: "flex", alignItems: "center", paddingLeft: 6, gap: 1 }}>
-        <TB tn={t().titlebar.toggleSidebar} onClick={toggleSidebar}><SidebarIcon /></TB>
-        <TB tn={t().titlebar.toggleOutline} onClick={toggleOutline}><OutlineIcon /></TB>
-        <div ref={exportMenuRef} style={{ position: "relative" }}>
-          <TB tn={t().titlebar.export} onClick={() => setExportMenuOpen(v => !v)} active={exportMenuOpen}><ExportIcon /></TB>
-          {exportMenuOpen && (
-            <ExportDropdown onSelect={(kind) => {
-              setExportMenuOpen(false);
-              const s = useStore.getState();
-              if (!s.currentFilePath || !s.content) return;
-              if (kind === "pdf") exportToPdf(s.content, s.currentFilePath);
-              else exportToHtml(s.content, s.currentFilePath);
-            }} />
+    <div
+      className="zn-titlebar titlebar-drag"
+      data-tauri-drag-region
+      onDoubleClick={handleDoubleClick}
+    >
+      <div className="zn-titlebar__lead titlebar-no-drag">
+        <div className="zn-brand">
+          <AppMark size={16} />
+          <span className="zn-brand__wordmark">ZenNote</span>
+        </div>
+        <IconButton label={t().titlebar.toggleSidebar} onClick={toggleSidebar}>
+          <PanelLeftIcon size={18} />
+        </IconButton>
+        <IconButton label={t().titlebar.toggleOutline} onClick={toggleOutline}>
+          <PanelRightIcon size={18} />
+        </IconButton>
+        <div className="zn-titlebar__anchor">
+          <IconButton
+            label={t().titlebar.export}
+            active={exportMenu.open}
+            aria-haspopup="menu"
+            aria-expanded={exportMenu.open}
+            {...exportMenu.triggerProps}
+          >
+            <ExportIcon size={18} />
+          </IconButton>
+          {exportMenu.open && (
+            <ExportMenu onSelect={runExport} onClose={exportMenu.close} />
           )}
         </div>
-        <TB tn={t().titlebar.settings} onClick={() => setSettingsVisible(true)}><SettingsIcon /></TB>
+        <IconButton label={t().titlebar.settings} onClick={() => setSettingsVisible(true)}>
+          <SettingsIcon size={18} />
+        </IconButton>
       </div>
-      <div style={{ flex: 1, textAlign: "center", fontSize: 13, color: "var(--text-secondary)", pointerEvents: "none" }}>{fileName}</div>
-      <div className="titlebar-no-drag" style={{ display: "flex", alignItems: "center", gap: 0 }}>
-        {/* Update ready: show an install button (top-right) */}
+
+      {currentFilePath && <div className="zn-titlebar__doc">{fileName}</div>}
+
+      <div className="zn-titlebar__trail titlebar-no-drag">
         {updateState === "ready" && (
-          <button onClick={() => { installUpdate(); }}
-            title={t().titlebar.installUpdate + " v" + (updateVersion || "")}
-            style={{
-              display: "flex", alignItems: "center", gap: 5, height: 24, padding: "0 10px",
-              border: "none", borderRadius: 12, cursor: "pointer", marginRight: 6,
-              background: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)", fontSize: 11, fontWeight: 600,
-              transition: "opacity 120ms ease",
-            }}
-            onMouseEnter={e => { e.currentTarget.style.opacity = "0.85"; }}
-            onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
-            <UpdateIcon />{t().titlebar.installUpdate}{updateVersion ? " v" + updateVersion : ""}
-          </button>
+          <Button
+            variant="primary"
+            size="sm"
+            className="zn-titlebar__update"
+            iconLeft={<ArrowUpIcon size={13} />}
+            title={`${t().titlebar.installUpdate}${updateVersion ? ` v${updateVersion}` : ""}`}
+            onClick={() => { void installUpdate(); }}
+          >
+            {t().titlebar.installUpdate}
+            {updateVersion ? ` v${updateVersion}` : ""}
+          </Button>
         )}
-        {/* Theme selector */}
-        <div ref={themeMenuRef} style={{ position: "relative" }}>
-          <TB tn={t().titlebar.theme} onClick={() => setThemeMenuOpen(v => !v)} active={themeMenuOpen}><PaletteIcon /></TB>
-          {themeMenuOpen && (
+
+        <div className="zn-titlebar__anchor">
+          <IconButton
+            label={t().titlebar.theme}
+            active={appearanceMenu.open}
+            aria-haspopup="menu"
+            aria-expanded={appearanceMenu.open}
+            {...appearanceMenu.triggerProps}
+          >
+            <AppearanceIcon size={18} />
+          </IconButton>
+          {appearanceMenu.open && (
             <ThemeDropdown
-              themeId={themeId} mode={mode}
-              onSelectTheme={(id) => { setThemeId(id); }}
-              onSelectMode={(m) => { setMode(m); setThemeMenuOpen(false); }}
-              onClose={() => setThemeMenuOpen(false)}
+              mode={mode}
+              onSelectMode={(m) => {
+                setMode(m);
+                appearanceMenu.close();
+              }}
+              onClose={appearanceMenu.close}
             />
           )}
         </div>
-        {/* Language toggle */}
-        <TB tn={locale === "zh-CN" ? "Switch to English" : "切换为中文"} onClick={() => {
-          const next = locale === "zh-CN" ? "en-US" : "zh-CN";
-          storeSetLocale(next); setLocale(next);
-        }}><span style={{ fontSize: 11, fontWeight: 700 }}>{locale === "zh-CN" ? "中" : "EN"}</span></TB>
-        <div style={{ width: 1, height: 20, background: "var(--border)", margin: "0 4px" }} />
-        <WB tn={t().titlebar.minimize} onClick={minimize}><MinIcon /></WB>
-        <WB tn={t().titlebar.maximize} onClick={toggleMax}>
-          {isMaximized ? <RestoreIcon /> : <MaxIcon />}
-        </WB>
-        <WB tn={t().titlebar.close} onClick={close} isClose><CloseIcon /></WB>
+
+        <button
+          type="button"
+          className="zn-titlebar__lang"
+          title={locale === "zh-CN" ? "Switch to English" : "切换为中文"}
+          aria-label={locale === "zh-CN" ? "Switch to English" : "切换为中文"}
+          onClick={toggleLocale}
+        >
+          {locale === "zh-CN" ? "中" : "EN"}
+        </button>
+
+        <span className="zn-titlebar__divider" aria-hidden="true" />
+
+        <div className="zn-titlebar__window-controls">
+          <button
+            type="button"
+            className="zn-win-btn"
+            title={t().titlebar.minimize}
+            aria-label={t().titlebar.minimize}
+            onClick={minimize}
+          >
+            <MinusIcon size={14} />
+          </button>
+          <button
+            type="button"
+            className="zn-win-btn"
+            title={isMaximized ? t().titlebar.restore : t().titlebar.maximize}
+            aria-label={isMaximized ? t().titlebar.restore : t().titlebar.maximize}
+            onClick={toggleMax}
+          >
+            {isMaximized ? <RestoreIcon size={14} /> : <MaximizeIcon size={14} />}
+          </button>
+          <button
+            type="button"
+            className="zn-win-btn zn-win-btn--close"
+            title={t().titlebar.close}
+            aria-label={t().titlebar.close}
+            onClick={close}
+          >
+            <CloseIcon size={14} />
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-function TB(p: { children: React.ReactNode; onClick: () => void; tn?: string; active?: boolean }) {
-  return <button onClick={p.onClick} title={p.tn}
-    style={{ width: 28, height: 26, display: "flex", alignItems: "center", justifyContent: "center", border: "none", borderRadius: 5, background: p.active ? "var(--bg-sidebar-hover)" : "transparent", color: p.active ? "var(--text-accent)" : "var(--text-secondary)", cursor: "pointer", transition: "background-color 150ms ease, color 150ms ease" }}
-    onMouseEnter={e => { if (!p.active) e.currentTarget.style.background = "var(--bg-hover)"; }}
-    onMouseLeave={e => { if (!p.active) e.currentTarget.style.background = "transparent"; }}>{p.children}</button>;
-}
-
-function WB(p: { children: React.ReactNode; onClick: () => void; tn?: string; isClose?: boolean }) {
-  return <button onClick={p.onClick} title={p.tn}
-    style={{ width: 44, height: 30, display: "flex", alignItems: "center", justifyContent: "center", border: "none", borderRadius: 0, background: "transparent", color: "var(--text-secondary)", cursor: "pointer", transition: "background-color 150ms ease" }}
-    onMouseEnter={e => { e.currentTarget.style.background = p.isClose ? "var(--titlebar-close-hover)" : "var(--titlebar-btn-hover)"; if (p.isClose) e.currentTarget.style.color = "var(--titlebar-close-fg)"; }}
-    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-secondary)"; }}>{p.children}</button>;
-}
-
-function SidebarIcon() { return (<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="1" y="2" width="5" height="12" rx="1"/><rect x="8" y="2" width="7" height="12" rx="1"/></svg>); }
-function OutlineIcon() { return (<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="2" y1="4" x2="14" y2="4"/><line x1="2" y1="8" x2="12" y2="8"/><line x1="2" y1="12" x2="10" y2="12"/></svg>); }
-function SettingsIcon() { return (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>); }
-function MinIcon() { return (<svg width="12" height="12" viewBox="0 0 10 10"><rect x="1" y="4.5" width="8" height="1" rx="0.5" fill="currentColor"/></svg>); }
-function MaxIcon() { return (<svg width="12" height="12" viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8" rx="1" fill="none" stroke="currentColor" strokeWidth="1"/></svg>); }
-function RestoreIcon() { return (<svg width="12" height="12" viewBox="0 0 10 10"><rect x="1" y="3" width="6" height="6" rx="1" fill="none" stroke="currentColor" strokeWidth="1"/><rect x="3" y="1" width="6" height="6" rx="1" fill="var(--bg-toolbar)" stroke="currentColor" strokeWidth="1"/></svg>); }
-function CloseIcon() { return (<svg width="12" height="12" viewBox="0 0 10 10"><line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>); }
-function PaletteIcon() { return (<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M8 1.5a6.5 6.5 0 100 13c1.1 0 1.6-.7 1.6-1.5 0-.5-.2-.8-.5-1.1-.3-.3-.5-.6-.5-1.1 0-.8.7-1.5 1.5-1.5h1.4A3 3 0 0014.5 8c0-3.6-2.9-6.5-6.5-6.5z"/><circle cx="5.5" cy="6" r="0.9" fill="currentColor" stroke="none"/><circle cx="8" cy="4.5" r="0.9" fill="currentColor" stroke="none"/><circle cx="10.5" cy="6" r="0.9" fill="currentColor" stroke="none"/><circle cx="5" cy="9" r="0.9" fill="currentColor" stroke="none"/></svg>); }
-function ExportIcon() { return (<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 10V2"/><path d="M4.5 5.5L8 2l3.5 3.5"/><path d="M2.5 12.5v1a1 1 0 001 1h9a1 1 0 001-1v-1"/></svg>); }
-function UpdateIcon() { return (<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M13.5 8a5.5 5.5 0 11-1.6-3.9"/><path d="M13.5 2.5v2.6h-2.6"/></svg>); }
-
-// ---- Export Dropdown ----
-function ExportDropdown({ onSelect }: { onSelect: (kind: "html" | "pdf") => void }) {
-  const item = (kind: "html" | "pdf", label: string, hint: string) => (
-    <div onClick={() => onSelect(kind)}
-      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "7px 12px", fontSize: 12, cursor: "pointer", borderRadius: 6, margin: "1px 4px", color: "var(--text-primary)" }}
-      onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-      onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
-      <span>{label}</span>
-      <span style={{ fontSize: 10, color: "var(--text-tertiary)" }}>{hint}</span>
-    </div>
-  );
+// ---- Export dropdown ----
+function ExportMenu({ onSelect, onClose }: {
+  onSelect: (kind: "html" | "pdf") => void;
+  onClose: () => void;
+}) {
   return (
-    <div style={{
-      position: "absolute", top: "100%", left: 0, marginTop: 6, width: 210,
-      background: "var(--zn-float-bg)", border: "1px solid var(--zn-float-border)",
-      borderRadius: "var(--zn-radius-menu)", boxShadow: "var(--shadow-popover)", padding: "5px 0",
-      zIndex: 1000,
-    }}>
-      <div style={{ padding: "4px 12px 6px", fontSize: 11, fontWeight: 500, color: "var(--text-tertiary)" }}>{t().titlebar.export}</div>
-      {item("pdf", t().titlebar.exportPdf, "Ctrl+Shift+P")}
-      {item("html", t().titlebar.exportHtml, "Ctrl+Shift+E")}
-    </div>
+    <DropdownMenu align="left" width={210} onClose={onClose} label={t().titlebar.export}>
+      <MenuLabel>{t().titlebar.export}</MenuLabel>
+      <MenuItem
+        label={t().titlebar.exportPdf}
+        shortcut="Ctrl+Shift+P"
+        onSelect={() => onSelect("pdf")}
+      />
+      <MenuItem
+        label={t().titlebar.exportHtml}
+        shortcut="Ctrl+Shift+E"
+        onSelect={() => onSelect("html")}
+      />
+    </DropdownMenu>
   );
 }
 
-// ---- Theme Dropdown ----
-const THEMES = [
-  { id: "claude", colors: ["#C2603F", "#FAF9F5", "#262624"] },
-  { id: "zen", colors: ["#3B82F6", "#FFFFFF", "#1E1E1E"] },
-  { id: "github", colors: ["#0969DA", "#F6F8FA", "#0D1117"] },
-  { id: "notion", colors: ["#2383E2", "#F7F7F5", "#191919"] },
-  { id: "paper", colors: ["#B4823C", "#FBF7F0", "#2A2520"] },
-  { id: "ocean", colors: ["#1E64B4", "#F5F8FC", "#0F1923"] },
-];
-
-function ThemeDropdown({ themeId, mode, onSelectTheme, onSelectMode }: {
-  themeId: string; mode: string;
-  onSelectTheme: (id: string) => void;
+// ---- Appearance dropdown ----
+export function ThemeDropdown({ mode, onSelectMode, onClose }: {
+  mode: string;
   onSelectMode: (m: "light" | "dark" | "system") => void;
   onClose: () => void;
 }) {
-  const itemStyle = (active: boolean): React.CSSProperties => ({
-    display: "flex", alignItems: "center", gap: 8, padding: "7px 12px",
-    fontSize: 12, cursor: "pointer", borderRadius: 6, margin: "1px 4px",
-    background: active ? "var(--bg-sidebar-active)" : "transparent",
-    color: active ? "var(--text-accent)" : "var(--text-primary)",
-    fontWeight: active ? 600 : 400,
-  });
+  const options: Array<{
+    value: "light" | "dark" | "system";
+    label: string;
+    icon: ReactNode;
+  }> = [
+    { value: "light", label: t().statusbar.light, icon: <SunIcon size={15} /> },
+    { value: "dark", label: t().statusbar.dark, icon: <MoonIcon size={15} /> },
+    { value: "system", label: t().statusbar.system, icon: <MonitorIcon size={15} /> },
+  ];
   return (
-    <div style={{
-      position: "absolute", top: "100%", right: 0, marginTop: 6, width: 200,
-      background: "var(--zn-float-bg)", border: "1px solid var(--zn-float-border)",
-      borderRadius: "var(--zn-radius-menu)", boxShadow: "var(--shadow-popover)", padding: "5px 0",
-      zIndex: 1000,
-    }}>
-      {/* Theme list */}
-      <div style={{ padding: "4px 12px 6px", fontSize: 11, fontWeight: 500, color: "var(--text-tertiary)" }}>{t().titlebar.themeStyle}</div>
-      {THEMES.map(th => (
-        <div key={th.id} style={itemStyle(themeId === th.id)}
-          onMouseEnter={e => { if (themeId !== th.id) e.currentTarget.style.background = "var(--bg-hover)"; }}
-          onMouseLeave={e => { if (themeId !== th.id) e.currentTarget.style.background = "transparent"; }}
-          onClick={() => onSelectTheme(th.id)}>
-          <span style={{ display: "flex", gap: 2 }}>
-            {th.colors.map((c, i) => <span key={i} style={{ width: 10, height: 10, borderRadius: "50%", background: c, border: "1px solid var(--border)" }} />)}
-          </span>
-          <span style={{ flex: 1 }}>{(t().titlebar as Record<string, string>)["theme_" + th.id] ?? th.id}</span>
-          {themeId === th.id && <span style={{ fontSize: 11 }}>✓</span>}
-        </div>
+    <DropdownMenu align="right" width={200} onClose={onClose} label={t().titlebar.themeMode}>
+      <MenuLabel>{t().titlebar.themeMode}</MenuLabel>
+      {options.map((option) => (
+        <MenuItem
+          key={option.value}
+          icon={option.icon}
+          label={option.label}
+          shortcut={mode === option.value ? "✓" : undefined}
+          onSelect={() => onSelectMode(option.value)}
+        />
       ))}
-      {/* Divider */}
-      <div style={{ height: 1, background: "var(--border)", margin: "6px 8px" }} />
-      {/* Mode */}
-      <div style={{ padding: "2px 12px 6px", fontSize: 11, fontWeight: 500, color: "var(--text-tertiary)" }}>{t().titlebar.themeMode}</div>
-      {(["light", "dark", "system"] as const).map(m => (
-        <div key={m} style={itemStyle(mode === m)}
-          onMouseEnter={e => { if (mode !== m) e.currentTarget.style.background = "var(--bg-hover)"; }}
-          onMouseLeave={e => { if (mode !== m) e.currentTarget.style.background = "transparent"; }}
-          onClick={() => onSelectMode(m)}>
-          <span>{m === "light" ? "☀️" : m === "dark" ? "🌙" : "🖼"}</span>
-          <span style={{ flex: 1 }}>{m === "light" ? t().statusbar.light : m === "dark" ? t().statusbar.dark : t().statusbar.system}</span>
-          {mode === m && <span style={{ fontSize: 11 }}>✓</span>}
-        </div>
-      ))}
-    </div>
+    </DropdownMenu>
   );
 }

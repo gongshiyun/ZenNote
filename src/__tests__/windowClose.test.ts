@@ -56,4 +56,32 @@ describe("window close request", () => {
     expect(preventDefault).toHaveBeenCalled();
     expect(destroy).not.toHaveBeenCalled();
   });
+
+  it("prevents a second close request while the first flush is still in flight", async () => {
+    let resolveFlush!: (value: { ok: boolean; failures: [] }) => void;
+    const flush = vi.fn(
+      () => new Promise<{ ok: boolean; failures: [] }>((resolve) => { resolveFlush = resolve; }),
+    );
+    const firstPrevent = vi.fn();
+    const secondPrevent = vi.fn();
+    const destroy = vi.fn().mockResolvedValue(undefined);
+    const handler = createCloseRequestHandler({
+      hasDirtyDocuments: () => true,
+      flushDirtyDocuments: flush,
+      confirmExit: () => true,
+      destroy,
+      close: vi.fn(),
+    });
+
+    const first = handler({ preventDefault: firstPrevent });
+    await handler({ preventDefault: secondPrevent });
+
+    // The second request must not let Tauri destroy the window mid-save.
+    expect(secondPrevent).toHaveBeenCalled();
+    expect(destroy).not.toHaveBeenCalled();
+
+    resolveFlush({ ok: true, failures: [] });
+    await first;
+    expect(destroy).toHaveBeenCalledTimes(1);
+  });
 });

@@ -1,17 +1,20 @@
 /**
- * Appearance Slice — theme, font, and editor configuration.
+ * Appearance Slice — display mode, font, and editor configuration.
+ *
+ * The product has ONE design language (Claude Code desktop): warm canvas, clay
+ * accent, serif structure titles. Only light / dark / system differ, so there is
+ * no colour-theme catalogue any more — that abstraction forced every component
+ * to be theme-agnostic and produced six half-finished palettes.
  */
 import type { StateCreator } from "zustand";
 import type { ThemeMode } from "../../domain";
 
-export interface ThemeSlice {
+export interface AppearanceSlice {
   mode: ThemeMode;
   resolvedMode: "light" | "dark";
-  themeId: string;
   fontFamily: string;
   setMode: (mode: ThemeMode) => void;
   setResolvedMode: (mode: "light" | "dark") => void;
-  setThemeId: (id: string) => void;
   setFontFamily: (f: string) => void;
 }
 
@@ -34,17 +37,12 @@ export interface ConfigSlice {
 
 export const DEFAULT_AUTO_SAVE_DELAY = 500;
 
-export const createThemeSlice: StateCreator<ThemeSlice, [], [], ThemeSlice> = (set) => ({
+export const createAppearanceSlice: StateCreator<AppearanceSlice, [], [], AppearanceSlice> = (set) => ({
   mode: "system",
   resolvedMode: "light",
-  // "claude" is the product's default look. The two IDs below are the pre-claude
-  // defaults and are migrated on session restore (see AppShell) so existing
-  // installs land on the new theme without losing the old options.
-  themeId: "claude",
   fontFamily: "claude",
   setMode: (mode) => set({ mode }),
   setResolvedMode: (mode) => set({ resolvedMode: mode }),
-  setThemeId: (id) => set({ themeId: id }),
   setFontFamily: (f) => set({ fontFamily: f }),
 });
 

@@ -1,0 +1,495 @@
+/* ==========================================================================
+   ZenNote — Dialogs, find bar, conflict banner
+   Owner: ui-dialogs. See docs/DESIGN-CLAUDE-CODE.md §5.8, §5.11, §5.12.
+
+   Classes owned here:
+     .zn-settings (nav / content / pane / form rows / font preview / about),
+     .zn-shortcuts (grid / group / row / keys / hint),
+     .zn-findbar (row / field / count / option / toggle / esc),
+     .zn-conflict (warning + deleted variants).
+   ========================================================================== */
+
+/* ==========================================================================
+   Settings dialog — 760px two-pane modal (190px nav + scrolling content)
+   ========================================================================== */
+.zn-settings {
+  width: min(760px, 100%);
+  height: min(620px, 84vh);
+  max-height: min(620px, 84vh);
+}
+
+/* Modal body becomes the two-pane flex row: no padding, no outer scroll. */
+.zn-settings__body {
+  display: flex;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* ---- Left navigation --------------------------------------------------- */
+.zn-settings__nav {
+  flex: 0 0 190px;
+  width: 190px;
+  padding: 10px 8px;
+  overflow-y: auto;
+  background: var(--zn-surface);
+  border-right: 1px solid var(--zn-border);
+}
+
+.zn-settings__nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--zn-radius-sm);
+  background: transparent;
+  color: var(--zn-text-secondary);
+  font-size: var(--zn-fs-ui);
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--zn-dur) var(--zn-ease),
+    color var(--zn-dur) var(--zn-ease);
+}
+.zn-settings__nav-item + .zn-settings__nav-item {
+  margin-top: 1px;
+}
+.zn-settings__nav-item:hover {
+  background: var(--zn-hover);
+  color: var(--zn-text);
+}
+.zn-settings__nav-item[data-active="true"] {
+  background: var(--zn-active);
+  color: var(--zn-text);
+  font-weight: 600;
+}
+/* Quiet clay indicator instead of a filled pill. */
+.zn-settings__nav-item[data-active="true"]::before {
+  content: "";
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 2px;
+  width: 2px;
+  border-radius: var(--zn-radius-pill);
+  background: var(--zn-accent);
+}
+.zn-settings__nav-item:active {
+  background: var(--zn-active);
+}
+
+.zn-settings__nav-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--zn-text-tertiary);
+  transition: color var(--zn-dur) var(--zn-ease);
+}
+.zn-settings__nav-item[data-active="true"] .zn-settings__nav-icon {
+  color: var(--zn-accent);
+}
+
+.zn-settings__nav-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Right content pane ------------------------------------------------ */
+.zn-settings__content {
+  flex: 1;
+  min-width: 0;
+  padding: 20px 24px;
+  overflow-y: auto;
+  background: var(--zn-canvas);
+}
+
+.zn-settings__pane {
+  display: flex;
+  flex-direction: column;
+  animation: zn-fade-in var(--zn-dur) var(--zn-ease);
+}
+
+.zn-settings__pane .zn-form-section + .zn-form-section {
+  margin-top: 20px;
+}
+
+/* ---- Form rows --------------------------------------------------------- */
+.zn-settings__pane .zn-field {
+  min-height: 36px;
+  padding: 7px 0;
+  gap: 16px;
+}
+.zn-settings__pane .zn-field + .zn-field {
+  border-top: 1px solid var(--zn-border-soft);
+}
+.zn-settings__pane .zn-field__hint {
+  margin-bottom: 2px;
+}
+
+.zn-settings .zn-slider {
+  width: 160px;
+}
+.zn-settings .zn-slider-value {
+  min-width: 56px;
+}
+
+.zn-settings__select {
+  width: 220px;
+  max-width: 100%;
+  background-color: var(--zn-canvas);
+}
+.zn-settings__select--short {
+  width: 150px;
+}
+.zn-settings__select:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Live sample of the selected family: the single place the font is previewed. */
+.zn-settings__font-preview {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--zn-border-soft);
+  border-radius: var(--zn-radius-md);
+  background: var(--zn-surface);
+}
+.zn-settings__font-sample {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--zn-text);
+  font-size: var(--zn-fs-lg);
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zn-settings__font-name {
+  flex: none;
+  color: var(--zn-text-tertiary);
+  font-size: var(--zn-fs-xs);
+}
+
+/* ---- Update ------------------------------------------------------------ */
+.zn-settings__update-btn {
+  min-width: 112px;
+  max-width: 340px;
+}
+.zn-settings__update-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zn-settings__update-btn .zn-spinner {
+  border-width: 1.5px;
+}
+
+.zn-settings__error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--zn-danger-soft);
+  border-radius: var(--zn-radius-sm);
+  background: var(--zn-danger-soft);
+  color: var(--zn-danger);
+  font-size: var(--zn-fs-sm);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- About ------------------------------------------------------------- */
+.zn-settings__pane--about {
+  padding-top: 8px;
+}
+.zn-settings__about-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 0 4px;
+}
+.zn-settings__about-wordmark {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.zn-settings__about-title {
+  color: var(--zn-text);
+  font-family: var(--zn-font-serif);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+.zn-settings__about-subtitle {
+  color: var(--zn-text-tertiary);
+  font-size: var(--zn-fs-sm);
+}
+
+/* ==========================================================================
+   Keyboard shortcuts dialog — grouped 2-column reference
+   ========================================================================== */
+.zn-shortcuts {
+  width: min(760px, 100%);
+}
+
+.zn-shortcuts__body {
+  padding: 18px 22px 20px;
+}
+
+.zn-shortcuts__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px 34px;
+  align-items: start;
+}
+
+.zn-shortcuts__group {
+  min-width: 0;
+}
+
+.zn-shortcuts__group-title {
+  margin: 0 0 4px;
+  color: var(--zn-text-tertiary);
+  font-size: var(--zn-fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.zn-shortcuts__rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.zn-shortcuts__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 28px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--zn-border-soft);
+}
+.zn-shortcuts__row:last-child {
+  border-bottom: 0;
+}
+.zn-shortcuts__row:hover {
+  background: var(--zn-hover);
+  border-radius: var(--zn-radius-xs);
+}
+
+.zn-shortcuts__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--zn-text);
+  font-size: var(--zn-fs-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zn-shortcuts__keys {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.zn-shortcuts__slash {
+  color: var(--zn-text-disabled);
+  font-size: var(--zn-fs-2xs);
+}
+
+.zn-shortcuts__hint {
+  margin-right: auto;
+  color: var(--zn-text-tertiary);
+  font-size: var(--zn-fs-sm);
+}
+
+/* ==========================================================================
+   Find & replace bar — 44px inline strip under the tab bar
+   ========================================================================== */
+.zn-findbar {
+  flex-shrink: 0;
+  background: var(--zn-surface);
+  border-bottom: 1px solid var(--zn-border);
+}
+
+.zn-findbar__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  padding: 0 12px;
+}
+
+.zn-findbar__row--replace {
+  height: 40px;
+  /* Line the replace field up with the find field above (12 padding + 15 icon + 6 gap). */
+  padding-left: 33px;
+  border-top: 1px solid var(--zn-border-soft);
+}
+
+.zn-findbar__search-icon {
+  flex: none;
+  color: var(--zn-text-tertiary);
+}
+
+.zn-findbar__field {
+  flex: 0 1 190px;
+  width: 190px;
+  min-width: 100px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--zn-radius-sm);
+  background: var(--zn-canvas);
+  font-size: var(--zn-fs-ui);
+}
+.zn-findbar__field:focus {
+  border-color: var(--zn-accent);
+  box-shadow: none;
+}
+.zn-findbar__field[data-invalid="true"],
+.zn-findbar__field[data-invalid="true"]:focus {
+  border-color: var(--zn-danger);
+}
+.zn-findbar__field--replace {
+  flex-basis: 170px;
+  width: 170px;
+  min-width: 90px;
+}
+
+.zn-findbar__count {
+  flex: none;
+  min-width: 56px;
+  max-width: 180px;
+  overflow: hidden;
+  color: var(--zn-text-tertiary);
+  font-family: var(--zn-font-mono);
+  font-size: var(--zn-fs-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zn-findbar__count[data-invalid="true"] {
+  color: var(--zn-danger);
+}
+
+.zn-findbar__sep {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--zn-border);
+}
+
+.zn-findbar__opt {
+  color: var(--zn-text-secondary);
+  font-family: var(--zn-font-mono);
+  font-size: var(--zn-fs-sm);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.zn-findbar__toggle {
+  flex: none;
+}
+.zn-findbar__toggle[data-active="true"],
+.zn-findbar__toggle[data-active="true"]:hover {
+  background: var(--zn-accent-soft);
+  color: var(--zn-accent);
+}
+
+.zn-findbar__spacer {
+  flex: 1 1 auto;
+  min-width: 8px;
+}
+
+.zn-findbar__esc {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 1px;
+  border-radius: var(--zn-radius-xs);
+  background: transparent;
+  cursor: pointer;
+}
+.zn-findbar__esc .zn-kbd {
+  transition: background-color var(--zn-dur) var(--zn-ease),
+    color var(--zn-dur) var(--zn-ease);
+}
+.zn-findbar__esc:hover .zn-kbd {
+  background: var(--zn-hover);
+  color: var(--zn-text);
+}
+
+/* ==========================================================================
+   Conflict banner — 34px warm warning strip (neutral for deleted files)
+   ========================================================================== */
+.zn-conflict {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 12px;
+  background: var(--zn-warning-soft);
+  border-bottom: 1px solid var(--zn-border-soft);
+  color: var(--zn-warning);
+  font-size: var(--zn-fs-ui);
+}
+
+.zn-conflict[data-deleted="true"] {
+  background: var(--zn-surface);
+  color: var(--zn-text-secondary);
+}
+
+.zn-conflict__icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.zn-conflict__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zn-conflict__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.zn-conflict__btn {
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--zn-radius-xs);
+  background: transparent;
+  color: inherit;
+  font-size: var(--zn-fs-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--zn-dur) var(--zn-ease);
+}
+.zn-conflict__btn:hover {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.zn-conflict__btn:active {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+}

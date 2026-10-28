@@ -21,8 +21,24 @@ export function pathExists(path: string): Promise<boolean> {
 
 /** path -> content last written by THIS app (self-change detection for the
  * workspace watcher: an external-change event whose content equals this was
- * caused by our own save and must be ignored). */
+ * caused by our own save and must be ignored).
+ *
+ * Bounded so a long session touching many notes does not leak memory: the map
+ * order doubles as recency order (delete + set moves an entry to the end). An
+ * evicted path is still safe — the watcher falls back to comparing disk content
+ * with the editor content before treating an event as external. */
+export const MAX_LAST_WRITTEN_ENTRIES = 128;
 const lastWritten = new Map<string, string>();
+
+function rememberLastWritten(path: string, content: string): void {
+  lastWritten.delete(path);
+  lastWritten.set(path, content);
+  while (lastWritten.size > MAX_LAST_WRITTEN_ENTRIES) {
+    const oldest = lastWritten.keys().next().value;
+    if (oldest === undefined) break;
+    lastWritten.delete(oldest);
+  }
+}
 
 export function getLastWritten(path: string): string | undefined {
   return lastWritten.get(path);
@@ -30,10 +46,10 @@ export function getLastWritten(path: string): string | undefined {
 
 export function writeFile(path: string, content: string): Promise<void> {
   const previous = lastWritten.get(path);
-  lastWritten.set(path, content);
+  rememberLastWritten(path, content);
   return invoke<void>("write_file", { path, content }).catch((error) => {
     if (previous === undefined) lastWritten.delete(path);
-    else lastWritten.set(path, previous);
+    else rememberLastWritten(path, previous);
     throw error;
   });
 }

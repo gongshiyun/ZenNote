@@ -1,13 +1,14 @@
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { useStore } from "../../store";
 import { noteName } from "../../domain";
 import { t } from "../../i18n";
 import { openDocumentWithSave } from "../../lib/openDocument";
+import { ContextMenu, MenuItem, MenuSeparator } from "../ui";
+import { CloseIcon } from "../ui/icons";
 
-// Typora/VS Code-style tab bar: one tab per open note, dirty dot, click to
-// switch, middle-click or × to close (dirty tabs ask for confirmation first),
-// RIGHT-CLICK for a context menu (close others / close to the left / right /
-// close all / copy path).
+// Claude-style tab strip: pill tabs, one per open note, clay dirty dot that
+// becomes a × on hover, click to switch, middle-click or × to close (dirty tabs
+// ask for confirmation first), RIGHT-CLICK for a context menu.
 
 interface TabMenuState {
   path: string;
@@ -59,135 +60,80 @@ export function TabBar() {
     },
   } : null;
 
-  return (
-    <div className="zn-tabbar">
-      {openTabs.map(path => {
-        const active = path === currentFilePath;
-        const dirty = dirtyOf(path);
-        return (
-          <div
-            key={path}
-            className={"zn-tab" + (active ? " zn-tab-active" : "")}
-            title={path}
-            onClick={() => { void openDocumentWithSave(path); }}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setMenu({ path, x: e.clientX, y: e.clientY });
-            }}
-            onAuxClick={(e) => {
-              // Middle-click closes the tab.
-              if (e.button === 1) {
-                e.preventDefault();
-                requestClose(path);
-              }
-            }}>
-            <span className="zn-tab-name">{noteName(path)}</span>
-            <span
-              className={"zn-tab-close" + (dirty ? " zn-tab-dirty" : "")}
-              title={t().tabs.closeTab}
-              onClick={(e) => {
-                e.stopPropagation();
-                requestClose(path);
-              }}>
-              <span className="zn-tab-dot" />
-              <svg className="zn-tab-x" width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
-                <path d="M2 2l6 6M8 2l-6 6" />
-              </svg>
-            </span>
-          </div>
-        );
-      })}
-      {menu && menuActions && (
-        <TabContextMenu
-          state={menu}
-          tabs={openTabs}
-          onClose={() => setMenu(null)}
-          actions={menuActions}
-        />
-      )}
-    </div>
-  );
-}
-
-// ---- Tab context menu ----
-
-function TabContextMenu({ state, tabs, onClose, actions }: {
-  state: TabMenuState;
-  tabs: string[];
-  onClose: () => void;
-  actions: {
-    close: () => void;
-    closeOthers: () => void;
-    closeLeft: () => void;
-    closeRight: () => void;
-    closeAll: () => void;
-    copyPath: () => void;
+  /** Run a context-menu action and dismiss the menu (matches the old local menu). */
+  const run = (action: () => void) => {
+    action();
+    setMenu(null);
   };
-}) {
-  const menuRef = useRef<HTMLDivElement>(null);
-  const idx = tabs.indexOf(state.path);
+
+  const menuIndex = menu ? openTabs.indexOf(menu.path) : -1;
   const tc = t().tabs;
 
-  // Close on outside mousedown (registered one tick later so the triggering
-  // right-click doesn't immediately dismiss the menu).
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
-    };
-    const timer = setTimeout(() => document.addEventListener("mousedown", handler), 50);
-    return () => { clearTimeout(timer); document.removeEventListener("mousedown", handler); };
-  }, [onClose]);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-
-  const run = (action: () => void) => { action(); onClose(); };
-
-  const items: Array<{ label: string; onClick: () => void; disabled?: boolean; danger?: boolean } | { divider: true }> = [
-    { label: tc.closeTab, onClick: () => run(actions.close) },
-    { label: tc.closeOthers, onClick: () => run(actions.closeOthers), disabled: tabs.length <= 1 },
-    { label: tc.closeToLeft, onClick: () => run(actions.closeLeft), disabled: idx <= 0 },
-    { label: tc.closeToRight, onClick: () => run(actions.closeRight), disabled: idx < 0 || idx >= tabs.length - 1 },
-    { label: tc.closeAll, onClick: () => run(actions.closeAll), disabled: tabs.length <= 1 },
-    { divider: true },
-    { label: tc.copyPath, onClick: () => run(actions.copyPath) },
-  ];
-
-  const adjustedX = Math.min(state.x, window.innerWidth - 200);
-  const adjustedY = Math.min(state.y, window.innerHeight - items.length * 32 - 16);
-
   return (
-    <div ref={menuRef} style={{
-      position: "fixed", left: adjustedX, top: adjustedY, zIndex: 1200,
-      background: "var(--zn-float-bg)", border: "1px solid var(--zn-float-border)",
-      borderRadius: "var(--zn-radius-menu)", padding: "4px 0", minWidth: 190,
-      boxShadow: "var(--shadow-popover)", fontSize: 12.5,
-    }}>
-      {items.map((item, i) => {
-        if ("divider" in item) {
-          return <div key={i} style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />;
-        }
-        return (
-          <div key={i}
-            onClick={() => { if (!item.disabled) item.onClick(); }}
-            style={{
-              padding: "6px 14px",
-              cursor: item.disabled ? "default" : "pointer",
-              color: item.disabled ? "var(--text-tertiary)" : (item.danger ? "var(--text-danger)" : "var(--text-primary)"),
-              opacity: item.disabled ? 0.5 : 1,
-              background: "transparent",
-            }}
-            onMouseEnter={e => { if (!item.disabled) e.currentTarget.style.background = "var(--bg-hover)"; }}
-            onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
-            {item.label}
-          </div>
-        );
-      })}
-    </div>
+    <>
+      <div className="zn-tabbar" role="tablist">
+        {openTabs.map(path => {
+          const active = path === currentFilePath;
+          const dirty = dirtyOf(path);
+          return (
+            <div
+              key={path}
+              role="tab"
+              aria-selected={active}
+              tabIndex={active ? 0 : -1}
+              className="zn-tab"
+              data-active={active || undefined}
+              data-dirty={dirty || undefined}
+              title={path}
+              onClick={() => { void openDocumentWithSave(path); }}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                void openDocumentWithSave(path);
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ path, x: e.clientX, y: e.clientY });
+              }}
+              onAuxClick={(e) => {
+                // Middle-click closes the tab.
+                if (e.button === 1) {
+                  e.preventDefault();
+                  requestClose(path);
+                }
+              }}
+            >
+              <span className="zn-tab__name">{noteName(path)}</span>
+              <button
+                type="button"
+                className="zn-tab__close"
+                title={tc.closeTab}
+                aria-label={tc.closeTab}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  requestClose(path);
+                }}
+              >
+                <CloseIcon className="zn-tab__x" size={12} />
+              </button>
+              {/* Sibling (not a child) of the close button: the button fades in
+                  on hover, so a nested dot would inherit its opacity. */}
+              <span className="zn-tab__dot" aria-hidden="true" />
+            </div>
+          );
+        })}
+      </div>
+      {menu && menuActions && (
+        <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} label={tc.closeTab}>
+          <MenuItem label={tc.closeTab} onSelect={() => run(menuActions.close)} />
+          <MenuItem label={tc.closeOthers} disabled={openTabs.length <= 1} onSelect={() => run(menuActions.closeOthers)} />
+          <MenuItem label={tc.closeToLeft} disabled={menuIndex <= 0} onSelect={() => run(menuActions.closeLeft)} />
+          <MenuItem label={tc.closeToRight} disabled={menuIndex < 0 || menuIndex >= openTabs.length - 1} onSelect={() => run(menuActions.closeRight)} />
+          <MenuItem label={tc.closeAll} disabled={openTabs.length <= 1} onSelect={() => run(menuActions.closeAll)} />
+          <MenuSeparator />
+          <MenuItem label={tc.copyPath} onSelect={() => run(menuActions.copyPath)} />
+        </ContextMenu>
+      )}
+    </>
   );
 }

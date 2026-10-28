@@ -142,6 +142,20 @@ describe('export rendering — inline', () => {
     expect(html).toContain('$a^2$');
   });
 
+  it('does not render maths-like text inside inline code or fenced code', async () => {
+    const inline = await render('use `$x$` here');
+    expect(inline).toContain('<code>$x$</code>');
+    expect(inline).not.toContain('class="katex"');
+
+    const fenced = await render([F, 'md', '$x$', '$$y$$', F].join('\n'));
+    expect(fenced).toContain('$x$');
+    expect(fenced).toContain('$$y$$');
+    expect(fenced).not.toContain('class="katex"');
+
+    const mixed = await render([F, '$not math$', F, '', 'real $a^2$'].join('\n'));
+    expect(mixed).toContain('<span class="katex">a^2</span>');
+  });
+
   it('does not emit a live javascript: link in an exported file', async () => {
     // The export is a file someone opens and clicks, so an unrestricted target
     // would execute on click.
@@ -202,11 +216,49 @@ describe('export rendering — app-specific blocks', () => {
     expect(html).not.toContain('^b');
   });
 
+  it('does not treat footnote markers inside code as footnotes', async () => {
+    const html = await render([
+      F + 'md',
+      '[^1]: fake definition',
+      '[^2]',
+      F,
+      '',
+      'real[^1]',
+      '',
+      '[^1]: real definition',
+    ].join('\n'));
+    // Only the real definition/reference outside the fence is numbered.
+    expect(html).toContain('id="fnref-1"');
+    expect(html).toContain('<li id="fn-1">real definition');
+    expect(html).not.toContain('id="fn-2"');
+    // The code sample keeps its literal markers.
+    expect(html).toContain('[^1]: fake definition');
+    expect(html).toContain('[^2]');
+  });
+
   it('renders [TOC] as a linked outline', async () => {
     const html = await render('# 甲\n\n## 乙\n\n[TOC]');
     expect(html).toContain('<nav class="zn-toc">');
     expect(html).toContain('href="#h-1-甲"');
     expect(html).toContain('href="#h-2-乙"');
+  });
+
+  it('keeps the outline balanced when heading levels are skipped', async () => {
+    const html = await render('# A\n\n### C\n\n## B\n\n[TOC]');
+    // The old linear emitter produced <ul><ul> and stray </li> for h1 → h3.
+    expect((html.match(/<ul/g) ?? []).length).toBe((html.match(/<\/ul>/g) ?? []).length);
+    expect((html.match(/<li>/g) ?? []).length).toBe((html.match(/<\/li>/g) ?? []).length);
+    for (const [, id] of html.matchAll(/href="#([^"]+)"/g)) {
+      expect(html).toContain(`id="${id}"`);
+    }
+  });
+
+  it('includes Setext headings in the outline with the ids the headings use', async () => {
+    const html = await render('标题甲\n=====\n\n# 标题乙\n\n[TOC]');
+    expect(html).toContain('<h1 id="h-1-标题甲">');
+    expect(html).toContain('<h1 id="h-1-标题乙">');
+    expect(html).toContain('href="#h-1-标题甲"');
+    expect(html).toContain('href="#h-1-标题乙"');
   });
 
   it('links the outline to the headings themselves, ids and all', async () => {

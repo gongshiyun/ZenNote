@@ -11,7 +11,7 @@
  *   - external changes  -> dispatched with the "zn.external" user event so the
  *                          listener never echoes them back
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { EditorSelection, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, drawSelection, keymap } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
@@ -23,18 +23,19 @@ import { useStore } from "../../../store";
 import { offsetAtLineCol } from "../../../lib/textPosition";
 import { computeWordCount } from "../../../domain";
 import { znCodeHighlightStyle } from "../codeHighlight";
-import { FindReplaceBar } from "../FindReplaceBar";
-import { livePreviewExtensions, scheduleDocumentPreload } from "./livePreview";
+import { livePreviewExtensions, livePreviewRefresh, scheduleDocumentPreload } from "./livePreview";
 import { Highlight } from "./markdownExtensions";
-import { bubbleToolbar, markKeymap } from "./livePreviewInteractions";
+import { bubbleToolbar, markdownAutomation, markKeymap } from "./livePreviewInteractions";
 import { renderedBlockActions } from "./renderedBlockActions";
 import { slashKeymap, slashMenu } from "./slashMenu";
 import { livePreviewTheme, installLivePreviewChrome } from "./livePreviewTheme";
 import { ConflictBanner } from "../ConflictBanner";
 import { prepareImageUpload } from "../../../lib/imageUpload";
+import { t } from "../../../i18n";
+import { AppMark } from "../../ui/icons";
 
 interface Props {
-  /** Exposes the live EditorView so FindReplaceBar and the status bar can drive it. */
+  /** Exposes the live EditorView so the shared find bar / status bar can drive it. */
   viewRef: { current: EditorView | null };
 }
 
@@ -44,6 +45,14 @@ export function LivePreviewEditor({ viewRef }: Props) {
   const tabSize = useStore(s => s.tabSize);
   const editorPadding = useStore(s => s.editorPadding);
   const resolvedMode = useStore(s => s.resolvedMode);
+  const locale = useStore(s => s.locale);
+  const headingJumpRequest = useStore(s => s.headingJumpRequest);
+  /** Debounce handle for the outline's active-row tracking while scrolling. */
+  const headingScrollTimer = useRef(0);
+  // Widget labels (the `[TOC]` heading in particular) are baked when the
+  // decorations are built. Remember the locale this editor's widgets were built
+  // with, so a runtime language switch can rebuild them below.
+  const builtLocale = useRef(locale);
 
   // Mermaid bakes the colour scheme into the SVG it produces, and rendered
   // diagrams are cached per mode, so a scheme change has to re-render all of
@@ -69,6 +78,20 @@ export function LivePreviewEditor({ viewRef }: Props) {
   useEffect(() => {
     installLivePreviewChrome();
   }, []);
+
+  // Runtime language switch: widget DOM is only rebuilt when the decorations
+  // are, so a locale change has to force one rebuild — otherwise the `[TOC]`
+  // label (and any other `t()` text baked into a widget) stays in the old
+  // language until the file is reopened. The refresh effect is the same one the
+  // async renderers use; the document is untouched.
+  useEffect(() => {
+    if (builtLocale.current === locale) return;
+    builtLocale.current = locale;
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({ effects: livePreviewRefresh.of(null) });
+    scheduleDocumentPreload(view, 0);
+  }, [locale, viewRef]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -141,6 +164,9 @@ export function LivePreviewEditor({ viewRef }: Props) {
           slashKeymap,
           slashMenu,
           renderedBlockActions,
+          // List continuation / heading shortcuts / pair input. Runs after the
+          // explicit keymaps so it only sees keys they did not claim.
+          markdownAutomation,
           // Paste: an image is uploaded to the note's assets folder and inserted
           // as a relative reference; a URL pasted over a selection becomes a
           // link. Both mirror what the Crepe editor and source mode already do —
@@ -200,7 +226,35 @@ export function LivePreviewEditor({ viewRef }: Props) {
     }
     view.focus();
 
+    // Outline sync: CodeMirror only renders the viewport, so the previous
+    // DOM-index implementation marked the wrong row on long notes. Map the top
+    // visible document position to the last h1-h3 whose source line is above it.
+    const scrollEl = view.scrollDOM;
+    const syncActiveHeading = () => {
+      const headings = useStore.getState().headings.filter(h => h.level <= 3);
+      if (headings.length === 0) return;
+      const rect = scrollEl.getBoundingClientRect();
+      const coords = view.posAtCoords({ x: rect.left + 16, y: rect.top + 16 });
+      const topPos = coords ?? view.viewport.from;
+      const topLine = view.state.doc.lineAt(
+        Math.max(0, Math.min(topPos, view.state.doc.length)),
+      ).number;
+      let active = -1;
+      headings.forEach((heading, index) => {
+        if (heading.pos + 1 <= topLine) active = index;
+      });
+      useStore.getState().setActiveHeading(active >= 0 ? String(active) : null);
+    };
+    const onScroll = () => {
+      if (headingScrollTimer.current) window.clearTimeout(headingScrollTimer.current);
+      headingScrollTimer.current = window.setTimeout(syncActiveHeading, 80);
+    };
+    scrollEl.addEventListener("scroll", onScroll, { passive: true });
+    requestAnimationFrame(syncActiveHeading);
+
     return () => {
+      scrollEl.removeEventListener("scroll", onScroll);
+      if (headingScrollTimer.current) window.clearTimeout(headingScrollTimer.current);
       const s = useStore.getState();
       const prev = s.fileStates.get(currentFilePath);
       if (prev) {
@@ -233,6 +287,23 @@ export function LivePreviewEditor({ viewRef }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content]);
 
+  // Outline jump: the panel cannot map a heading to a CodeMirror position, so it
+  // leaves a one-shot request here. Requests are short-lived: a stale one from a
+  // previous document must not yank the caret after a tab switch.
+  useEffect(() => {
+    const request = headingJumpRequest;
+    const view = viewRef.current;
+    if (!request || !view) return;
+    if (Date.now() - request.ts > 3000) return;
+    const lineNumber = Math.max(1, Math.min(view.state.doc.lines, request.pos + 1));
+    const line = view.state.doc.line(lineNumber);
+    view.dispatch({
+      selection: { anchor: line.from },
+      effects: EditorView.scrollIntoView(line.from, { y: "start", yMargin: 24 }),
+    });
+    view.focus();
+  }, [headingJumpRequest, viewRef]);
+
   useEffect(() => {
     if (reloadTick === initialReloadTick.current) return;
     const view = viewRef.current;
@@ -245,48 +316,41 @@ export function LivePreviewEditor({ viewRef }: Props) {
     });
   }, [reloadTick, content, viewRef]);
 
-  // ---- Find & replace ----
-  // The bar already knows how to drive a CodeMirror view, so Live Preview just
-  // hands it its own view through the same `getCmView` seam source mode uses.
-  const [findVisible, setFindVisible] = useState(false);
-  const [findPreset, setFindPreset] = useState<{ query: string; ts: number } | null>(null);
-  void setFindPreset;
+  // Find & replace lives one level up, in AppShell: a single bar drives whichever
+  // CodeMirror surface is mounted (live preview or source mode), and the global
+  // search panel can hand it a query + target line. Keeping a second instance
+  // here stacked two bars on Ctrl+F.
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    const mod = e.ctrlKey || e.metaKey;
-    if (!mod) return;
-    if (e.key === "f" || (e.key === "h" && e.shiftKey === false)) {
-      // Only when focus is inside this editor (or nothing is focused), so the
-      // global search panel keeps working elsewhere.
-      const host = hostRef.current;
-      const active = document.activeElement;
-      if (host && active && !host.contains(active) && active !== document.body) return;
-      e.preventDefault();
-      setFindPreset(null);
-      setFindVisible(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleKeyDown]);
+  // A workspace can be open with no note selected — and a brand-new note can be
+  // empty. Both used to leave a featureless page, so say what to do next. The
+  // prompt is presentation only (`pointer-events:none`) and vanishes as soon as
+  // the document has content, so it never blocks the caret.
+  const showEmptyState = !currentFilePath || content.trim() === "";
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <ConflictBanner />
-      <FindReplaceBar
-        visible={findVisible}
-        onClose={() => setFindVisible(false)}
-        preset={findPreset}
-        documentKey={currentFilePath + ":" + reloadTick}
-        getCmView={() => viewRef.current}
-      />
       <div
-        ref={hostRef}
-        className="zn-live-preview"
-        style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}
-      />
+        className="zn-editor-surface"
+        style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}
+      >
+        {showEmptyState && (
+          <div className="zn-editor-empty" role="note">
+            <AppMark size={24} />
+            <p className="zn-editor-empty__title">{t().editor.openNote}</p>
+            <p className="zn-editor-empty__hint">
+              <kbd className="zn-kbd">Ctrl</kbd>
+              <span className="zn-editor-empty__plus" aria-hidden="true">+</span>
+              <kbd className="zn-kbd">P</kbd>
+            </p>
+          </div>
+        )}
+        <div
+          ref={hostRef}
+          className="zn-live-preview"
+          style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}
+        />
+      </div>
     </div>
   );
 }

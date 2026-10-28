@@ -1,24 +1,19 @@
-import { useEffect } from "react";
+import { Fragment } from "react";
 import { t } from "../../i18n";
+import { Kbd, Modal } from "../ui";
 
 /**
  * Keyboard shortcuts reference panel (PRD §3.13).
- * Opened with F1, closed with Esc or a click on the backdrop.
+ * Opened with F1, closed with Esc or a click on the backdrop — the Modal
+ * primitive owns both dismissals and the focus trap.
  */
 
 interface ShortcutEntry { label: string; keys: string; }
+interface ShortcutGroup { title: string; items: ShortcutEntry[]; }
 
 export function ShortcutsPanel({ onClose }: { onClose: () => void }) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-
   const sc = t().shortcuts;
-  const groups: Array<{ title: string; items: ShortcutEntry[] }> = [
+  const groups: ShortcutGroup[] = [
     {
       title: sc.groupFile,
       items: [
@@ -72,42 +67,37 @@ export function ShortcutsPanel({ onClose }: { onClose: () => void }) {
   ];
 
   return (
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 950,
-      display: "flex", justifyContent: "center", paddingTop: "10vh",
-      background: "var(--zn-scrim)",
-    }} onClick={onClose}>
-      <div style={{
-        width: 620, maxHeight: "74vh", background: "var(--zn-float-bg)",
-        borderRadius: "var(--zn-radius-menu)", boxShadow: "var(--shadow-popover)",
-        border: "1px solid var(--zn-float-border)", overflow: "auto", padding: "16px 20px",
-      }} onClick={e => e.stopPropagation()}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-primary)", marginBottom: 12 }}>
-          {sc.title}
-        </div>
-        {groups.map(g => (
-          <div key={g.title} style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-tertiary)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-              {g.title}
+    <Modal
+      title={sc.title}
+      onClose={onClose}
+      size="lg"
+      className="zn-shortcuts"
+      bodyClassName="zn-shortcuts__body"
+      closeLabel={t().titlebar.close}
+      footer={<div className="zn-shortcuts__hint">{sc.closeHint}</div>}
+    >
+      <div className="zn-shortcuts__grid">
+        {groups.map(group => (
+          <section key={group.title} className="zn-shortcuts__group">
+            <h3 className="zn-shortcuts__group-title">{group.title}</h3>
+            <div className="zn-shortcuts__rows">
+              {group.items.map(item => (
+                <div key={item.label} className="zn-shortcuts__row">
+                  <span className="zn-shortcuts__label" title={item.label}>{item.label}</span>
+                  <span className="zn-shortcuts__keys">
+                    {item.keys.split(" / ").map((key, index) => (
+                      <Fragment key={key}>
+                        {index > 0 ? <span className="zn-shortcuts__slash">/</span> : null}
+                        <Kbd>{key}</Kbd>
+                      </Fragment>
+                    ))}
+                  </span>
+                </div>
+              ))}
             </div>
-            {g.items.map(item => (
-              <div key={item.label} style={{
-                display: "flex", justifyContent: "space-between", alignItems: "center",
-                padding: "5px 4px", fontSize: 13, color: "var(--text-primary)",
-                borderBottom: "1px solid var(--border-light)",
-              }}>
-                <span>{item.label}</span>
-                <kbd style={{
-                  fontFamily: "Consolas, monospace", fontSize: 12, color: "var(--text-secondary)",
-                  background: "var(--bg-editor)", border: "1px solid var(--border)",
-                  borderRadius: 4, padding: "1px 8px",
-                }}>{item.keys}</kbd>
-              </div>
-            ))}
-          </div>
+          </section>
         ))}
-        <div style={{ fontSize: 11, color: "var(--text-tertiary)", textAlign: "center" }}>{sc.closeHint}</div>
       </div>
-    </div>
+    </Modal>
   );
 }

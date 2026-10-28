@@ -53,6 +53,7 @@ import {
 } from "./widgets";
 import { footnoteNumbers } from "./footnotes";
 import { renderHtmlValue } from "../../../lib/htmlRender";
+import { mermaidConfig } from "../../../lib/mermaidRender";
 
 /* ------------------------------------------------------------ async refresh */
 
@@ -146,11 +147,10 @@ function ensureMermaid(source: string, view: EditorView): Promise<void> {
     let ok = false;
     try {
       const mod = await import("mermaid");
-      mod.default.initialize({
-        startOnLoad: false,
-        theme: useStore.getState().resolvedMode === "dark" ? "dark" : "default",
-        securityLevel: "antiscript",
-      });
+      // Design-token theme (warm Claude palette) instead of Mermaid's built-in
+      // lavender/blue "default"/"dark": QA flagged lavender nodes on the bone
+      // canvas. The cache is mode-keyed, so light/dark still re-render.
+      mod.default.initialize(mermaidConfig());
       const id = "lp-" + Math.random().toString(36).slice(2, 8);
       const { svg } = await mod.default.render(id, source);
       mermaidCache.set(key, svg);
@@ -387,6 +387,80 @@ export interface MathRange {
   source: string;
 }
 
+/** A character range that is code (or frontmatter) and must never be scanned. */
+interface SkipRange {
+  from: number;
+  to: number;
+}
+
+/**
+ * Ranges that are data, not prose: fenced code blocks, inline-code spans and
+ * frontmatter. `$` inside any of them is a literal character — rendering it as
+ * KaTeX would change the meaning of a code sample.
+ *
+ * A line/regex scan rather than a syntax-tree walk, for the same reason as
+ * `findMath` below: the tree is parsed asynchronously, and a freshly opened note
+ * has no complete tree yet.
+ */
+function findCodeSkipRanges(doc: Text): SkipRange[] {
+  const ranges: SkipRange[] = [];
+  const fm = frontmatterRange(doc);
+  if (fm) ranges.push(fm);
+
+  let fence: { char: string; len: number; start: number } | null = null;
+  for (let n = 1; n <= doc.lines; n++) {
+    const line = doc.line(n);
+    const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line.text);
+
+    if (fence) {
+      if (
+        fenceMatch &&
+        fenceMatch[1][0] === fence.char &&
+        fenceMatch[1].length >= fence.len &&
+        fenceMatch[2].trim() === ""
+      ) {
+        ranges.push({ from: fence.start, to: line.to });
+        fence = null;
+      }
+      continue;
+    }
+    if (fenceMatch) {
+      // A backtick fence's info string cannot contain a backtick (CommonMark).
+      if (fenceMatch[1][0] === "`" && fenceMatch[2].includes("`")) continue;
+      fence = { char: fenceMatch[1][0], len: fenceMatch[1].length, start: line.from };
+      continue;
+    }
+
+    // Inline code spans: an opening run of N backticks, closed by a run of
+    // exactly N backticks on the same line. Escaped backticks are literal.
+    const text = line.text;
+    let i = 0;
+    while (i < text.length) {
+      if (text[i] === "\\") { i += 2; continue; }
+      if (text[i] !== "`") { i++; continue; }
+      let run = 1;
+      while (text[i + run] === "`") run++;
+      let j = i + run;
+      let close = -1;
+      while (j < text.length) {
+        if (text[j] !== "`") { j++; continue; }
+        let closeRun = 1;
+        while (text[j + closeRun] === "`") closeRun++;
+        if (closeRun === run) { close = j; break; }
+        j += closeRun;
+      }
+      if (close < 0) { i += run; continue; }
+      ranges.push({ from: line.from + i, to: line.from + close + run });
+      i = close + run;
+    }
+  }
+  // An unclosed fence runs to the end of the document (CommonMark).
+  if (fence) ranges.push({ from: fence.start, to: doc.length });
+
+  ranges.sort((a, b) => a.from - b.from);
+  return ranges;
+}
+
 /**
  * Scan for math. Inline delimiters are line-local and display delimiters are
  * line-anchored, so a scan is more predictable here than a parser extension.
@@ -395,16 +469,25 @@ export interface MathRange {
  *   - inline: `$` immediately followed by a non-space, closed by a `$` that is
  *     not preceded by a space, both on the same line
  *   - display: a line that is exactly `$$`, closed by a line that is exactly `$$`
+ * Delimiters inside fenced code, inline code or frontmatter are ignored.
  */
 export function findMath(doc: Text): MathRange[] {
   const out: MathRange[] = [];
+  const skip = findCodeSkipRanges(doc);
+  // Positions are queried in ascending order, so one cursor over the sorted
+  // skip ranges is enough (no per-character array scan on long documents).
+  let skipIndex = 0;
+  const inSkip = (pos: number): boolean => {
+    while (skipIndex < skip.length && pos > skip[skipIndex].to) skipIndex++;
+    return skipIndex < skip.length && pos >= skip[skipIndex].from;
+  };
   let displayStart = -1;
 
   for (let n = 1; n <= doc.lines; n++) {
     const line = doc.line(n);
 
     if (displayStart >= 0) {
-      if (line.text.trim() === "$$") {
+      if (line.text.trim() === "$$" && !inSkip(line.from)) {
         out.push({
           from: displayStart,
           to: line.to,
@@ -415,7 +498,7 @@ export function findMath(doc: Text): MathRange[] {
       }
       continue;
     }
-    if (line.text.trim() === "$$") {
+    if (line.text.trim() === "$$" && !inSkip(line.from)) {
       displayStart = line.from;
       continue;
     }
@@ -424,6 +507,16 @@ export function findMath(doc: Text): MathRange[] {
     let i = 0;
     while (i < text.length) {
       if (text[i] !== "$") { i++; continue; }
+      if (inSkip(line.from + i)) {
+        // Jump past this whole code span/fence instead of re-testing every char.
+        while (skipIndex < skip.length && line.from + i > skip[skipIndex].to) skipIndex++;
+        if (skipIndex < skip.length && line.from + i >= skip[skipIndex].from) {
+          i = Math.max(i + 1, skip[skipIndex].to - line.from + 1);
+          continue;
+        }
+        i++;
+        continue;
+      }
       if (text[i + 1] === "$") { i += 2; continue; }
       const first = text[i + 1];
       if (first === undefined || /\s/.test(first)) { i++; continue; }

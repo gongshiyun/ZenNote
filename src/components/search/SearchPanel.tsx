@@ -4,6 +4,7 @@ import { t } from "../../i18n";
 import { searchWorkspace, type WsSearchResult } from "../../lib/workspaceSearch";
 import { openDocumentWithSave } from "../../lib/openDocument";
 import { splitHighlight } from "../../lib/highlight";
+import { Kbd, SearchIcon, Spinner } from "../ui";
 
 interface SearchResult {
   filePath: string;
@@ -11,6 +12,16 @@ interface SearchResult {
   /** 1-based line number; 0 = file-name match */
   line: number;
   content: string;
+}
+
+/** Directory part of a workspace-relative result path; empty for root files. */
+function relativeDir(filePath: string, workspacePath: string | null): string {
+  let relative = filePath;
+  if (workspacePath && filePath.startsWith(workspacePath)) {
+    relative = filePath.slice(workspacePath.length).replace(/^[\\/]/, "");
+  }
+  const index = Math.max(relative.lastIndexOf("/"), relative.lastIndexOf("\\"));
+  return index > 0 ? relative.slice(0, index) : "";
 }
 
 export function SearchPanel({ onClose }: { onClose: () => void }) {
@@ -22,8 +33,14 @@ export function SearchPanel({ onClose }: { onClose: () => void }) {
   const [focusIdx, setFocusIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
 
-  useEffect(() => { inputRef.current?.focus(); }, []);
+  // Move focus into the palette on open, and hand it back on close.
+  useEffect(() => {
+    restoreFocusRef.current = document.activeElement as HTMLElement | null;
+    inputRef.current?.focus();
+    return () => { restoreFocusRef.current?.focus?.(); };
+  }, []);
 
   // Search with debounce. Runs in the Rust backend (search_workspace) with a
   // JS fallback; results are cached per workspace+query in workspaceSearch.
@@ -55,9 +72,8 @@ export function SearchPanel({ onClose }: { onClose: () => void }) {
   }, [query, workspacePath]);
 
   const handleClick = useCallback(async (r: SearchResult) => {
-    const s = useStore.getState();
     const opened = await openDocumentWithSave(r.filePath, undefined, {
-      sourceMode: s.defaultSourceMode,
+      sourceMode: useStore.getState().defaultSourceMode,
     });
     if (!opened) return;
     setSelectedFile(r.filePath);
@@ -70,6 +86,8 @@ export function SearchPanel({ onClose }: { onClose: () => void }) {
   // Keyboard navigation
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Never hijack keys while an IME candidate window is open.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -98,94 +116,89 @@ export function SearchPanel({ onClose }: { onClose: () => void }) {
   }, [focusIdx]);
 
   return (
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 900,
-      display: "flex", justifyContent: "center", paddingTop: "12vh",
-      background: "var(--zn-scrim)",
-    }} onClick={onClose}>
-      <div style={{
-        width: 560, maxHeight: "70vh", background: "var(--zn-float-bg)",
-        borderRadius: "var(--zn-radius-menu)", boxShadow: "var(--shadow-popover)",
-        display: "flex", flexDirection: "column", overflow: "hidden",
-        border: "1px solid var(--zn-float-border)",
-      }} onClick={e => e.stopPropagation()}>
-        {/* Search input */}
-        <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+    <div className="zn-overlay zn-overlay--top zn-search-overlay" onClick={onClose}>
+      <div
+        className="zn-search"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t().search.placeholder}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Search input row */}
+        <div className="zn-search__head">
+          <SearchIcon size={18} className="zn-search__icon" />
           <input
             ref={inputRef}
+            className="zn-search__input"
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder={t().search.placeholder}
-            style={{
-              width: "100%", border: "none", outline: "none",
-              fontSize: 15, background: "transparent",
-              color: "var(--text-primary)", fontFamily: "inherit",
-            }}
+            aria-label={t().search.placeholder}
           />
+          <span className="zn-search__esc"><Kbd>Esc</Kbd></span>
         </div>
 
         {/* Results list */}
-        <div ref={listRef} style={{ flex: 1, overflow: "auto", padding: "4px 0", fontSize: 13 }}>
+        <div
+          ref={listRef}
+          className="zn-search__body"
+          role="listbox"
+          aria-label={t().search.placeholder}
+        >
           {searching && (
-            <div style={{ padding: "24px", textAlign: "center", color: "var(--text-tertiary)" }}>
-              {t().search.searching}
+            <div className="zn-search__state">
+              <Spinner size={16} />
+              <span>{t().search.searching}</span>
             </div>
           )}
           {!searching && query && results.length === 0 && (
-            <div style={{ padding: "24px", textAlign: "center", color: "var(--text-tertiary)" }}>
-              {t().search.noResults}
-            </div>
+            <div className="zn-empty zn-search__empty">{t().search.noResults}</div>
           )}
-          {results.map((r, i) => (
-            <div
-              key={i}
-              data-search-item
-              onClick={() => handleClick(r)}
-              style={{
-                padding: "8px 16px", cursor: "pointer",
-                borderBottom: "1px solid var(--border-light)",
-                background: i === focusIdx ? "var(--bg-sidebar-active)" : "transparent",
-              }}
-              onMouseEnter={e => {
-                if (i !== focusIdx) e.currentTarget.style.background = "var(--bg-hover)";
-                setFocusIdx(i);
-              }}
-              onMouseLeave={e => {
-                if (i !== focusIdx) e.currentTarget.style.background = "transparent";
-              }}>
-              <div style={{ fontWeight: 600, marginBottom: 2, color: "var(--text-primary)" }}>
-                <HighlightedText text={r.fileName} query={query} />
-                {r.line > 0 ? (
-                  <span style={{ fontWeight: 400, color: "var(--text-tertiary)", marginLeft: 8 }}>
-                    :{r.line}
+          {!searching && results.map((r, i) => {
+            const dir = relativeDir(r.filePath, workspacePath);
+            return (
+              <button
+                key={`${r.filePath}:${r.line}:${i}`}
+                type="button"
+                role="option"
+                aria-selected={i === focusIdx}
+                data-search-item
+                data-selected={i === focusIdx || undefined}
+                className="zn-search-result"
+                onClick={() => handleClick(r)}
+                onMouseEnter={() => setFocusIdx(i)}
+              >
+                <span className="zn-search-result__head">
+                  <span className="zn-search-result__title">
+                    <HighlightedText text={r.fileName} query={query} />
+                    {r.line > 0 ? (
+                      <span className="zn-search-result__line">:{r.line}</span>
+                    ) : (
+                      <span className="zn-search-result__badge">{t().search.fileNameMatch}</span>
+                    )}
                   </span>
-                ) : (
-                  <span style={{
-                    fontWeight: 400, marginLeft: 8, fontSize: 11, color: "var(--text-accent)",
-                    border: "1px solid var(--border)", borderRadius: 4, padding: "0 5px",
-                  }}>
-                    {t().search.fileNameMatch}
+                  {dir ? <span className="zn-search-result__path">{dir}</span> : null}
+                </span>
+                {r.content && (
+                  <span className="zn-search-result__snippet">
+                    <HighlightedText text={r.content} query={query} />
                   </span>
                 )}
-              </div>
-              {r.content && (
-                <div style={{
-                  color: "var(--text-secondary)", whiteSpace: "nowrap",
-                  overflow: "hidden", textOverflow: "ellipsis",
-                }}>
-                  <HighlightedText text={r.content} query={query} />
-                </div>
-              )}
-            </div>
-          ))}
+              </button>
+            );
+          })}
         </div>
 
-        {/* Footer */}
-        <div style={{
-          padding: "6px 16px", fontSize: 11, color: "var(--text-tertiary)",
-          borderTop: "1px solid var(--border)",
-        }}>
-          {results.length} {t().search.results} · {t().search.escToClose}
+        {/* Footer hint bar */}
+        <div className="zn-search__footer">
+          <span className="zn-search__count">
+            {results.length > 0 ? `${results.length} ${t().search.results}` : null}
+          </span>
+          <span className="zn-search__hints">
+            <Kbd>↑↓</Kbd>
+            <Kbd>↵</Kbd>
+            <Kbd>Esc</Kbd>
+          </span>
         </div>
       </div>
     </div>
@@ -197,17 +210,7 @@ function HighlightedText({ text, query }: { text: string; query: string }) {
     <>
       {splitHighlight(text, query).map((segment, index) =>
         segment.match ? (
-          <mark
-            key={index}
-            style={{
-              background: "var(--selection-bg)",
-              color: "inherit",
-              borderRadius: 2,
-              padding: "0 1px",
-            }}
-          >
-            {segment.text}
-          </mark>
+          <mark key={index}>{segment.text}</mark>
         ) : (
           <span key={index}>{segment.text}</span>
         ),

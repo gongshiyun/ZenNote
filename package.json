@@ -1,7 +1,7 @@
 {
   "name": "zenmark-app",
   "private": true,
-  "version": "0.8.38",
+  "version": "0.9.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "tauri": "tauri"
   },
   "dependencies": {
     "@codemirror/commands": "6.10.4",

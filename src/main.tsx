@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 // KaTeX lays its output out entirely in CSS — without this sheet a formula is a
@@ -23,10 +23,31 @@ function isExportWindow(): boolean {
   }
 }
 
-if (!isExportWindow()) {
+async function mountApp(): Promise<void> {
+  // Dev-only demo boot: `npm run dev` + `?demo=1` seeds a fake workspace before
+  // the first render, so the full UI can be screenshotted in a plain browser
+  // (scripts/verify-ui.mjs). The guard must be the literal `import.meta.env.DEV`
+  // inside the branch: Vite replaces it with `false` in production, which lets
+  // Rollup drop both the branch and the dynamically imported demo chunk.
+  if (import.meta.env.DEV) {
+    const params = new URLSearchParams(location.search);
+    if (params.has('demo')) {
+      const { seedDemo } = await import('./dev/demo');
+      const mode = params.get('mode');
+      seedDemo({
+        mode: mode === 'light' || mode === 'dark' || mode === 'system' ? mode : undefined,
+        locale: params.get('lang') ?? undefined,
+        emptyDocument: params.get('empty') === '1',
+      });
+    }
+  }
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <App />
     </React.StrictMode>
   );
+}
+
+if (!isExportWindow()) {
+  void mountApp();
 }

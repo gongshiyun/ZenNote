@@ -1,0 +1,181 @@
+/* ==========================================================================
+   ZenNote — Base layer
+   Reset, document shell, selection, focus, drag regions.
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+html {
+  background: var(--zn-canvas);
+}
+
+body {
+  margin: 0;
+  font-family: var(--zn-font-stack, var(--zn-font-ui));
+  font-size: var(--zn-fs-ui);
+  line-height: var(--zn-lh-ui);
+  color: var(--zn-text);
+  background: var(--zn-canvas);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  transition: background-color var(--zn-dur-slow) var(--zn-ease),
+    color var(--zn-dur-slow) var(--zn-ease);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+figure,
+blockquote,
+dl,
+dd {
+  margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+}
+
+button {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+input,
+textarea {
+  background: transparent;
+}
+
+img,
+svg {
+  display: block;
+}
+
+svg {
+  flex-shrink: 0;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+}
+
+a {
+  color: var(--zn-accent);
+  text-decoration: none;
+}
+
+::selection {
+  background: var(--zn-selection);
+}
+
+/* Keyboard focus is clay and consistent everywhere. Mouse users never see it. */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--zn-accent);
+  outline-offset: 1px;
+}
+
+/* ---- Native window drag regions (Tauri frameless window) --------------- */
+.zn-drag {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.zn-no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* Keep the legacy class names working for any unrefactored surface. */
+.titlebar-drag {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.titlebar-no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* ---- Screen-reader only ------------------------------------------------ */
+.zn-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- Text helpers ------------------------------------------------------ */
+.zn-mono {
+  font-family: var(--zn-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.zn-serif {
+  font-family: var(--zn-font-serif);
+}
+
+.zn-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zn-label {
+  font-family: var(--zn-font-ui);
+  font-size: var(--zn-fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--zn-text-tertiary);
+}
+
+/* Theme switching must not animate layout. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

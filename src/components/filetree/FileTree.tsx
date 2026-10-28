@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect, useRef, useMemo, memo } from "react";
+import { useCallback, useState, useEffect, useRef, useMemo, memo, type CSSProperties } from "react";
 import { remapWorkspacePaths, removeWorkspacePaths, useStore } from "../../store";
 import { t } from "../../i18n";
 import type { FileNode } from "../../domain";
@@ -7,6 +7,28 @@ import { affectedOpenPaths, joinPath, replaceFileName } from "../../lib/filePath
 import { invalidateWorkspaceSearchCache } from "../../lib/workspaceSearch";
 import { openDocumentWithSave } from "../../lib/openDocument";
 import * as fs from "../../services";
+import {
+  ChevronRightIcon,
+  ClockIcon,
+  CloseIcon,
+  ContextMenu,
+  CopyIcon,
+  DropdownMenu,
+  FilePlusIcon,
+  FileTextIcon,
+  FolderIcon,
+  FolderOpenIcon,
+  FolderPlusIcon,
+  IconButton,
+  MenuItem,
+  MenuLabel,
+  MenuSeparator,
+  PencilIcon,
+  PlusIcon,
+  RefreshIcon,
+  Spinner,
+  TrashIcon,
+} from "../ui";
 
 // ---- Flatten tree for keyboard nav ----
 function flattenTree(nodes: FileNode[], expanded: string[]): FileNode[] {
@@ -24,70 +46,6 @@ function flattenTree(nodes: FileNode[], expanded: string[]): FileNode[] {
 // ---- Context Menu ----
 interface ContextMenuState { x: number; y: number; node: FileNode; }
 
-function ContextMenu({ state, onClose, onNewFile, onNewFolder, onRename, onDelete }: {
-  state: ContextMenuState; onClose: () => void;
-  onNewFile: (p: string) => void; onNewFolder: (p: string) => void;
-  onRename: (p: string, o: string) => void; onDelete: (p: string) => void;
-}) {
-  const menuRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const h = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose(); };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, [onClose]);
-  const parentPath = state.node.isDir ? state.node.path : parentDir(state.node.path);
-  const items: { label: string; action: () => void; danger?: boolean }[] = [
-    { label: t().filetree.newNote, action: () => { onNewFile(parentPath); onClose(); } },
-    { label: t().filetree.newFolder, action: () => { onNewFolder(parentPath); onClose(); } },
-    { label: t().filetree.rename, action: () => { onRename(state.node.path, state.node.name); onClose(); } },
-    { label: t().filetree.delete, action: () => { onDelete(state.node.path); onClose(); }, danger: true },
-  ];
-  return (
-    <div ref={menuRef} style={{ position: "fixed", left: state.x, top: state.y, zIndex: 1000, background: "var(--zn-float-bg)", border: "1px solid var(--zn-float-border)", borderRadius: "var(--zn-radius-menu)", padding: "4px 0", minWidth: 160, boxShadow: "var(--shadow-popover)", fontSize: 12.5 }}>
-      {items.map((item, i) => (
-        <div key={i} onClick={item.action} style={{ padding: "6px 16px", cursor: "pointer", color: item.danger ? "var(--text-danger)" : "var(--text-primary)", background: "transparent" }}
-          onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>{item.label}</div>
-      ))}
-    </div>
-  );
-}
-
-// ---- Recent Workspaces Dropdown ----
-function RecentWorkspacesDropdown({ current, recents, onSelect, onRemove }: {
-  current: string | null; recents: string[];
-  onSelect: (p: string) => void; onRemove: (p: string) => void;
-}) {
-  return (
-    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100, background: "var(--zn-float-bg)", borderBottom: "1px solid var(--zn-float-border)", boxShadow: "var(--shadow-popover)", maxHeight: 280, overflowY: "auto", padding: "4px 0" }}>
-      <div style={{ padding: "4px 12px 6px", fontSize: 11, fontWeight: 500, color: "var(--text-tertiary)" }}>{t().filetree.recentWorkspaces}</div>
-      {recents.length === 0 ? (
-        <div style={{ padding: "8px 12px", fontSize: 12, color: "var(--text-tertiary)" }}>{t().filetree.noNotes}</div>
-      ) : (
-        recents.map((p) => {
-          const name = p.split(/[\\/]/).pop() || p;
-          const isCurrent = p === current;
-          return (
-            <div key={p} onClick={() => onSelect(p)} title={p}
-              style={{ display: "flex", alignItems: "center", padding: "6px 12px", cursor: "pointer", fontSize: 13, color: isCurrent ? "var(--text-accent)" : "var(--text-primary)", background: isCurrent ? "var(--bg-sidebar-active)" : "transparent", whiteSpace: "nowrap" }}
-              onMouseEnter={e => { if (!isCurrent) e.currentTarget.style.background = "var(--bg-sidebar-hover)"; }}
-              onMouseLeave={e => { if (!isCurrent) e.currentTarget.style.background = "transparent"; }}>
-              <span style={{ marginRight: 6, flexShrink: 0 }}>{"\uD83D\uDCC1"}</span>
-              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span>
-              <span
-                onClick={(e) => { e.stopPropagation(); onRemove(p); }}
-                title={t().filetree.removeWorkspace}
-                style={{ marginLeft: 6, flexShrink: 0, width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, color: "var(--text-tertiary)", fontSize: 11 }}
-                onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text-danger)"; }}
-                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-tertiary)"; }}>{"\u2715"}</span>
-            </div>
-          );
-        })
-      )}
-    </div>
-  );
-}
-
 // ---- FileTree ----
 export function FileTree() {
   const tree = useStore(s => s.tree);
@@ -104,12 +62,35 @@ export function FileTree() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [focusIndex, setFocusIndex] = useState(-1);
   const [showWorkspaces, setShowWorkspaces] = useState(false);
+  // Inline rename: which row is being edited and the draft name.
+  const [renamingPath, setRenamingPath] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  // Inline "new note / new folder" prompt shown above the tree. window.prompt()
+  // is unreliable inside the Tauri webview, so creation asks in-panel instead.
+  const [createPrompt, setCreatePrompt] = useState<{ kind: "file" | "folder"; parent: string } | null>(null);
+  const [createDraft, setCreateDraft] = useState("");
   const treeRef = useRef<HTMLDivElement>(null);
-  const workspaceAreaRef = useRef<HTMLDivElement>(null);
+  // The recents menu dismisses itself on the same press that hits its trigger;
+  // remember that press so the following click closes instead of reopening it.
+  const recentsSuppressUntilRef = useRef(0);
   // Folders whose children are currently being fetched (dedupe guard).
   const loadingFoldersRef = useRef(new Set<string>());
 
   const flatNodes = useMemo(() => flattenTree(tree, expandedFolders), [tree, expandedFolders]);
+
+  // Clicking a row moves focus into the tree container so ↑↓ / F2 / Delete work
+  // immediately, without a detour through the keyboard tab order.
+  const focusRow = useCallback((index: number) => {
+    setFocusIndex(index);
+    treeRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  // Keep the keyboard cursor visible while it moves.
+  useEffect(() => {
+    if (focusIndex < 0) return;
+    const row = treeRef.current?.querySelectorAll<HTMLElement>("[data-tree-index]")[focusIndex];
+    row?.scrollIntoView?.({ block: "nearest" });
+  }, [focusIndex]);
 
   const refreshTree = useCallback(async () => {
     if (!workspacePath) return;
@@ -137,43 +118,65 @@ export function FileTree() {
 
   const openFile = useCallback(async (filePath: string) => {
     setSelectedFile(filePath);
-    const s = useStore.getState();
-    const opened = await openDocumentWithSave(filePath, undefined, { sourceMode: s.defaultSourceMode });
+    // The store applies the "default source mode" setting only until the user
+    // has chosen a mode; after that, in-session opens keep the current mode.
+    const opened = await openDocumentWithSave(filePath, undefined, {
+      sourceMode: useStore.getState().defaultSourceMode,
+    });
     if (!opened) {
-      await openDocumentWithSave(
-        filePath,
-        "# " + (filePath.split(/[\\/]/).pop() || "") + "\n\n",
-        { sourceMode: s.defaultSourceMode },
-      );
+      // Never fabricate content: a failed read (locked / non-UTF-8 / deleted) or
+      // a superseded open must leave the current document untouched, otherwise
+      // the first keystroke would autosave fake content over the real file.
+      useStore.getState().setSaveError(t().filetree.openFailed);
+      return;
     }
+    useStore.getState().setSaveError(null);
   }, [setSelectedFile]);
 
-  const handleNewFile = useCallback(async (parentPath?: string) => {
-    const name = prompt("", t().filetree.untitled + ".md");
-    if (!name) return;
-    const base = parentPath || workspacePath || "";
-    const newPath = joinPath(base, name);
-    try {
-      await fs.createFile(newPath);
-      invalidateWorkspaceSearchCache(newPath);
-      await refreshTree();
-      await openFile(newPath);
-    } catch { /* */ }
-  }, [workspacePath, refreshTree, openFile]);
+  const beginCreate = useCallback((kind: "file" | "folder", parentPath?: string) => {
+    setCreateDraft("");
+    setCreatePrompt({ kind, parent: parentPath || workspacePath || "" });
+  }, [workspacePath]);
 
-  const handleNewFolder = useCallback(async (parentPath?: string) => {
-    const name = prompt("", t().filetree.folderName);
+  const submitCreate = useCallback(async () => {
+    const request = createPrompt;
+    if (!request) return;
+    const name = createDraft.trim();
+    setCreatePrompt(null);
+    setCreateDraft("");
     if (!name) return;
-    const base = parentPath || workspacePath || "";
+    const newPath = joinPath(request.parent, name);
     try {
-      await fs.createFolder(joinPath(base, name));
-      invalidateWorkspaceSearchCache();
-      await refreshTree();
+      if (request.kind === "file") {
+        await fs.createFile(newPath);
+        invalidateWorkspaceSearchCache(newPath);
+        await refreshTree();
+        await openFile(newPath);
+      } else {
+        await fs.createFolder(newPath);
+        invalidateWorkspaceSearchCache();
+        await refreshTree();
+      }
     } catch { /* */ }
-  }, [workspacePath, refreshTree]);
+  }, [createPrompt, createDraft, refreshTree, openFile]);
 
-  const handleRename = useCallback(async (path: string, oldName: string) => {
-    const newName = prompt("New name:", oldName);
+  const cancelCreate = useCallback(() => {
+    setCreatePrompt(null);
+    setCreateDraft("");
+  }, []);
+
+  // Rename is edited inline in the tree row (Enter commits, Escape cancels).
+  const beginRename = useCallback((path: string, name: string) => {
+    setRenamingPath(path);
+    setRenameDraft(name);
+  }, []);
+
+  const cancelRename = useCallback(() => { setRenamingPath(null); }, []);
+
+  const commitRename = useCallback(async (path: string) => {
+    const oldName = path.split(/[\\/]/).pop() || "";
+    const newName = renameDraft.trim();
+    setRenamingPath(null);
     if (!newName || newName === oldName) return;
     const newPath = replaceFileName(path, newName);
     try {
@@ -182,7 +185,7 @@ export function FileTree() {
       remapWorkspacePaths(path, newPath);
       await refreshTree();
     } catch { /* */ }
-  }, [refreshTree]);
+  }, [renameDraft, refreshTree]);
 
   const handleDelete = useCallback(async (path: string) => {
     const name = path.split(/[\\/]/).pop() || "";
@@ -202,7 +205,7 @@ export function FileTree() {
       alert(t().filetree.deleteDirtyBlocked);
       return;
     }
-    if (!confirm("Delete \"" + name + "\"?")) return;
+    if (!confirm(`${t().filetree.delete} "${name}"?`)) return;
     try {
       await fs.deleteFile(path);
       invalidateWorkspaceSearchCache(path);
@@ -210,6 +213,10 @@ export function FileTree() {
       await refreshTree();
     } catch { /* */ }
   }, [refreshTree]);
+
+  const copyPath = useCallback((path: string) => {
+    try { void navigator.clipboard?.writeText(path); } catch { /* clipboard unavailable */ }
+  }, []);
 
   // Switch to a workspace: update current + recents, then load its tree.
   // The OLD tree is cleared IMMEDIATELY so the panel never keeps showing the
@@ -258,23 +265,42 @@ export function FileTree() {
     } catch { /* */ }
   }, [switchWorkspace]);
 
-  // Close the workspace dropdown when clicking outside of it.
+  // Recents menu trigger. The menu's own dismissal listener closes on the same
+  // press that hits the trigger; a window-capture watcher registered while the
+  // menu is open notes that press, so the queued click closes rather than
+  // reopening the menu.
   useEffect(() => {
     if (!showWorkspaces) return;
-    const h = (e: MouseEvent) => {
-      if (workspaceAreaRef.current && !workspaceAreaRef.current.contains(e.target as Node)) setShowWorkspaces(false);
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest?.("[data-recents-trigger]")) {
+        recentsSuppressUntilRef.current = Date.now() + 500;
+      }
     };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
+    window.addEventListener("mousedown", onPointerDown, true);
+    return () => window.removeEventListener("mousedown", onPointerDown, true);
   }, [showWorkspaces]);
+
+  const toggleRecents = useCallback(() => {
+    if (Date.now() < recentsSuppressUntilRef.current) {
+      recentsSuppressUntilRef.current = 0;
+      return;
+    }
+    setShowWorkspaces(value => !value);
+  }, []);
 
   // Keyboard navigation
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Never hijack keys while an IME candidate window is open.
+      if (e.isComposing || e.keyCode === 229) return;
+      const target = e.target as HTMLElement | null;
+      // Inline rename input owns its own keys.
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
       if (!treeRef.current?.contains(document.activeElement)) return;
       const mod = e.ctrlKey || e.metaKey;
-      if (mod && e.key === "n" && !e.shiftKey) { e.preventDefault(); handleNewFile(); return; }
-      if (mod && e.key === "N" && e.shiftKey) { e.preventDefault(); handleNewFolder(); return; }
+      if (mod && e.key === "n" && !e.shiftKey) { e.preventDefault(); beginCreate("file"); return; }
+      if (mod && e.key === "N" && e.shiftKey) { e.preventDefault(); beginCreate("folder"); return; }
 
       if (e.key === "ArrowDown") { e.preventDefault(); setFocusIndex(i => Math.min(i + 1, flatNodes.length - 1)); return; }
       if (e.key === "ArrowUp") { e.preventDefault(); setFocusIndex(i => Math.max(i - 1, 0)); return; }
@@ -302,7 +328,7 @@ export function FileTree() {
       if (e.key === "F2" && focusIndex >= 0) {
         e.preventDefault();
         const node = flatNodes[focusIndex];
-        if (node) handleRename(node.path, node.name);
+        if (node) beginRename(node.path, node.name);
         return;
       }
       if (e.key === "Delete" && focusIndex >= 0) {
@@ -314,7 +340,7 @@ export function FileTree() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [flatNodes, focusIndex, expandedFolders, toggleFolder, openFile, handleNewFile, handleNewFolder, handleRename, handleDelete]);
+  }, [flatNodes, focusIndex, expandedFolders, toggleFolder, openFile, beginCreate, beginRename, handleDelete]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, node: FileNode) => {
     e.preventDefault();
@@ -322,48 +348,158 @@ export function FileTree() {
   }, []);
 
   const workspaceName = workspacePath ? workspacePath.split(/[\\/]/).pop() || workspacePath : "";
+  const menuParent = contextMenu
+    ? (contextMenu.node.isDir ? contextMenu.node.path : parentDir(contextMenu.node.path))
+    : null;
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      {/* Action row: open file / open folder / new note */}
-      <div style={{ height: 36, display: "flex", alignItems: "center", padding: "0 8px", gap: 2, borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-        <HeaderBtn title={t().filetree.openFile} onClick={handleOpenFileDialog}><OpenFileIcon /></HeaderBtn>
-        <HeaderBtn title={t().filetree.openFolder} onClick={handleOpenFolderDialog}><OpenFolderIcon /></HeaderBtn>
-        <div style={{ flex: 1 }} />
-        <HeaderBtn title={t().filetree.newNote + " (Ctrl+N)"} onClick={() => handleNewFile()}>
-          <svg width="17" height="17" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
-            <path d="M7.5 2.5v10M2.5 7.5h10" />
-          </svg>
-        </HeaderBtn>
-      </div>
-
-      {/* Workspace selector with recent-workspaces dropdown */}
-      <div ref={workspaceAreaRef} style={{ position: "relative", flexShrink: 0 }}>
-        <div onClick={() => setShowWorkspaces(v => !v)}
-          style={{ height: 32, display: "flex", alignItems: "center", padding: "0 12px", cursor: "pointer", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", background: showWorkspaces ? "var(--bg-hover)" : "transparent", userSelect: "none" }}
-          onMouseEnter={e => { if (!showWorkspaces) e.currentTarget.style.background = "var(--bg-hover)"; }}
-          onMouseLeave={e => { if (!showWorkspaces) e.currentTarget.style.background = "transparent"; }}>
-          <span style={{ marginRight: 6, flexShrink: 0 }}>{"\uD83D\uDCC1"}</span>
-          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{workspaceName || t().filetree.folder}</span>
-          <span style={{ fontSize: 9, marginLeft: 4, flexShrink: 0, transform: showWorkspaces ? "rotate(180deg)" : "none", transition: "transform 150ms ease" }}>{"\u25BC"}</span>
+    <div className="zn-sidebar">
+      <div className="zn-panel-top">
+        {/* Workspace header: folder + name, then the panel actions */}
+        <div className="zn-panel-head">
+        <button
+          type="button"
+          className="zn-panel-head__title"
+          title={t().filetree.recentWorkspaces}
+          aria-haspopup="menu"
+          aria-expanded={showWorkspaces}
+          data-recents-trigger
+          onClick={toggleRecents}
+        >
+          <FolderOpenIcon size={15} className="zn-panel-head__icon" />
+          <span className="zn-panel-head__name zn-ellipsis">
+            {workspaceName || t().filetree.folder}
+          </span>
+        </button>
+        <div className="zn-panel-head__actions">
+          <IconButton size="sm" label={t().filetree.openFile} onClick={handleOpenFileDialog}>
+            <FileTextIcon size={16} />
+          </IconButton>
+          <IconButton size="sm" label={t().filetree.openFolder} onClick={handleOpenFolderDialog}>
+            <FolderOpenIcon size={16} />
+          </IconButton>
+          <IconButton
+            size="sm"
+            label={t().filetree.newNote + " (Ctrl+N)"}
+            onClick={() => beginCreate("file")}
+          >
+            <PlusIcon size={16} />
+          </IconButton>
+          <IconButton
+            size="sm"
+            label={t().filetree.refresh}
+            onClick={() => void refreshTree()}
+            disabled={isLoading}
+          >
+            <RefreshIcon size={16} />
+          </IconButton>
+          <IconButton
+            size="sm"
+            label={t().filetree.recentWorkspaces}
+            aria-haspopup="menu"
+            aria-expanded={showWorkspaces}
+            data-recents-trigger
+            onClick={toggleRecents}
+          >
+            <ClockIcon size={16} />
+          </IconButton>
         </div>
+
         {showWorkspaces && (
-          <RecentWorkspacesDropdown
-            current={workspacePath}
-            recents={recentWorkspaces}
-            onSelect={(p) => { setShowWorkspaces(false); switchWorkspace(p); }}
-            onRemove={removeRecentWorkspace} />
+          <DropdownMenu
+            align="left"
+            onClose={() => setShowWorkspaces(false)}
+            label={t().filetree.recentWorkspaces}
+          >
+            <MenuLabel>{t().filetree.recentWorkspaces}</MenuLabel>
+            {recentWorkspaces.length === 0 ? (
+              <div className="zn-recent-menu__empty">{t().filetree.noNotes}</div>
+            ) : (
+              recentWorkspaces.map((p) => {
+                const name = p.split(/[\\/]/).pop() || p;
+                const isCurrent = p === workspacePath;
+                return (
+                  <div
+                    key={p}
+                    className="zn-recent-menu__item"
+                    data-current={isCurrent || undefined}
+                  >
+                    <button
+                      type="button"
+                      className="zn-recent-menu__select"
+                      title={p}
+                      onClick={() => {
+                        setShowWorkspaces(false);
+                        void switchWorkspace(p);
+                      }}
+                    >
+                      <FolderIcon size={14} className="zn-recent-menu__icon" />
+                      <span className="zn-recent-menu__name zn-ellipsis">{name}</span>
+                      <span className="zn-recent-menu__path zn-mono zn-ellipsis">{p}</span>
+                    </button>
+                    <IconButton
+                      size="sm"
+                      className="zn-recent-menu__remove"
+                      label={t().filetree.removeWorkspace}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        removeRecentWorkspace(p);
+                      }}
+                    >
+                      <CloseIcon size={13} />
+                    </IconButton>
+                  </div>
+                );
+              })
+            )}
+          </DropdownMenu>
         )}
       </div>
 
-      <div ref={treeRef} tabIndex={0} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "4px 0", outline: "none" }}>
+      <div className="zn-panel-section">
+        <span className="zn-label">{t().filetree.workspace}</span>
+      </div>
+      </div>
+
+      <div
+        ref={treeRef}
+        className="zn-tree"
+        role="tree"
+        aria-label={t().shortcuts.sidebar}
+        tabIndex={0}
+      >
+        {createPrompt && (
+          <div className="zn-tree-prompt">
+            {createPrompt.kind === "file"
+              ? <FilePlusIcon size={15} className="zn-tree-row__icon" />
+              : <FolderPlusIcon size={15} className="zn-tree-row__icon" />}
+            <input
+              className="zn-tree-rename"
+              value={createDraft}
+              autoFocus
+              placeholder={createPrompt.kind === "file"
+                ? t().filetree.untitled + ".md"
+                : t().filetree.folderName}
+              aria-label={createPrompt.kind === "file"
+                ? t().filetree.noteName
+                : t().filetree.folderName}
+              onChange={(e) => setCreateDraft(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter") { e.preventDefault(); void submitCreate(); }
+                else if (e.key === "Escape") { e.preventDefault(); cancelCreate(); }
+              }}
+              onBlur={cancelCreate}
+            />
+          </div>
+        )}
         {isLoading ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "28px 12px", fontSize: 12, color: "var(--text-tertiary)" }}>
-            <div className="zn-spinner" style={{ width: 22, height: 22 }} />
+          <div className="zn-tree__state">
+            <Spinner size={18} />
             <span>{t().welcome.loadingWorkspace}</span>
           </div>
         ) : tree.length === 0 ? (
-          <div style={{ padding: "16px 12px", fontSize: 12, color: "var(--text-tertiary)", textAlign: "center" }}>{t().filetree.noNotes}</div>
+          <div className="zn-empty zn-tree__empty">{t().filetree.noNotes}</div>
         ) : (
           tree.map((node) => (
             <FileTreeNode key={node.path} node={node} depth={0}
@@ -371,32 +507,91 @@ export function FileTree() {
               onToggle={toggleFolder} onSelect={openFile}
               onContextMenu={handleContextMenu} focusIndex={focusIndex}
               flatNodes={flatNodes} onLoadChildren={loadChildren}
-              showFileExtensions={showFileExtensions} />
+              showFileExtensions={showFileExtensions}
+              onFocusRow={focusRow}
+              renamingPath={renamingPath} renameDraft={renameDraft}
+              onRenameDraftChange={setRenameDraft} onRenameCommit={commitRename}
+              onRenameCancel={cancelRename} />
           ))
         )}
       </div>
+
       {contextMenu && (
-        <ContextMenu state={contextMenu} onClose={() => setContextMenu(null)}
-          onNewFile={handleNewFile} onNewFolder={handleNewFolder}
-          onRename={handleRename} onDelete={handleDelete} />
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          label={contextMenu.node.name}
+        >
+          <MenuItem
+            label={t().filetree.newNote}
+            icon={<FilePlusIcon size={15} />}
+            onSelect={() => { beginCreate("file", menuParent ?? undefined); setContextMenu(null); }}
+          />
+          <MenuItem
+            label={t().filetree.newFolder}
+            icon={<FolderPlusIcon size={15} />}
+            onSelect={() => { beginCreate("folder", menuParent ?? undefined); setContextMenu(null); }}
+          />
+          <MenuSeparator />
+          <MenuItem
+            label={t().filetree.rename}
+            icon={<PencilIcon size={15} />}
+            onSelect={() => {
+              beginRename(contextMenu.node.path, contextMenu.node.name);
+              setContextMenu(null);
+            }}
+          />
+          <MenuItem
+            label={t().tabs.copyPath}
+            icon={<CopyIcon size={15} />}
+            onSelect={() => { copyPath(contextMenu.node.path); setContextMenu(null); }}
+          />
+          <MenuSeparator />
+          <MenuItem
+            label={t().filetree.delete}
+            icon={<TrashIcon size={15} />}
+            danger
+            onSelect={() => { void handleDelete(contextMenu.node.path); setContextMenu(null); }}
+          />
+        </ContextMenu>
       )}
     </div>
   );
 }
 
 // ---- FileTreeNode (memoized — avoids re-rendering the whole tree on unrelated state changes) ----
-const FileTreeNode = memo(function FileTreeNode({ node, depth, selectedFilePath, expandedFolders, onToggle, onSelect, onContextMenu, focusIndex, flatNodes, onLoadChildren, showFileExtensions }: {
-  node: FileNode; depth: number; selectedFilePath: string | null;
-  expandedFolders: string[]; onToggle: (p: string) => void; onSelect: (p: string) => void;
+interface FileTreeNodeProps {
+  node: FileNode;
+  depth: number;
+  selectedFilePath: string | null;
+  expandedFolders: string[];
+  onToggle: (p: string) => void;
+  onSelect: (p: string) => void;
   onContextMenu: (e: React.MouseEvent, n: FileNode) => void;
-  focusIndex: number; flatNodes: FileNode[]; onLoadChildren: (p: string) => void;
+  focusIndex: number;
+  flatNodes: FileNode[];
+  onLoadChildren: (p: string) => void;
   showFileExtensions: boolean;
-}) {
+  onFocusRow: (index: number) => void;
+  renamingPath: string | null;
+  renameDraft: string;
+  onRenameDraftChange: (value: string) => void;
+  onRenameCommit: (path: string) => void;
+  onRenameCancel: () => void;
+}
+
+const FileTreeNode = memo(function FileTreeNode({
+  node, depth, selectedFilePath, expandedFolders, onToggle, onSelect, onContextMenu,
+  focusIndex, flatNodes, onLoadChildren, showFileExtensions, onFocusRow,
+  renamingPath, renameDraft, onRenameDraftChange, onRenameCommit, onRenameCancel,
+}: FileTreeNodeProps) {
   const isExpanded = expandedFolders.includes(node.path);
   const isSelected = selectedFilePath === node.path;
   const nodeIndex = flatNodes.findIndex(n => n.path === node.path);
   const isFocused = focusIndex === nodeIndex;
-  const pl = 12 + depth * 12;
+  const isRenaming = renamingPath === node.path;
+  const depthStyle = { "--zn-depth": depth } as CSSProperties;
   // Lazy tree: an expanded folder whose children haven't been fetched yet
   // (children === null) triggers an on-demand load exactly once.
   const needsLoad = node.isDir && isExpanded && node.children == null;
@@ -404,21 +599,61 @@ const FileTreeNode = memo(function FileTreeNode({ node, depth, selectedFilePath,
     if (needsLoad) onLoadChildren(node.path);
   }, [needsLoad, node.path, onLoadChildren]);
 
+  const displayName = !node.isDir && !showFileExtensions
+    ? node.name.replace(/\.md$/i, "")
+    : node.name;
+
   return (
     <>
       <div
-        onClick={() => node.isDir ? onToggle(node.path) : onSelect(node.path)}
+        className="zn-tree-row"
+        role="treeitem"
+        aria-level={depth + 1}
+        aria-selected={isSelected || undefined}
+        aria-expanded={node.isDir ? isExpanded : undefined}
+        data-dir={node.isDir || undefined}
+        data-expanded={node.isDir ? isExpanded : undefined}
+        data-selected={isSelected || undefined}
+        data-focused={isFocused || undefined}
+        data-tree-index={nodeIndex >= 0 ? nodeIndex : undefined}
+        style={depthStyle}
+        onMouseDown={() => {
+          if (!isRenaming && nodeIndex >= 0) onFocusRow(nodeIndex);
+        }}
+        onClick={() => {
+          if (isRenaming) return;
+          if (node.isDir) onToggle(node.path);
+          else onSelect(node.path);
+        }}
         onContextMenu={(e) => onContextMenu(e, node)}
-        style={{ height: 28, display: "flex", alignItems: "center", paddingLeft: pl, paddingRight: 8, cursor: "pointer", background: isFocused ? "var(--bg-sidebar-active)" : isSelected ? "var(--bg-sidebar-active)" : "transparent", fontSize: 13, color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", transition: "background-color 100ms ease", userSelect: "none", outline: isFocused ? "1px solid var(--text-accent)" : "none", outlineOffset: -1 }}
-        onMouseEnter={e => { if (!isSelected && !isFocused) e.currentTarget.style.background = "var(--bg-sidebar-hover)"; }}
-        onMouseLeave={e => { if (!isSelected && !isFocused) e.currentTarget.style.background = "transparent"; }}>
-        {node.isDir && <span style={{ marginRight: 4, fontSize: 10, width: 12, flexShrink: 0 }}>{isExpanded ? "\u25BC" : "\u25B6"}</span>}
-        <span style={{ marginRight: 4, flexShrink: 0 }}>{node.isDir ? "\uD83D\uDCC1" : "\uD83D\uDCC4"}</span>
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-          {!node.isDir && !showFileExtensions
-            ? node.name.replace(/\.md$/i, "")
-            : node.name}
+      >
+        <span className="zn-tree-row__chevron">
+          {node.isDir ? <ChevronRightIcon size={14} /> : null}
         </span>
+        <span className="zn-tree-row__icon">
+          {node.isDir
+            ? (isExpanded ? <FolderOpenIcon size={15} /> : <FolderIcon size={15} />)
+            : <FileTextIcon size={15} />}
+        </span>
+        {isRenaming ? (
+          <input
+            className="zn-tree-rename"
+            value={renameDraft}
+            autoFocus
+            aria-label={t().filetree.rename}
+            onChange={(e) => onRenameDraftChange(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") { e.preventDefault(); onRenameCommit(node.path); }
+              else if (e.key === "Escape") { e.preventDefault(); onRenameCancel(); }
+            }}
+            onBlur={onRenameCancel}
+          />
+        ) : (
+          <span className="zn-tree-row__label">{displayName}</span>
+        )}
       </div>
       {node.isDir && isExpanded && (node.children ? (
         node.children.map(child => (
@@ -426,25 +661,24 @@ const FileTreeNode = memo(function FileTreeNode({ node, depth, selectedFilePath,
             selectedFilePath={selectedFilePath} expandedFolders={expandedFolders}
             onToggle={onToggle} onSelect={onSelect} onContextMenu={onContextMenu}
             focusIndex={focusIndex} flatNodes={flatNodes} onLoadChildren={onLoadChildren}
-            showFileExtensions={showFileExtensions} />
+            showFileExtensions={showFileExtensions} onFocusRow={onFocusRow}
+            renamingPath={renamingPath} renameDraft={renameDraft}
+            onRenameDraftChange={onRenameDraftChange} onRenameCommit={onRenameCommit}
+            onRenameCancel={onRenameCancel} />
         ))
       ) : (
-        <div style={{ height: 28, display: "flex", alignItems: "center", paddingLeft: pl + 16, gap: 6, fontSize: 12, color: "var(--text-tertiary)" }}>
-          <div className="zn-spinner" style={{ width: 12, height: 12 }} />
-          <span>{t().search.searching}</span>
+        <div
+          className="zn-tree-row zn-tree-row--loading"
+          role="treeitem"
+          aria-level={depth + 2}
+          aria-disabled="true"
+          style={{ "--zn-depth": depth + 1 } as CSSProperties}
+        >
+          <span className="zn-tree-row__chevron" />
+          <Spinner size={12} />
+          <span className="zn-tree-row__label">{t().search.searching}</span>
         </div>
       ))}
     </>
   );
 });
-
-// ---- Header action button ----
-// Hover background is driven by CSS (:hover) instead of JS mouse handlers:
-// when a click opens a native dialog (prompt), mouseleave never fires and a
-// JS-set inline background would stay stuck on the button.
-function HeaderBtn(p: { children: React.ReactNode; onClick: () => void; title?: string }) {
-  return <button className="zn-header-btn" onClick={p.onClick} title={p.title}>{p.children}</button>;
-}
-
-function OpenFileIcon() { return (<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 2h4l2 2h5a1 1 0 011 1v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z"/></svg>); }
-function OpenFolderIcon() { return (<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2 4a1 1 0 011-1h3l2 2h5a1 1 0 011 1v6a1 1 0 01-1 1H3a1 1 0 01-1-1V4z"/><rect x="6" y="10" width="4" height="3" rx="0.5" fill="currentColor"/></svg>); }

@@ -26,25 +26,30 @@ describe('useMermaid', () => {
     useStore.setState({ resolvedMode: 'light', fontFamily: 'sans' });
   });
 
-  it('initialises mermaid with the current theme and font', async () => {
+  it('initialises mermaid with the warm base theme and the design-token font', async () => {
     renderHook(() => useMermaid());
     await waitFor(() => {
       expect(mermaidInitializeMock).toHaveBeenCalledWith(
         expect.objectContaining({
           startOnLoad: false,
-          theme: 'default',
-          securityLevel: 'loose',
+          theme: 'base',
+          securityLevel: 'antiscript',
+          fontFamily: expect.any(String),
+          themeVariables: expect.objectContaining({ darkMode: false }),
         }),
       );
     });
   });
 
-  it('uses the dark theme when resolved mode is dark', async () => {
+  it('switches the base theme to dark variables when resolved mode is dark', async () => {
     useStore.setState({ resolvedMode: 'dark', fontFamily: 'mono' });
     renderHook(() => useMermaid());
     await waitFor(() => {
       expect(mermaidInitializeMock).toHaveBeenCalledWith(
-        expect.objectContaining({ theme: 'dark' }),
+        expect.objectContaining({
+          theme: 'base',
+          themeVariables: expect.objectContaining({ darkMode: true }),
+        }),
       );
     });
   });

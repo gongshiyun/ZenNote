@@ -6,6 +6,7 @@ import { StatusBar } from "./StatusBar";
 import { FileTree } from "../filetree/FileTree";
 import { SourceEditor } from "../editor/SourceEditor";
 import { LivePreviewEditor } from "../editor/livepreview/LivePreviewEditor";
+import { FindReplaceBar } from "../editor/FindReplaceBar";
 import { Outline } from "../outline/Outline";
 
 // Lazy-load heavy, rarely-visible panels
@@ -27,11 +28,8 @@ import { flushDirtyDocuments, hasDirtyDocuments, saveCurrentDocument } from "../
 import { isEditableTarget } from "../../lib/keyboard";
 import { openDocumentWithSave } from "../../lib/openDocument";
 import { createCloseRequestHandler } from "../../lib/windowClose";
-import { APPEARANCE_VERSION, migrateAppearance } from "../../lib/appearanceMigration";
-
-// ---- Appearance migration ----
-// Lives in lib/appearanceMigration so it is unit-testable without pulling in
-// the whole component tree.
+import { createUntitledNote } from "../../lib/newNote";
+import { AppMark, Button, FileTextIcon, FolderIcon, Spinner } from "../ui";
 
 // ---- Auto-save ----
 function useAutoSave() {
@@ -154,11 +152,7 @@ function useWindowPersistence() {
           currentFilePath: s.currentFilePath,
           openTabs: s.openTabs,
           mode: s.mode,
-          themeId: s.themeId,
           fontFamily: s.fontFamily,
-          // Bump when the meaning of a stored appearance value changes, so
-          // migrations below run exactly once instead of on every launch.
-          appearanceVersion: APPEARANCE_VERSION,
           editorPadding: s.editorPadding,
           autoCheckUpdate: s.autoCheckUpdate,
           updateCheckInterval: s.updateCheckInterval,
@@ -168,8 +162,13 @@ function useWindowPersistence() {
           showHiddenFiles: s.showHiddenFiles,
           showFileExtensions: s.showFileExtensions,
           defaultSourceMode: s.defaultSourceMode,
+          sourceMode: s.sourceMode,
           sidebarVisible: s.sidebarVisible,
           outlineVisible: s.outlineVisible,
+          sidebarWidth: s.sidebarWidth,
+          outlineWidth: s.outlineWidth,
+          recentWorkspaces: s.recentWorkspaces,
+          expandedFolders: s.expandedFolders,
           draft: s.currentFilePath && s.isDirty
             ? { path: s.currentFilePath, content: s.content }
             : null,
@@ -193,10 +192,7 @@ function useWindowPersistence() {
         if (!raw || cancelled) return;
         const data = JSON.parse(raw);
         if (data.mode) useStore.getState().setMode(data.mode);
-        // One-time appearance migration (see migrateAppearance above).
-        const { themeId, fontFamily } = migrateAppearance(data);
-        if (themeId) useStore.getState().setThemeId(themeId);
-        if (fontFamily) useStore.getState().setFontFamily(fontFamily);
+        if (typeof data.fontFamily === "string") useStore.getState().setFontFamily(data.fontFamily);
         if (typeof data.editorPadding === "number") useStore.getState().setEditorPadding(data.editorPadding);
         if (typeof data.autoCheckUpdate === "boolean") useStore.getState().setAutoCheckUpdate(data.autoCheckUpdate);
         if (typeof data.updateCheckInterval === "number") useStore.getState().setUpdateCheckInterval(data.updateCheckInterval);
@@ -206,6 +202,24 @@ function useWindowPersistence() {
         if (typeof data.showHiddenFiles === "boolean") useStore.getState().setShowHiddenFiles(data.showHiddenFiles);
         if (typeof data.showFileExtensions === "boolean") useStore.getState().setShowFileExtensions(data.showFileExtensions);
         if (typeof data.defaultSourceMode === "boolean") useStore.getState().setDefaultSourceMode(data.defaultSourceMode);
+        if (Array.isArray(data.recentWorkspaces)) {
+          useStore.getState().setRecentWorkspaces(
+            data.recentWorkspaces.filter((p: unknown) => typeof p === "string"),
+          );
+        }
+        if (Array.isArray(data.expandedFolders)) {
+          useStore.getState().setExpandedFolders(
+            data.expandedFolders.filter((p: unknown) => typeof p === "string"),
+          );
+        }
+        if (typeof data.sidebarWidth === "number") useStore.getState().setSidebarWidth(data.sidebarWidth);
+        if (typeof data.outlineWidth === "number") useStore.getState().setOutlineWidth(data.outlineWidth);
+        // Remember the last editing mode across restarts (PRD §3.3.2); sessions
+        // written before this field existed fall back to the setting.
+        const restoredSourceMode = typeof data.sourceMode === "boolean"
+          ? data.sourceMode
+          : data.defaultSourceMode === true;
+        if (typeof data.sourceMode === "boolean") useStore.getState().setSourceMode(data.sourceMode);
         if (typeof data.sidebarVisible === "boolean" && data.sidebarVisible !== useStore.getState().sidebarVisible) useStore.getState().toggleSidebar();
         if (typeof data.outlineVisible === "boolean" && data.outlineVisible !== useStore.getState().outlineVisible) useStore.getState().toggleOutline();
         // An OS-launched file ("Open with") wins over the persisted workspace
@@ -242,11 +256,25 @@ function useWindowPersistence() {
           if (data.currentFilePath) {
             fs.readFile(data.currentFilePath).then(content => {
               if (cancelled) return;
-              const restored = drafts.get(data.currentFilePath) ?? content;
+              const draft = drafts.get(data.currentFilePath);
+              const restored = draft ?? content;
               useStore.getState().setSelectedFile(data.currentFilePath);
               useStore.getState().setCurrentFile(data.currentFilePath, restored);
-              if (drafts.has(data.currentFilePath)) useStore.getState().setDirty(true);
-              useStore.getState().setSourceMode(data.defaultSourceMode === true);
+              if (draft !== undefined) {
+                useStore.getState().setDirty(true);
+                // The crash-recovery draft differs from what is on disk now:
+                // autosave must NOT silently overwrite the newer disk version.
+                // Surface the same conflict banner the live watcher uses; the
+                // user decides whether to reload or keep the local draft.
+                if (draft !== content) {
+                  useStore.getState().setExternalConflict({
+                    path: data.currentFilePath,
+                    diskContent: content,
+                    reason: "modified",
+                  });
+                }
+              }
+              useStore.getState().setSourceMode(restoredSourceMode);
             }).catch(() => {
               if (cancelled) return;
               const draft = drafts.get(data.currentFilePath);
@@ -254,7 +282,7 @@ function useWindowPersistence() {
               useStore.getState().setSelectedFile(data.currentFilePath);
               useStore.getState().setCurrentFile(data.currentFilePath, draft);
               useStore.getState().setDirty(true);
-              useStore.getState().setSourceMode(data.defaultSourceMode === true);
+              useStore.getState().setSourceMode(restoredSourceMode);
               useStore.getState().setExternalConflict({
                 path: data.currentFilePath,
                 diskContent: null,
@@ -308,6 +336,19 @@ export function AppShell() {
   const toggleOutline = useStore(s => s.toggleOutline);
   const setSearchVisible = useStore(s => s.setSearchVisible);
   const setSettingsVisible = useStore(s => s.setSettingsVisible);
+  const sidebarWidth = useStore(s => s.sidebarWidth);
+  const outlineWidth = useStore(s => s.outlineWidth);
+  const setSidebarWidth = useStore(s => s.setSidebarWidth);
+  const setOutlineWidth = useStore(s => s.setOutlineWidth);
+  const currentFilePath = useStore(s => s.currentFilePath);
+  const reloadTick = useStore(s => s.reloadTick);
+  const [findVisible, setFindVisible] = useState(false);
+  const [findPreset, setFindPreset] = useState<{
+    query: string;
+    line?: number;
+    showReplace?: boolean;
+    ts: number;
+  } | null>(null);
   const [shortcutsVisible, setShortcutsVisible] = useState(false);
   const [quickOpenVisible, setQuickOpenVisible] = useState(false);
   // Subscribe to locale so the WHOLE tree re-renders on language switch
@@ -328,8 +369,28 @@ export function AppShell() {
 
   const sourceMode = useStore(s => s.sourceMode);
 
-  const [sidebarWidth] = useState(240);
-  const [outlineWidth] = useState(180);
+  // One find & replace bar for BOTH editing surfaces. It used to live inside
+  // LivePreviewEditor, which meant Ctrl+F did nothing in source mode and the
+  // global search panel's "jump to match" event had no listener at all.
+  useEffect(() => {
+    const onFindOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        query?: string;
+        line?: number;
+        showReplace?: boolean;
+      }>).detail ?? {};
+      setFindPreset({
+        query: typeof detail.query === "string" ? detail.query : "",
+        ...(typeof detail.line === "number" ? { line: detail.line } : {}),
+        ...(detail.showReplace ? { showReplace: true } : {}),
+        ts: Date.now(),
+      });
+      setFindVisible(true);
+    };
+    window.addEventListener("zn-find-open", onFindOpen);
+    return () => window.removeEventListener("zn-find-open", onFindOpen);
+  }, []);
+
   const isDraggingSidebar = useRef(false);
   const isDraggingOutline = useRef(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -350,25 +411,42 @@ export function AppShell() {
         sidebarRef.current.style.width = w + "px";
       }
       if (isDraggingOutline.current && outlineRef.current) {
-        const w = Math.max(140, Math.min(360, outlineRef.current.offsetWidth + e.movementX));
+        // The outline lives on the RIGHT of the editor, so its handle sits on
+        // the panel's left edge: dragging left grows the panel.
+        const w = Math.max(140, Math.min(360, outlineRef.current.offsetWidth - e.movementX));
         outlineRef.current.style.width = w + "px";
       }
     };
-    const onMouseUp = () => { isDraggingSidebar.current = false; isDraggingOutline.current = false; };
+    const onMouseUp = () => {
+      // Commit the pixel width to the store (persisted in the session) once the
+      // user lets go, instead of re-rendering on every mousemove.
+      if (isDraggingSidebar.current && sidebarRef.current) {
+        setSidebarWidth(sidebarRef.current.offsetWidth);
+      }
+      if (isDraggingOutline.current && outlineRef.current) {
+        setOutlineWidth(outlineRef.current.offsetWidth);
+      }
+      isDraggingSidebar.current = false;
+      isDraggingOutline.current = false;
+    };
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
     return () => { window.removeEventListener("mousemove", onMouseMove); window.removeEventListener("mouseup", onMouseUp); };
-  }, []);
+  }, [setSidebarWidth, setOutlineWidth]);
 
   // Global keyboard shortcuts
   useEffect(() => {
+    const anyModalOpen = settingsVisible || searchVisible || quickOpenVisible || shortcutsVisible;
     const onKeyDown = (e: KeyboardEvent) => {
+      // IME confirmation / candidate navigation must never trigger app shortcuts.
+      if (e.isComposing || e.keyCode === 229) return;
       // F1 opens the shortcuts reference panel (no modifier needed).
       if (e.key === "F1") { e.preventDefault(); setShortcutsVisible(v => !v); return; }
       if (e.defaultPrevented) return;
       const mod = e.ctrlKey || e.metaKey;
       if (!mod) return;
       const editable = isEditableTarget(e.target);
+      const target = e.target instanceof HTMLElement ? e.target : null;
       // e.key is UPPERCASE when Shift is held (e.g. "O" for Ctrl+Shift+O),
       // so compare case-insensitively.
       const key = e.key.toLowerCase();
@@ -380,9 +458,29 @@ export function AppShell() {
       }
       else if (key === "f" && e.shiftKey) { e.preventDefault(); setSearchVisible(true); }
       else if (key === "p" && !e.shiftKey) { e.preventDefault(); setQuickOpenVisible(true); }
+      else if (key === "f" && !e.shiftKey) {
+        // Find in either editing surface. If focus is already in the find bar,
+        // leave the browser's select-all-in-field behaviour alone.
+        if (anyModalOpen || target?.closest(".zn-findbar")) return;
+        e.preventDefault();
+        setFindPreset({ query: "", ts: Date.now() });
+        setFindVisible(true);
+      }
       else if (key === "h" && !e.shiftKey) {
+        if (anyModalOpen || target?.closest(".zn-findbar")) return;
         e.preventDefault();
         window.dispatchEvent(new CustomEvent("zn-find-open", { detail: { query: "", showReplace: true } }));
+      }
+      else if (key === "s" && !e.shiftKey) {
+        // Ctrl+S is advertised in the shortcuts panel; until now no handler
+        // existed at all. Autosave is debounced, so an explicit save matters.
+        e.preventDefault();
+        void saveCurrentDocument().catch(() => { /* status bar shows the error */ });
+      }
+      else if (key === "n" && !e.shiftKey) {
+        if (anyModalOpen) return;
+        e.preventDefault();
+        void createUntitledNote();
       }
       else if (key === "`" && !e.shiftKey) {
         e.preventDefault();
@@ -474,11 +572,11 @@ export function AppShell() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [toggleSidebar, toggleOutline, setSearchVisible, setSettingsVisible]);
+  }, [toggleSidebar, toggleOutline, setSearchVisible, setSettingsVisible, settingsVisible, searchVisible, quickOpenVisible, shortcutsVisible]);
 
   if (!workspacePath) {
     return (
-      <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      <div className="zn-app">
         <Titlebar />
         <WelcomeScreen />
       </div>
@@ -486,37 +584,52 @@ export function AppShell() {
   }
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+    <div className="zn-app">
       <Titlebar />
       <TabBar />
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+      <div className="zn-workspace">
         {/* Left sidebar: FileTree */}
         {sidebarVisible && (
           <>
-            <div ref={sidebarRef} style={{ width: sidebarWidth, flexShrink: 0, background: "var(--bg-sidebar)", borderRight: "1px solid var(--border)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+            <div ref={sidebarRef} className="zn-sidebar-slot" style={{ width: sidebarWidth }}>
               <FileTree />
             </div>
-            <div className="resize-handle" onMouseDown={onSidebarMouseDown} />
-          </>
-        )}
-        {/* Left side: Outline panel (between FileTree and Editor) */}
-        {outlineVisible && (
-          <>
-            <div ref={outlineRef} style={{ width: outlineWidth, flexShrink: 0, background: "var(--bg-sidebar)", borderRight: "1px solid var(--border)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-              <Outline />
-            </div>
-            <div className="resize-handle" onMouseDown={onOutlineMouseDown} />
+            <div className="zn-resize-handle" onMouseDown={onSidebarMouseDown} />
           </>
         )}
         {/* Editor.
             Live Preview is the editor. Source mode — the raw markdown surface —
             is a separate shell around CodeMirror, not a second editor, which is
-            why toggling it no longer swaps components. */}
-        <div style={{ flex: 1, minWidth: 360, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          {sourceMode
-            ? <SourceEditor viewRef={srcViewRef} />
-            : <LivePreviewEditor viewRef={lpViewRef} />}
+            why toggling it no longer swaps components. The find bar is hoisted
+            here so BOTH surfaces share one bar (and the global search jump works). */}
+        <div className="zn-editor-slot">
+          <FindReplaceBar
+            visible={findVisible}
+            onClose={() => {
+              setFindVisible(false);
+              // Hand the caret back to whichever surface was being searched, so
+              // closing the bar resumes typing where the user left off.
+              (sourceMode ? srcViewRef : lpViewRef).current?.focus();
+            }}
+            preset={findPreset}
+            documentKey={currentFilePath ? `${currentFilePath}:${reloadTick}` : null}
+            getCmView={() => (sourceMode ? srcViewRef.current : lpViewRef.current)}
+          />
+          <div className="zn-editor-host">
+            {sourceMode
+              ? <SourceEditor viewRef={srcViewRef} />
+              : <LivePreviewEditor viewRef={lpViewRef} />}
+          </div>
         </div>
+        {/* Right: Outline panel (PRD §3.4 — its handle is on the left edge) */}
+        {outlineVisible && (
+          <>
+            <div className="zn-resize-handle" onMouseDown={onOutlineMouseDown} />
+            <div ref={outlineRef} className="zn-outline-slot" style={{ width: outlineWidth }}>
+              <Outline />
+            </div>
+          </>
+        )}
       </div>
       <StatusBar />
       <Suspense fallback={null}>
@@ -554,26 +667,57 @@ function WelcomeScreen() {
         }
       }
     } catch {
-      const path = prompt("Workspace path:");
+      const path = prompt(t().welcome.openFolder);
       if (path) { setWorkspace(path); setTree([]); }
     }
   };
 
+  // Open a single note from the welcome screen: its folder becomes the
+  // workspace, then the note is opened through the normal save-coordinated path.
+  const openFile = async () => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const file = await open({ multiple: false, filters: [{ name: "Markdown", extensions: ["md"] }] });
+      if (file && typeof file === "string") await openOsFile(file);
+    } catch {
+      // Browser dev (no Tauri dialog): fall back to a path prompt.
+      const path = prompt(t().welcome.openFile);
+      if (path?.trim()) await openOsFile(path.trim());
+    }
+  };
+
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--bg-editor)", gap: 24 }}>
-      <div style={{ fontSize: 28, fontWeight: 700, color: "var(--text-primary)", letterSpacing: "-0.02em" }}>{t().app.title}</div>
-      <div style={{ fontSize: 14, color: "var(--text-secondary)" }}>{t().welcome.subtitle}</div>
-      {loadingState ? (
-        <div style={{ fontSize: 14, color: "var(--text-tertiary)" }}>{t().welcome.loadingWorkspace}</div>
-      ) : (
-        <button
-          onClick={openFolder}
-          style={{ padding: "10px 32px", fontSize: 14, fontWeight: 500, border: "none", borderRadius: 8, background: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)", cursor: "pointer", transition: "opacity 150ms ease" }}
-          onMouseEnter={e => { e.currentTarget.style.opacity = "0.85"; }}
-          onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
-          Open Folder
-        </button>
-      )}
+    <div className="zn-welcome">
+      <div className="zn-welcome__inner">
+        <div className="zn-welcome__mark">
+          <AppMark size={44} />
+        </div>
+        <h1 className="zn-welcome__title">{t().app.title}</h1>
+        <p className="zn-welcome__subtitle">{t().welcome.subtitle}</p>
+        {loadingState ? (
+          <div className="zn-welcome__loading" role="status">
+            <Spinner size={14} />
+            <span>{t().welcome.loadingWorkspace}</span>
+          </div>
+        ) : (
+          <div className="zn-welcome__actions">
+            <Button
+              variant="primary"
+              iconLeft={<FolderIcon size={15} />}
+              onClick={() => { void openFolder(); }}
+            >
+              {t().welcome.openFolder}
+            </Button>
+            <Button
+              variant="secondary"
+              iconLeft={<FileTextIcon size={15} />}
+              onClick={() => { void openFile(); }}
+            >
+              {t().welcome.openFile}
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

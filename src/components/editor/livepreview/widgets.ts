@@ -15,7 +15,7 @@
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { StateEffect, StateField } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
-import { t } from "../../../i18n";
+import { t, getLocale } from "../../../i18n";
 import { scanFootnotes, type FootnoteScan } from "./footnotes";
 import { frontmatterRange } from './livePreview';
 import { openZoomOverlay } from '../zoomOverlay';
@@ -68,9 +68,10 @@ export interface CellSegment {
  * place every time, because it depends on which large blocks sit above.
  *
  * The numbers follow the sizes in `livePreviewThemeSpec` (base 16px,
- * `lineHeight` 1.75, so a 28px line): a table cell is `padding: 6px 10px` around
- * a 0.95em line, `.cm-zn-table-wrap` adds `0.5em` top and bottom, and the image,
- * diagram and display-maths containers add `0.6em`.
+ * `lineHeight` 1.75, so a 28px line): a table row is `padding: 7px 12px` around
+ * a 14px/1.6 line plus a 1px row divider, the table card's hairline frame adds
+ * 2px, and the diagram container adds 12px padding around a typical flowchart.
+ * The image and display-maths containers keep their `0.6em` breathing room.
  *
  * These are estimates, not measurements: a table row whose cells wrap onto more
  * lines, or an unusually large image, will be taller than the figure here. That
@@ -80,28 +81,28 @@ export interface CellSegment {
  * the bug this exists to prevent.
  */
 export const BLOCK_ESTIMATE = {
-  /** `0.5em` top and bottom around the table. */
-  tableChrome: 16,
-  /** 0.95em line (26.6px) + 12px padding + its share of the collapsed border. */
-  tableRow: 40,
+  /** The table card's 1px hairline frame (top + bottom). */
+  tableChrome: 2,
+  /** 14px/1.6 line (22.4px) + 14px cell padding + the 1px row divider. */
+  tableRow: 38,
   /** `0.6em` top and bottom around a centred display formula. */
   mathBlock: 64,
-  /** `0.6em` top and bottom around a typical flowchart. */
-  mermaid: 250,
-  /** The one-line "rendering diagram…" strip. */
-  mermaidPending: 44,
+  /** 12px padding + hairline around a typical flowchart. */
+  mermaid: 270,
+  /** The one-line "rendering diagram…" strip, now inside the card frame. */
+  mermaidPending: 52,
   /** `0.6em` top and bottom around an image of unknown intrinsic size. */
   image: 220,
   /** An image with no source renders one line of alt text, not a picture. */
   imageMissing: 30,
   /** Sanitized HTML blocks are arbitrary; assume a short paragraph. */
   html: 64,
-  /** Frontmatter panel chrome, plus 0.85em/1.6 lines. */
+  /** Frontmatter panel chrome, plus 12px/1.7 lines. */
   frontmatterChrome: 44,
-  frontmatterLine: 22,
-  /** `[TOC]` heading plus panel padding, then one 0.9em/1.9 row each. */
-  tocChrome: 52,
-  tocItem: 27,
+  frontmatterLine: 21,
+  /** `[TOC]` heading plus panel padding, then one 13px/1.9 row each. */
+  tocChrome: 50,
+  tocItem: 25,
 } as const;
 
 /* ------------------------------------------------------------------- markers */
@@ -138,6 +139,12 @@ export class BulletWidget extends WidgetType {
 export class TaskWidget extends WidgetType {
   private readonly checked: boolean;
   private readonly id: string;
+  /**
+   * The locale its labels (`t()`) were baked in. Widgets are reused when `eq`
+   * says they are the same; a language switch therefore has to make them
+   * unequal, or the tooltip stays in the previous language.
+   */
+  private readonly locale: string;
 
   constructor(checked: boolean, id = "") {
     super();
@@ -145,10 +152,11 @@ export class TaskWidget extends WidgetType {
     // Identity for `eq`: two boxes with the same state but different source
     // text must not be treated as equal, or a toggle would not re-render.
     this.id = id + (checked ? "1" : "0");
+    this.locale = getLocale();
   }
 
   eq(other: TaskWidget): boolean {
-    return other.id === this.id;
+    return other.id === this.id && other.locale === this.locale;
   }
 
   toDOM(): HTMLElement {
@@ -157,6 +165,11 @@ export class TaskWidget extends WidgetType {
     const box = document.createElement("span");
     box.className = "cm-zn-task-box" + (this.checked ? " cm-zn-task-on" : "");
     box.textContent = this.checked ? "✓" : "";
+    // The box is the control, so expose the same state to assistive tech that
+    // the rendered checkmark shows. `cm-zn-task-on` is what styles the completed
+    // item (line strike-through + dimming) in the theme.
+    box.setAttribute("role", "checkbox");
+    box.setAttribute("aria-checked", String(this.checked));
     wrap.appendChild(box);
 
     // Clicking the box toggles the item in place. Without this the click fell
@@ -336,15 +349,31 @@ function appendInline(el: HTMLElement, segments: CellSegment[]): void {
 export class ImageWidget extends WidgetType {
   private readonly src: string;
   private readonly alt: string;
+  /** Locale the zoom button's tooltip was baked in — see TaskWidget. */
+  private readonly locale: string;
 
   constructor(src: string, alt: string) {
     super();
     this.src = src;
     this.alt = alt;
+    this.locale = getLocale();
   }
 
   eq(other: ImageWidget): boolean {
-    return other.src === this.src && other.alt === this.alt;
+    return other.src === this.src && other.alt === this.alt && other.locale === this.locale;
+  }
+
+  /**
+   * The alt text to show / expose as the accessible name.
+   *
+   * Notes written before alignment was moved out of the alt attribute carry
+   * `"<ratio>|<align>"` there instead of real caption text (that encoding
+   * replaced the author's words). Those strings are metadata, not copy: showing
+   * them would leak internals into the tooltip, so they render as no alt text.
+   */
+  private get altText(): string {
+    const trimmed = this.alt.trim();
+    return /^\d+(?:\.\d+)?\|(?:left|center|right)$/i.test(trimmed) ? "" : this.alt;
   }
 
   get estimatedHeight(): number {
@@ -361,12 +390,12 @@ export class ImageWidget extends WidgetType {
     wrap.className = "cm-zn-image";
     if (!this.src) {
       wrap.classList.add("cm-zn-image-empty");
-      wrap.textContent = this.alt || t().editor.imageMissing;
+      wrap.textContent = this.altText || t().editor.imageMissing;
       return wrap;
     }
     const img = document.createElement("img");
     img.src = this.src;
-    img.alt = this.alt;
+    img.alt = this.altText;
     img.loading = "lazy";
     // An image arriving changes the line's height AFTER CodeMirror measured it,
     // which leaves hit-testing stale (clicks land a line off). Also show the alt
@@ -376,7 +405,7 @@ export class ImageWidget extends WidgetType {
     });
     img.addEventListener("error", () => {
       wrap.classList.add("cm-zn-image-empty");
-      wrap.textContent = this.alt || t().editor.imageMissing;
+      wrap.textContent = this.altText || t().editor.imageMissing;
     });
     wrap.appendChild(img);
     // The zoom button is part of the widget, NOT added by a post-hoc DOM walk:
@@ -613,6 +642,8 @@ export class CodeToolsWidget extends WidgetType {
   /** Range of the fence's info string, so a change can rewrite it in place. */
   private readonly infoFrom: number;
   private readonly infoTo: number;
+  /** Locale the language/copy labels were baked in — see TaskWidget. */
+  private readonly locale: string;
 
   constructor(lang: string, source: string, infoFrom = -1, infoTo = -1) {
     super();
@@ -620,6 +651,7 @@ export class CodeToolsWidget extends WidgetType {
     this.source = source;
     this.infoFrom = infoFrom;
     this.infoTo = infoTo;
+    this.locale = getLocale();
   }
 
   eq(other: CodeToolsWidget): boolean {
@@ -627,7 +659,8 @@ export class CodeToolsWidget extends WidgetType {
       other.lang === this.lang &&
       other.source === this.source &&
       other.infoFrom === this.infoFrom &&
-      other.infoTo === this.infoTo
+      other.infoTo === this.infoTo &&
+      other.locale === this.locale
     );
   }
 
@@ -848,15 +881,22 @@ export class FootnoteRefWidget extends WidgetType {
 export class TocWidget extends WidgetType {
   private readonly entries: Array<{ level: number; text: string; pos: number }>;
   private readonly key: string;
+  /**
+   * Locale the panel title was baked in. The title is `t()` text, so a runtime
+   * language switch must invalidate the widget even though the heading list is
+   * unchanged — otherwise `eq` keeps the old DOM (and the old label).
+   */
+  private readonly locale: string;
 
   constructor(entries: Array<{ level: number; text: string; pos: number }>, key: string) {
     super();
     this.entries = entries;
     this.key = key;
+    this.locale = getLocale();
   }
 
   eq(other: TocWidget): boolean {
-    return other.key === this.key;
+    return other.key === this.key && other.locale === this.locale;
   }
 
   get estimatedHeight(): number {
@@ -988,15 +1028,18 @@ export class FrontmatterWidget extends WidgetType {
 export class MermaidWidget extends WidgetType {
   private readonly svg: string;
   private readonly key: string;
+  /** Locale the zoom button's tooltip was baked in — see TaskWidget. */
+  private readonly locale: string;
 
   constructor(svg: string, key: string) {
     super();
     this.svg = svg;
     this.key = key;
+    this.locale = getLocale();
   }
 
   eq(other: MermaidWidget): boolean {
-    return other.key === this.key;
+    return other.key === this.key && other.locale === this.locale;
   }
 
   get estimatedHeight(): number {

@@ -26,8 +26,16 @@ export interface FileTreeSlice {
 export interface OutlineSlice {
   headings: Heading[];
   activeHeadingId: string | null;
+  /**
+   * One-shot request from the outline panel to move the editor caret to a
+   * heading. CodeMirror owns the document offsets, so the panel cannot scroll
+   * the (virtualised) rendered DOM by itself; the editor consumes this request
+   * and maps the heading's source line to a real position.
+   */
+  headingJumpRequest: { pos: number; ts: number } | null;
   setHeadings: (headings: Heading[]) => void;
   setActiveHeading: (id: string | null) => void;
+  requestHeadingJump: (pos: number) => void;
 }
 
 // Immutably attach `children` to the folder node whose path matches, at any
@@ -78,6 +86,8 @@ export const createFileTreeSlice: StateCreator<FileTreeSlice, [], [], FileTreeSl
 export const createOutlineSlice: StateCreator<OutlineSlice, [], [], OutlineSlice> = (set) => ({
   headings: [],
   activeHeadingId: null,
+  headingJumpRequest: null,
   setHeadings: (headings) => set({ headings }),
   setActiveHeading: (id) => set({ activeHeadingId: id }),
+  requestHeadingJump: (pos) => set({ headingJumpRequest: { pos, ts: Date.now() } }),
 });
